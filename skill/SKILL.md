@@ -17,7 +17,7 @@ UI and answers your questions. Full design: `docs/`. CLI contract:
 
 ## When to use it
 
-- Multi-step or dependency-laden work → create tasks, set `dep`s, track status.
+- Multi-step or dependency-laden work → create tasks, set `dep`s, nest **subtasks**, track status.
 - Need to remember progress across turns/sessions → the board is durable memory.
 - Need a human decision → `ask`, then resume (see below).
 - **Skip it** for trivial one-shot requests.
@@ -53,6 +53,21 @@ they do, set a distinct `KANBAN_AGENT` per agent (else they collide on the defau
 never surface in `next`); `kanban release T-12` returns an **unfinished** task you're
 abandoning to the pool, and `kanban next --mine` lists only what you hold.
 
+## Subtasks (decomposing a task)
+
+For a task that breaks into pieces, nest children under it — a single-parent tree,
+distinct from `dep` blocking edges:
+
+```
+kanban add "child step" --parent T-8      # create directly as a subtask of T-8
+kanban parent T-12 --to T-8               # re-nest an existing task under T-8
+kanban parent T-12 --clear               # detach back to top level
+```
+
+A parent with **open** subtasks is hidden from `next` and **cannot** `move`/`done`
+to Done until its children finish (rejection = exit `1`). Self-parenting and cycles
+are rejected. `show`/`context` surface a `subtasks d/t` count.
+
 ## Asking the human (durable, async — see docs/04)
 
 Default = **ask then yield**, not block:
@@ -62,18 +77,22 @@ kanban ask T-12 "Which auth provider?" --options Auth0,Cognito   # returns Q-7, 
 kanban await Q-7 --timeout 60                                     # try a short wait
 ```
 
+`ask` also takes `--expires-at <ISO>` to auto-expire a stale request, and
+`kanban cancel Q-7` withdraws an open request you no longer need (clears the task's
+needs-input).
+
 Branch on the exit code:
 
 | Exit | Meaning | Do |
 |------|---------|----|
-| 0 | answered | continue with the answer |
+| 0 | **resolved** — answered, *or* cancelled/expired | if answered, continue with the answer; if cancelled/expired the request is gone — drop it or re-`ask` |
 | 2 | pending (timeout) | **yield**: pick up other work via `kanban next`, or end the turn cleanly ("paused T-12 on Q-7") |
 | 1/3/4/5 | error / not found / conflict / auth | fix and retry |
 
 Resume later (even a new session):
 
 ```
-kanban inbox            # answered/open requests
+kanban inbox            # open / answered / resolved (cancelled+expired) requests
 kanban context T-12     # reload, continue
 ```
 
@@ -82,7 +101,7 @@ kanban context T-12     # reload, continue
 ```
 need a human decision?
   └─ kanban ask … ──► kanban await --timeout 60
-        ├─ exit 0 ► use answer, continue
+        ├─ exit 0 ► resolved: use answer & continue (or re-ask if cancelled/expired)
         └─ exit 2 ► yield turn ──► (later) kanban inbox ► kanban context <id> ► continue
 ```
 
@@ -95,6 +114,7 @@ need a human decision?
 ## Command cheat-sheet
 
 - Read: `next [--context|--n]`, `list`, `show <id>`, `context <id> [--full|--max-tokens]`, `watch <id> --since`, `changes --since`, `inbox`
-- Write: `add`, `update`, `move`, `done`, `archive`, `claim [--force]`, `release [--force]`, `dep add/rm`, `comment`, `criterion add/check`, `label`, `artifact`, `summarize`
-- HITL: `ask`, `await`, `answer`
+- Write: `add [--parent T-1]`, `update`, `move`, `done`, `archive`, `claim [--force]`, `release [--force]`, `dep add/rm`, `parent <id> --to <pid>|--clear`, `comment`, `criterion add/check`, `label`, `artifact`, `summarize`
+- HITL: `ask [--options|--expires-at]`, `await`, `answer`, `cancel`
 - Lifecycle: `board init/show`, `serve`, `open`
+- Reporting (not the work loop): `stats [id]` — board analytics / per-task timing, read-only.
