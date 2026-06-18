@@ -5,6 +5,8 @@ import type { InputRequest } from '../shared/types';
 export interface InboxView {
   open?: InputRequest[];
   answered?: InputRequest[];
+  /** Cancelled/expired since the cursor — kept never-silent for a resuming agent. */
+  resolved?: InputRequest[];
   cursor: number;
   /** Set when the `--since` cursor predated the compaction floor (docs/11 §2). */
   reset?: boolean;
@@ -13,9 +15,10 @@ export interface InboxView {
 
 /**
  * Terse, one-line-per-request rendering for `kanban inbox` — the resume entry
- * point. Answered requests come first (the actual resume signal), then the
- * still-open ones. Matches the plaintext-default contract every other read
- * command honours; `--json` opts back into the raw payload.
+ * point. Resolution signals come first (answered, then cancelled/expired — all of
+ * which a resuming agent must see), then the still-open ones. Matches the
+ * plaintext-default contract every other read command honours; `--json` opts back
+ * into the raw payload.
  * See docs/04-human-in-the-loop.md (canonical flow) and docs/05-cli-reference.md.
  */
 export function renderInbox(v: InboxView): string {
@@ -27,6 +30,9 @@ export function renderInbox(v: InboxView): string {
   const lines: string[] = [];
   for (const q of v.answered ?? []) {
     lines.push(`${q.id}  answered: ${q.answer ?? ''}   (task ${q.task_id})`);
+  }
+  for (const q of v.resolved ?? []) {
+    lines.push(`${q.id}  ${q.status}: ${q.question}   (task ${q.task_id})`);
   }
   for (const q of v.open ?? []) {
     lines.push(`${q.id}  open: ${q.question}   (task ${q.task_id})`);

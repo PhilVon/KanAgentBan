@@ -275,14 +275,28 @@ export class Repo {
     return this.changes(sinceSeq).filter((e) => e.task_id !== null && related.has(e.task_id));
   }
 
-  /** Inbox: open requests + requests answered after the given event cursor. */
-  inbox(sinceSeq = 0): { open: InputRequest[]; answered: InputRequest[]; cursor: number } {
+  /**
+   * Inbox: open requests, plus requests answered or otherwise resolved
+   * (cancelled / expired) after the given event cursor. The `resolved` bucket
+   * keeps a vanished question never-silent for a resuming agent — it sees the
+   * cancellation/expiry instead of the request simply dropping out of `open`.
+   */
+  inbox(sinceSeq = 0): {
+    open: InputRequest[];
+    answered: InputRequest[];
+    resolved: InputRequest[];
+    cursor: number;
+  } {
     const open = this.getOpenRequests();
-    const answeredEvents = this.changes(sinceSeq).filter((e) => e.type === 'input.answered');
-    const answered = answeredEvents
-      .map((e) => this.getRequest(String((e.payload as any).request_id)))
-      .filter((r): r is InputRequest => !!r);
-    return { open, answered, cursor: this.maxSeq() };
+    const since = this.changes(sinceSeq);
+    const requestsOfType = (type: EventType) =>
+      since
+        .filter((e) => e.type === type)
+        .map((e) => this.getRequest(String((e.payload as any).request_id)))
+        .filter((r): r is InputRequest => !!r);
+    const answered = requestsOfType('input.answered');
+    const resolved = [...requestsOfType('input.cancelled'), ...requestsOfType('input.expired')];
+    return { open, answered, resolved, cursor: this.maxSeq() };
   }
 
   /** All input requests, any status (for export). */
@@ -770,6 +784,49 @@ export class Repo {
         payload: { request_id: requestId, answer },
       });
       return this.getRequest(requestId)!;
+    });
+  }
+
+  /**
+   * Withdraw an open question the agent no longer needs. Mirrors `answer` but
+   * resolves to `cancelled` with no answer; only an `open` request can be
+   * cancelled. Clears the task's derived `needs_input` (derive.ts keys off
+   * `status='open'`), and fires the previously-dead `input.cancelled` event.
+   */
+  cancel(requestId: string, actor: ActorType = 'agent'): InputRequest {
+    return this.mutate((rec) => {
+      const r = this.getRequest(requestId);
+      if (!r) throw new NotFoundError(`request ${requestId} not found`);
+      if (r.status !== 'open') throw new ValidationError(`request ${requestId} is ${r.status}`);
+      this.db
+        .prepare(`UPDATE input_request SET status='cancelled', answered_at=? WHERE id=?`)
+        .run(now(), requestId);
+      rec({ type: 'input.cancelled', task_id: r.task_id, actor_type: actor, payload: { request_id: requestId } });
+      return this.getRequest(requestId)!;
+    });
+  }
+
+  /**
+   * Resolve every open request whose `expires_at` has passed: mark it `expired`
+   * and fire `input.expired`. The `rec` collector batches all of them into one
+   * transaction + one broadcast. `nowTs` is injectable so tests drive expiry
+   * deterministically. Called by the server's low-frequency sweep (server.ts);
+   * inert when no open request carries an `expires_at`.
+   */
+  expireDue(nowTs: string = now()): { expired: number } {
+    return this.mutate((rec) => {
+      const due = this.db
+        .prepare(
+          `SELECT * FROM input_request WHERE status='open' AND expires_at IS NOT NULL AND expires_at <= ?`,
+        )
+        .all(nowTs)
+        .map(this.mapRequest);
+      const upd = this.db.prepare(`UPDATE input_request SET status='expired', answered_at=? WHERE id=?`);
+      for (const r of due) {
+        upd.run(nowTs, r.id);
+        rec({ type: 'input.expired', task_id: r.task_id, actor_type: 'system', payload: { request_id: r.id } });
+      }
+      return { expired: due.length };
     });
   }
 }

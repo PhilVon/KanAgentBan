@@ -23,6 +23,11 @@ const WEB_DIR = path.resolve(__dirname, '../../web');
 // Non-sensitive client assets served without a token (see auth middleware).
 const STATIC_PATHS = new Set(['/', '/index.html', '/app.js', '/style.css']);
 
+// Terminal input-request transitions an `await` waiter resolves on.
+const INPUT_RESOLVED = new Set(['input.answered', 'input.cancelled', 'input.expired']);
+// Input-request expiry sweep interval — resolves past-due questions (see repo.expireDue).
+const EXPIRY_SWEEP_MS = 60 * 1000;
+
 // Event-log retention: keep at most this many events; a low-frequency timer
 // compacts the tail above it and `kanban compact` triggers it on demand. `0`
 // disables auto-compaction. Read at call time so tests can override the env.
@@ -316,22 +321,27 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
   app.post('/api/input-requests/:qid/answer', wrap((req, res) =>
     res.json(repo.answer(req.params.qid, req.body.answer, req.body.answered_by ?? 'user')),
   ));
+  app.post('/api/input-requests/:qid/cancel', wrap((req, res) =>
+    res.json(repo.cancel(req.params.qid, actor(req))),
+  ));
   // Long-poll await — checks committed state BEFORE parking (no lost wakeup).
+  // Resolves on any terminal transition (answered / cancelled / expired) so a
+  // waiter never hangs on a question that was withdrawn or timed out.
   app.get(
     '/api/input-requests/:qid/await',
     wrap(async (req, res) => {
       const qid = req.params.qid;
       const existing = repo.getRequest(qid);
       if (!existing) return res.status(404).json(errBody('not_found', 'no such request'));
-      if (existing.status === 'answered')
-        return res.json({ status: 'answered', answer: existing.answer });
+      if (existing.status !== 'open')
+        return res.json({ status: existing.status, answer: existing.answer });
       const timeoutMs = (num(req.query.timeout) ?? 60) * 1000;
       const ev = await repo.bus.waitFor(
-        (e) => e.type === 'input.answered' && (e.payload as any).request_id === qid,
+        (e) => INPUT_RESOLVED.has(e.type) && (e.payload as any).request_id === qid,
         timeoutMs,
       );
       if (!ev) return res.status(204).end(); // pending -> CLI exit 2
-      res.json({ status: 'answered', answer: (ev.payload as any).answer });
+      res.json({ status: ev.type.slice('input.'.length), answer: (ev.payload as any).answer });
     }),
   );
   // Scoped long-poll await: wait for the next answer to any open request on a
@@ -350,11 +360,15 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
           }
           const timeoutMs = (num(req.query.timeout) ?? 60) * 1000;
           const inScope = (e: any) =>
-            e.type === 'input.answered' && (any || e.task_id === task);
+            INPUT_RESOLVED.has(e.type) && (any || e.task_id === task);
           const onEvent = (e: any) => {
             if (!inScope(e)) return;
             cleanup();
-            res.json({ status: 'answered', request_id: e.payload.request_id, answer: e.payload.answer });
+            res.json({
+              status: e.type.slice('input.'.length),
+              request_id: e.payload.request_id,
+              answer: e.payload.answer,
+            });
             resolve();
           };
           const timer = setTimeout(() => {
@@ -467,6 +481,12 @@ export async function startServer(opts: { root?: string; port?: number } = {}): 
   }, 5 * 60 * 1000);
   compactTimer.unref?.(); // don't keep the process (or tests) alive
 
+  // Input-request expiry: a low-frequency sweep resolves any open question whose
+  // `expires_at` has passed (firing `input.expired`). Cheap + inert when nothing
+  // carries a TTL; mirrors the compaction sweep above.
+  const expireTimer = setInterval(() => repo.expireDue(), EXPIRY_SWEEP_MS);
+  expireTimer.unref?.();
+
   await new Promise<void>((resolve) => server.listen(opts.port ?? 0, '127.0.0.1', resolve));
   const port = (server.address() as any).port as number;
   fs.writeFileSync(paths.port, String(port));
@@ -475,6 +495,7 @@ export async function startServer(opts: { root?: string; port?: number } = {}): 
   const close = () =>
     new Promise<void>((resolve) => {
       clearInterval(compactTimer);
+      clearInterval(expireTimer);
       detachNudge();
       wss.close();
       server.close(() => {

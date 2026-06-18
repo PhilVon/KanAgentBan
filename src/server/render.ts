@@ -7,7 +7,9 @@ import type { Task } from '../shared/types';
 // v2: `--json` reads carry `est_tokens`; context budgeting degrades gracefully.
 // v3: `--max-tokens` budgeting extends to the list/next/show tiers (never-silent
 //     footers on those tiers).
-export const FORMAT_VERSION = 3;
+// v4: `inbox` carries a `resolved` bucket (cancelled/expired since cursor) and
+//     `await` reports non-`answered` resolution statuses.
+export const FORMAT_VERSION = 4;
 
 const DEFAULT_COMMENTS = 4;
 

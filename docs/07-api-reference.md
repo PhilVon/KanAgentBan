@@ -28,7 +28,7 @@ Related: [02-data-model](02-data-model.md) · [05-cli-reference](05-cli-referenc
   status mapping to CLI exit codes: `404`→3, `409`→4 (stale `version`), `401/503`→5.
 - Most read endpoints accept `?max_tokens=N` (the `context` view defaults to a
   `2000`-token ceiling; `?max_tokens=0` or `?full` opts out) and report
-  `format_version: 2`. `--json` reads carry an `est_tokens` meter. Truncation is
+  `format_version: 4`. `--json` reads carry an `est_tokens` meter. Truncation is
   explicit (mirrors the CLI, [03-token-efficiency](03-token-efficiency.md)).
 
 ---
@@ -93,9 +93,14 @@ is derived, never stored ([02-data-model §5-6](02-data-model.md)).
 |--------|------|-----|-------|
 | `POST` | `/api/tasks/:id/input-requests` | `ask` | returns `Q-n`, non-blocking |
 | `POST` | `/api/input-requests/:qid/answer` | `answer` / UI | also used by the UI |
-| `GET` | `/api/input-requests/:qid/await?timeout=S` | `await` | **long-poll**; checks committed state before parking; `204` on timeout → exit `2` |
-| `GET` | `/api/await?task=&any=&timeout=S` | `await --task/--any` | long-poll variants |
-| `GET` | `/api/inbox?since=<reqseq>` | `inbox` | answered/open since cursor |
+| `POST` | `/api/input-requests/:qid/cancel` | `cancel` | withdraw an open request; fires `input.cancelled` |
+| `GET` | `/api/input-requests/:qid/await?timeout=S` | `await` | **long-poll**; resolves on answer/cancel/expiry (`{status, answer?}`); checks committed state before parking; `204` on timeout → exit `2` |
+| `GET` | `/api/await?task=&any=&timeout=S` | `await --task/--any` | long-poll variants; same resolution statuses |
+| `GET` | `/api/inbox?since=<reqseq>` | `inbox` | `{open, answered, resolved, cursor}` since cursor (`resolved` = cancelled/expired) |
+
+Expiry has no endpoint: a low-frequency server sweep marks any open request whose
+`expires_at` has passed as `expired` (firing `input.expired`), mirroring the
+event-log compaction sweep.
 
 Long-poll semantics, races, and the state diagram: [04-human-in-the-loop](04-human-in-the-loop.md).
 

@@ -147,7 +147,7 @@ describe('server: --max-tokens budgeting across tiers (docs/03 §4)', () => {
 
   it('/healthz reports the bumped format_version', async () => {
     const r = await api('GET', '/healthz');
-    expect(r.body.format_version).toBe(3);
+    expect(r.body.format_version).toBe(4);
   });
 });
 
@@ -205,7 +205,7 @@ describe('server: export', () => {
     await api('POST', '/api/tasks', { title: 'keep me', priority: 'P1' });
     const r = await api('GET', '/api/export');
     expect(r.status).toBe(200);
-    expect(r.body.format_version).toBe(3);
+    expect(r.body.format_version).toBe(4);
     expect(r.body.tasks).toHaveLength(1);
     expect(r.body.tasks[0].title).toBe('keep me');
     expect(r.body.events.length).toBeGreaterThan(0);

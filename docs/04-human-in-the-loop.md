@@ -56,8 +56,13 @@ agent:  kanban inbox   → sees Q-7 answered: Auth0 → resumes T-12
       cancelled     └────────▶ expired   (optional --expires-at elapses)
 ```
 
-`answered` is terminal and immutable — editing an answer means asking a new `Q-n`
-([02-data-model §6](02-data-model.md)).
+All three exits are terminal and immutable — editing an answer means asking a new
+`Q-n` ([02-data-model §6](02-data-model.md)). `cancelled` is reached by `kanban
+cancel Q-n` (the agent withdrawing a question it no longer needs); `expired` by a
+low-frequency server sweep once an `ask --expires-at` deadline passes. Each clears
+the task's `needs_input`, resolves any parked `await` (with that status), and shows
+up in `inbox`'s `resolved` bucket so the resolution is never silent to a resuming
+agent.
 
 ---
 

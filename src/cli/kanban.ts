@@ -231,10 +231,12 @@ program
     const r = await api(await conn(), 'GET', path);
     if (r.__status === 204) { out('pending'); process.exitCode = 2; return; }
     if (r.status === 'none') { out('no open questions'); return; }
-    out(`${r.request_id ?? qid} answered: ${r.answer}`);
+    const id = r.request_id ?? qid;
+    out(r.status === 'answered' ? `${id} answered: ${r.answer}` : `${id} ${r.status}`);
   });
 
 program.command('answer <qid> <text>').action(async (qid, text) => { const r = await api(await conn(), 'POST', `/api/input-requests/${qid}/answer`, { answer: text, answered_by: 'cli' }); out(`${qid} -> ${r.answer}`); });
+program.command('cancel <qid>').description('withdraw an open input request').action(async (qid) => { await api(await conn(), 'POST', `/api/input-requests/${qid}/cancel`); out(`${qid} cancelled`); });
 
 // ---- lifecycle -----------------------------------------------------------
 const board = program.command('board');

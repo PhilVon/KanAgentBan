@@ -112,7 +112,7 @@ prioritize `user`/`agent` comments and collapse `system` ones to a count.
 | `answer` | TEXT NULL | validated ∈ options when constrained |
 | `answered_by` | TEXT NULL | |
 | `created_at` / `answered_at` | TEXT | |
-| `expires_at` | TEXT NULL | optional auto-cancel / default-answer time |
+| `expires_at` | TEXT NULL | optional TTL; once passed, a server sweep marks the request `expired` (fires `input.expired`) |
 
 Lifecycle and state diagram: see [04-human-in-the-loop](04-human-in-the-loop.md).
 
@@ -182,8 +182,12 @@ null) when a task is nested under, or detached from, a parent (§6). A subtask
 created with a parent records its `parent_id` directly in the `task.created`
 payload rather than emitting a separate event.
 
-`input.answered` is also what unblocks a parked `await` long-poll and what
-`inbox` reports — see [04-human-in-the-loop](04-human-in-the-loop.md).
+All three terminal transitions — `input.answered`, `input.cancelled` (the agent
+withdraws a question via `kanban cancel`), and `input.expired` (a server sweep
+resolves a request whose `expires_at` has passed) — clear the task's `needs_input`
+and unblock a parked `await` long-poll. `inbox` reports `answered` plus a
+`resolved` bucket (cancelled/expired since the cursor) so a resolution is never
+silent to a resuming agent — see [04-human-in-the-loop](04-human-in-the-loop.md).
 
 ### Compaction & the retained floor
 
