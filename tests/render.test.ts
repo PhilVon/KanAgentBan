@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { makeRepo, sleep } from './helpers';
-import { renderContext, renderList, renderNext, renderShow } from '../src/server/render';
+import {
+  renderContext,
+  renderList,
+  renderNext,
+  renderShow,
+  estimateTokens,
+} from '../src/server/render';
 
 describe('render: list', () => {
   it('emits the one-line-per-task contract', () => {
@@ -69,6 +75,99 @@ describe('render: context working set', () => {
     const { repo, id } = richTask();
     const out = renderContext(repo, id, { maxTokens: 20 });
     expect(out).toContain('hidden for token budget');
+  });
+
+  // A task whose degradable sections (summary, criteria, comments) are large and
+  // distinct so the budgeting ladder's precedence is observable.
+  function ladderTask() {
+    const repo = makeRepo();
+    const t = repo.createTask({
+      title: 'main',
+      status: 'In Progress',
+      priority: 'P1',
+      summary: 'S'.repeat(200),
+    });
+    repo.addCriterion(t.id, 'C'.repeat(80));
+    repo.addCriterion(t.id, 'C'.repeat(80));
+    for (let i = 0; i < 8; i++) repo.addComment(t.id, 'B'.repeat(80), 'agent', 'claude');
+    repo.addArtifact(t.id, 'pr', 'art', 'https://example.com/x');
+    repo.addLabel(t.id, 'backend');
+    return { repo, id: t.id };
+  }
+
+  it('sheds oldest comments first, keeping criteria/artifacts/labels intact', () => {
+    const { repo, id } = ladderTask();
+    const baseline = estimateTokens(renderContext(repo, id)); // default fidelity (4 comments)
+    const out = renderContext(repo, id, { maxTokens: baseline - 30 });
+    expect(out).toContain('older comments'); // comments shed further than default
+    expect(out).toContain('criteria 0/2:'); // checklist intact (colon == full form)
+    expect(out).toContain('artifacts ('); // trailing sections survive
+    expect(out).toContain('labels:');
+    expect(out).not.toContain('criteria collapsed');
+    expect(out).not.toContain('summary trimmed');
+    expect(out).not.toContain('hidden for token budget');
+    // fewer comment lines than the default render
+    const count = (s: string) => (s.match(/agent\/claude/g) ?? []).length;
+    expect(count(out)).toBeLessThan(count(renderContext(repo, id)));
+  });
+
+  // Large criteria + summary, tiny comments: shedding comments barely helps, so
+  // the budget can only be met by collapsing criteria — isolating those rungs.
+  function criteriaHeavyTask() {
+    const repo = makeRepo();
+    const t = repo.createTask({
+      title: 'main',
+      status: 'In Progress',
+      priority: 'P1',
+      summary: 'S'.repeat(400),
+    });
+    repo.addCriterion(t.id, 'C'.repeat(400));
+    repo.addCriterion(t.id, 'C'.repeat(400));
+    for (let i = 0; i < 8; i++) repo.addComment(t.id, 'B'.repeat(8), 'agent', 'claude');
+    repo.addArtifact(t.id, 'pr', 'art', 'https://example.com/x');
+    repo.addLabel(t.id, 'backend');
+    return { repo, id: t.id };
+  }
+
+  it('collapses criteria to a count before trimming the summary', () => {
+    const { repo, id } = criteriaHeavyTask();
+    const out = renderContext(repo, id, { maxTokens: 250 });
+    expect(out).toContain('criteria collapsed');
+    expect(out).toContain('summary:'); // summary still present at this budget
+    expect(out).not.toContain('summary trimmed');
+  });
+
+  it('trims the summary once comments and criteria are exhausted', () => {
+    const { repo, id } = criteriaHeavyTask();
+    const out = renderContext(repo, id, { maxTokens: 120 });
+    expect(out).toContain('summary trimmed');
+    expect(out).toContain('criteria collapsed');
+  });
+
+  it('--full ignores the token budget (no degradation footers)', () => {
+    const { repo, id } = ladderTask();
+    const out = renderContext(repo, id, { maxTokens: 20, full: true });
+    expect(out).not.toContain('older comments');
+    expect(out).not.toContain('hidden for token budget');
+    expect(out).toContain('criteria 0/2:');
+  });
+
+  it('applies a default token ceiling when --max-tokens is omitted', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 'big', summary: 'S'.repeat(9000) }); // > default ceiling
+    const out = renderContext(repo, t.id); // no maxTokens -> default cap kicks in
+    expect(out).toContain('summary trimmed');
+    expect(estimateTokens(out)).toBeLessThanOrEqual(2000 + 50);
+    // a small task stays fully rendered under the default ceiling
+    const small = repo.createTask({ title: 's', summary: 'short summary' });
+    expect(renderContext(repo, small.id)).toContain('summary: short summary');
+  });
+
+  it('--full and --max-tokens 0 opt out of the default ceiling', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 'big', summary: 'S'.repeat(9000) });
+    expect(renderContext(repo, t.id, { full: true })).not.toContain('summary trimmed');
+    expect(renderContext(repo, t.id, { maxTokens: 0 })).not.toContain('summary trimmed');
   });
 
   it('flags a stale summary when description is newer', async () => {

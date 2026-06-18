@@ -45,7 +45,8 @@ program
     const c = await conn();
     const q = new URLSearchParams(clean({ status: o.status, label: o.label, limit: o.limit, json: o.json }));
     const r = await api(c, 'GET', `/api/tasks?${q}`);
-    out(o.json ? JSON.stringify(r.tasks, null, 2) : r.text);
+    // print the full envelope under --json so the est_tokens meter rides through
+    out(o.json ? JSON.stringify(r, null, 2) : r.text);
   });
 
 program

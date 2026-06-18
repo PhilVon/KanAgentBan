@@ -10,6 +10,7 @@ import {
   renderList,
   renderNext,
   renderShow,
+  estimateTokens,
   FORMAT_VERSION,
 } from './render';
 import { recommend } from './recommend';
@@ -133,24 +134,21 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     const text = renderNext(repo, { context: req.query.context !== undefined, n, agent, mine });
     if (req.query.json !== undefined) {
       const r = recommend(repo, n ?? 1, agent, mine);
-      return res.json('none' in r ? { text, blocked: r.blocked } : { text, next: r });
+      const meter = { est_tokens: estimateTokens(text) };
+      return res.json('none' in r ? { text, blocked: r.blocked, ...meter } : { text, next: r, ...meter });
     }
     res.json({ text });
   });
   app.get('/api/tasks', (req, res) => {
     const opts = { status: str(req.query.status), label: str(req.query.label), limit: num(req.query.limit) };
-    if (req.query.json !== undefined) return res.json({ tasks: repo.listTasks(opts) });
+    if (req.query.json !== undefined)
+      return res.json({ tasks: repo.listTasks(opts), est_tokens: estimateTokens(renderList(repo, opts)) });
     res.json({ text: renderList(repo, opts) });
   });
   app.get(
     '/api/tasks/:id',
     wrap((req, res) => {
       const view = str(req.query.view) ?? 'show';
-      if (req.query.json !== undefined) {
-        return res.json(
-          view === 'context' ? taskDetail(req.params.id) : { task: repo.requireTask(req.params.id) },
-        );
-      }
       const text =
         view === 'context'
           ? renderContext(repo, req.params.id, {
@@ -158,6 +156,14 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
               maxTokens: num(req.query.max_tokens),
             })
           : renderShow(repo, req.params.id);
+      if (req.query.json !== undefined) {
+        const meter = { est_tokens: estimateTokens(text) };
+        return res.json(
+          view === 'context'
+            ? { ...taskDetail(req.params.id), ...meter }
+            : { task: repo.requireTask(req.params.id), ...meter },
+        );
+      }
       res.json({ text, task: repo.getTask(req.params.id) });
     }),
   );

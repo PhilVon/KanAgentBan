@@ -86,7 +86,8 @@ last 3 comments.
 
 ### `kanban context <id> [--full] [--max-tokens N] [--json]`
 The flagship. Full curated working set in fixed section order with per-section
-truncation footers. Spec and sample output: [03-token-efficiency](03-token-efficiency.md).
+truncation footers. Budgets to a **default `2000`-token ceiling**; `--full` or
+`--max-tokens 0` opts out. Spec and sample output: [03-token-efficiency](03-token-efficiency.md).
 
 ### `kanban watch <id> --since <seq> [--json]`
 Scoped delta: events touching `<id>` and its **direct** deps since `seq`. Cheap

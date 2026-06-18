@@ -4,9 +4,22 @@ import { recommend, type BlockedSummary } from './recommend';
 import type { Task } from '../shared/types';
 
 // Output format contract — see docs/03-token-efficiency.md §5. Bump on change.
-export const FORMAT_VERSION = 1;
+// v2: `--json` reads carry `est_tokens`; context budgeting degrades gracefully.
+export const FORMAT_VERSION = 2;
 
 const DEFAULT_COMMENTS = 4;
+
+/**
+ * Default token ceiling for the context tier when `--max-tokens` is not given.
+ * Generous enough that a typical working set renders in full — it only caps
+ * pathological token-bomb tasks. Opt out with `--full` or `--max-tokens 0`.
+ */
+export const DEFAULT_CONTEXT_MAX_TOKENS = 2000;
+
+/** Token estimate used by both the budgeter and the `--json` meter (chars/4). */
+export function estimateTokens(s: string): number {
+  return Math.ceil(s.length / 4);
+}
 
 function rel(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -91,30 +104,40 @@ function summaryStale(t: Task): boolean {
   );
 }
 
+interface Fidelity {
+  full: boolean;
+  commentLimit: number; // newest-N comments to show
+  collapseCriteria: boolean; // checklist -> count line + footer
+  dropSummary: boolean; // summary line -> trimmed footer
+}
+
 /**
- * `kanban context <id>` — the flagship curated working set in fixed section
- * order with deterministic, never-silent truncation. See docs/03 §3-4.
+ * Build the fixed-order working-set sections at a given fidelity. Re-invoked by
+ * the budgeter to degrade specific sections in place. See docs/03 §3-4.
  */
-export function renderContext(
-  repo: Repo,
-  id: string,
-  opts: { full?: boolean; maxTokens?: number } = {},
-): string {
-  const t = repo.requireTask(id);
+function buildContextSections(repo: Repo, id: string, t: Task, fid: Fidelity): string[] {
   const sections: string[] = [];
 
-  // 1. task line
+  // 1. task line + summary
   sections.push(`${t.id} [${t.priority}] ${t.status}  "${t.title}"`);
   if (t.assignee) sections.push(`assignee: ${t.assignee}`);
-  if (t.summary) sections.push(`summary: ${t.summary}${summaryStale(t) ? '  [summary may be stale]' : ''}`);
+  if (t.summary) {
+    sections.push(
+      fid.dropSummary
+        ? `[summary trimmed — context ${id} --full]`
+        : `summary: ${t.summary}${summaryStale(t) ? '  [summary may be stale]' : ''}`,
+    );
+  }
 
-  // 2. acceptance criteria
+  // 2. acceptance criteria (checklist, or collapsed to a count under budget)
   const crit = repo.getCriteria(id);
   if (crit.length) {
     const done = crit.filter((c) => c.checked).length;
     sections.push(
-      `criteria ${done}/${crit.length}:\n` +
-        crit.map((c) => `  [${c.checked ? 'x' : ' '}] ${c.id} ${c.text}`).join('\n'),
+      fid.collapseCriteria
+        ? `criteria ${done}/${crit.length}\n  [criteria collapsed — context ${id} --full]`
+        : `criteria ${done}/${crit.length}:\n` +
+            crit.map((c) => `  [${c.checked ? 'x' : ' '}] ${c.id} ${c.text}`).join('\n'),
     );
   }
 
@@ -139,16 +162,15 @@ export function renderContext(
           .join('\n'),
     );
 
-  // 5. comments (last N, newest first) with a truncation footer
+  // 5. comments (newest N, newest first) with a never-silent truncation footer
   const total = repo.countComments(id);
-  const limit = opts.full ? total : DEFAULT_COMMENTS;
-  const comments = repo.getComments(id, opts.full ? undefined : limit);
+  const comments = repo.getComments(id, fid.full ? undefined : fid.commentLimit);
   if (comments.length) {
     let block = `comments (last ${comments.length} of ${total}, newest first):\n`;
     block += comments
       .map((c) => `  ${c.author_type}/${c.author_name} ${rel(c.created_at)}  "${c.body}"`)
       .join('\n');
-    if (!opts.full && total > comments.length)
+    if (!fid.full && total > comments.length)
       block += `\n  [+${total - comments.length} older comments — context ${id} --full]`;
     sections.push(block);
   }
@@ -165,19 +187,66 @@ export function renderContext(
   const labels = repo.getLabels(id);
   if (labels.length) sections.push(`labels: ${labels.join(', ')}`);
 
-  return budget(sections, opts.maxTokens, id);
+  return sections;
 }
 
 /**
- * Deterministic token budgeting: drop whole trailing sections (lowest priority
- * first) until under budget, always leaving an explicit footer. Never silent.
+ * `kanban context <id>` — the flagship curated working set in fixed section
+ * order with deterministic, never-silent truncation. See docs/03 §3-4.
+ *
+ * Budgeting applies by default (`DEFAULT_CONTEXT_MAX_TOKENS`); pass an explicit
+ * `--max-tokens N`, or opt out entirely with `--full` / `--max-tokens 0`.
+ * Over budget, degrade gracefully in a fixed precedence — shed oldest comments,
+ * then collapse criteria to a count, then trim the summary — before falling back
+ * to dropping whole trailing sections. Every step leaves a footer.
  */
-function budget(sections: string[], maxTokens: number | undefined, id: string): string {
-  if (!maxTokens) return sections.join('\n\n');
-  const estimate = (s: string) => Math.ceil(s.length / 4);
+export function renderContext(
+  repo: Repo,
+  id: string,
+  opts: { full?: boolean; maxTokens?: number } = {},
+): string {
+  const t = repo.requireTask(id);
+  const total = repo.countComments(id);
+  const fid: Fidelity = {
+    full: !!opts.full,
+    commentLimit: opts.full ? total : DEFAULT_COMMENTS,
+    collapseCriteria: false,
+    dropSummary: false,
+  };
+
+  // Resolve the effective budget: explicit value wins; `0` and `--full` opt out;
+  // otherwise the default ceiling applies.
+  const max = opts.full ? 0 : opts.maxTokens === undefined ? DEFAULT_CONTEXT_MAX_TOKENS : opts.maxTokens;
+  const render = () => buildContextSections(repo, id, t, fid);
+  const over = (sections: string[]) => estimateTokens(sections.join('\n\n')) > max;
+
+  let sections = render();
+  if (!max) return sections.join('\n\n');
+
+  // Ladder: each rung re-renders, re-estimates, and stops once under budget.
+  while (over(sections) && fid.commentLimit > 1) {
+    fid.commentLimit--; // 1. shed oldest comments (floor: newest 1)
+    sections = render();
+  }
+  if (over(sections) && !fid.collapseCriteria) {
+    fid.collapseCriteria = true; // 2. collapse criteria to a count
+    sections = render();
+  }
+  if (over(sections) && !fid.dropSummary) {
+    fid.dropSummary = true; // 3. trim the summary
+    sections = render();
+  }
+  return budget(sections, max, id); // 4. drop whole trailing sections
+}
+
+/**
+ * Final fallback: drop whole trailing sections (lowest priority first) until
+ * under budget, always leaving an explicit footer. Never silent.
+ */
+function budget(sections: string[], maxTokens: number, id: string): string {
   let kept = [...sections];
   const dropped: number[] = [];
-  while (kept.length > 1 && estimate(kept.join('\n\n')) > maxTokens) {
+  while (kept.length > 1 && estimateTokens(kept.join('\n\n')) > maxTokens) {
     dropped.push(kept.length);
     kept = kept.slice(0, -1);
   }

@@ -10,8 +10,9 @@
 > --context`); counts-over-contents by default; deterministic truncation + always
 > a footer; direct deps only (no transitive expansion); model-free server.
 >
-> **Open questions:** Exact default `--max-tokens`; whether to ship a token
-> meter in `--json` payloads in v1.
+> **Resolved:** the context tier now budgets by **default** (`2000` tokens; opt
+> out with `--full` / `--max-tokens 0`), and every `--json` read carries an
+> `est_tokens` meter (`chars/4`). Format-version `2`.
 
 Related: [02-data-model](02-data-model.md) · [05-cli-reference](05-cli-reference.md) ·
 [04-human-in-the-loop](04-human-in-the-loop.md)
@@ -104,19 +105,30 @@ The trailing bracketed lines are **truncation footers** — see §4.
 
 ## 4. Token budgeting & the truncation contract
 
-- Budget is in **tokens**, not bytes: `--max-tokens N` (`chars/4` heuristic).
-- Truncation is **deterministic**: drop oldest comments first, then collapse
-  criteria to a count, then trim summary — a fixed precedence so output is stable.
-- Truncation is **never silent**. Every elision emits a footer naming what was
+- Budget is in **tokens**, not bytes: `--max-tokens N` (`chars/4` heuristic, the
+  same `estimateTokens` the `--json` meter reports — §5). The context tier applies
+  a **default ceiling of `2000` tokens** when `--max-tokens` is omitted, so a
+  cold-start read is bounded even for a token-bomb task; opt out with `--full` or
+  `--max-tokens 0`.
+- Truncation degrades **gracefully** in a fixed precedence, re-estimating after
+  each rung and stopping as soon as it's under budget: (1) shed oldest comments
+  (floor: newest 1), (2) collapse criteria to a count, (3) trim the summary, then
+  as a last resort (4) drop whole trailing sections, lowest-priority first.
+  Deterministic, so output is stable.
+- Truncation is **never silent**. Every rung emits a footer naming what was
   hidden and how to get it:
   ```
   [+6 older comments — context T-12 --full]
-  [+3 artifacts hidden — context T-12 --full]
+  [criteria collapsed — context T-12 --full]
+  [summary trimmed — context T-12 --full]
+  [2 section(s) hidden for token budget — context T-12 --full]
   ```
   Silent dropping is the cardinal sin: an agent that can't see what it's missing
   makes confident decisions on missing context.
 - **Counts over contents** everywhere by default: `criteria 1/3`, `blockers (1)`,
   `comments (last 3 of 9)`. Numbers are nearly free; expansion is opt-in.
+- A **token meter** rides every `--json` read (`est_tokens`, the `chars/4`
+  estimate of the plaintext-equivalent render) so an agent can budget across reads.
 
 ---
 
@@ -125,8 +137,9 @@ The trailing bracketed lines are **truncation footers** — see §4.
 - Terse plaintext default; `--json` opt-in for machine parsing.
 - Stable field order, stable section headers, no decorative noise.
 - No ANSI colour when stdout is not a TTY.
-- Versioned: `--format-version` (current `1`); changes bump the version so a
-  pinned agent/skill never silently breaks.
+- Versioned: `--format-version` (current `2`); changes bump the version so a
+  pinned agent/skill never silently breaks. **v2** added the `est_tokens` field to
+  `--json` reads and the graceful-degradation truncation footers (§4).
 
 This lets the skill and the agent regex specific fields without re-reading prose.
 

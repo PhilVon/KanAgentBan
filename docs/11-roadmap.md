@@ -11,7 +11,7 @@
 > Model subtasks as deps + labels in v1. Build phases land in dependency order:
 > data/event spine before CLI before UI before polish before hardening.
 >
-> **Open questions:** Default `--max-tokens`; MCP vs CLI as the v2 agent
+> **Open questions:** MCP vs CLI as the v2 agent
 > interface. Consolidated in §4. (Storage is **locked: one SQLite DB per project**
 > at `.kanban/board.db`.)
 
@@ -140,7 +140,8 @@ Consolidated from across the doc set; each blocks or shapes a later phase.
 
 | Question | Raised in | Phase |
 |---|---|---|
-| Default `--max-tokens` value | [03-token-efficiency](03-token-efficiency.md), [00-overview](00-overview.md) | 4 |
+| ~~Default `--max-tokens` value~~ — **resolved: `2000` for the context tier** (opt out: `--full` / `--max-tokens 0`) | [03-token-efficiency](03-token-efficiency.md), [00-overview](00-overview.md) | 4 |
+| ~~Ship a `--json` token meter~~ — **resolved: shipped** (`est_tokens`, format-version `2`) | [03-token-efficiency](03-token-efficiency.md) | 4 |
 | ~~One DB per board vs a central DB~~ — **locked: one DB per project** (`.kanban/board.db`) | [02-data-model](02-data-model.md), [00-overview](00-overview.md) | 1 |
 | MCP vs CLI as the agent interface | [00-overview](00-overview.md) | v2 |
 | ~~External-nudge transport (webhook vs desktop notification)~~ — **resolved: both** (webhook + local command) | [04-human-in-the-loop](04-human-in-the-loop.md), [adr/0006](adr/0006-external-nudge-transport.md) | post-v1 |

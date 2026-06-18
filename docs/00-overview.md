@@ -14,7 +14,7 @@
 > the agent reads is tiered and budgeted in tokens. Subtasks and multi-agent
 > claiming are out of v1.
 >
-> **Open questions:** Default `--max-tokens`; external-nudge transport for v2
+> **Open questions:** external-nudge transport for v2
 > auto-resume (see [04-human-in-the-loop](04-human-in-the-loop.md)). (Storage is
 > **locked: one SQLite DB per project** — see [02-data-model](02-data-model.md).)
 

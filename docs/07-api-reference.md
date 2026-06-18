@@ -26,7 +26,9 @@ Related: [02-data-model](02-data-model.md) · [05-cli-reference](05-cli-referenc
 - Content type: `application/json`.
 - Errors: `{ "error": { "code": "<machine_code>", "message": "..." } }` with HTTP
   status mapping to CLI exit codes: `404`→3, `409`→4 (stale `version`), `401/503`→5.
-- Most read endpoints accept `?max_tokens=N` and `?format_version=1`; truncation is
+- Most read endpoints accept `?max_tokens=N` (the `context` view defaults to a
+  `2000`-token ceiling; `?max_tokens=0` or `?full` opts out) and report
+  `format_version: 2`. `--json` reads carry an `est_tokens` meter. Truncation is
   explicit (mirrors the CLI, [03-token-efficiency](03-token-efficiency.md)).
 
 ---

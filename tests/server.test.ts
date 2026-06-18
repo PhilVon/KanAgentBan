@@ -93,6 +93,7 @@ describe('server: --json structured reads', () => {
     expect(r.status).toBe(200);
     expect(r.body.next[0].task.id).toBe('T-1');
     expect(typeof r.body.next[0].why).toBe('string');
+    expect(r.body.est_tokens).toBeGreaterThan(0); // token meter (docs/03 §4)
   });
 
   it('next --json reports blocked summary when nothing is ready', async () => {
@@ -107,11 +108,20 @@ describe('server: --json structured reads', () => {
     const show = await api('GET', '/api/tasks/T-1?json=1');
     expect(show.body.task.id).toBe('T-1');
     expect(show.body.text).toBeUndefined();
+    expect(show.body.est_tokens).toBeGreaterThan(0);
 
     const ctx = await api('GET', '/api/tasks/T-1?view=context&json=1');
     expect(ctx.body.task.id).toBe('T-1');
     expect(Array.isArray(ctx.body.criteria)).toBe(true);
     expect(Array.isArray(ctx.body.comments)).toBe(true);
+    expect(ctx.body.est_tokens).toBeGreaterThan(0);
+  });
+
+  it('list --json carries a token meter', async () => {
+    await api('POST', '/api/tasks', { title: 'one', priority: 'P1' });
+    const list = await api('GET', '/api/tasks?json=1');
+    expect(list.body.tasks).toHaveLength(1);
+    expect(list.body.est_tokens).toBeGreaterThan(0);
   });
 });
 
@@ -169,7 +179,7 @@ describe('server: export', () => {
     await api('POST', '/api/tasks', { title: 'keep me', priority: 'P1' });
     const r = await api('GET', '/api/export');
     expect(r.status).toBe(200);
-    expect(r.body.format_version).toBe(1);
+    expect(r.body.format_version).toBe(2);
     expect(r.body.tasks).toHaveLength(1);
     expect(r.body.tasks[0].title).toBe('keep me');
     expect(r.body.events.length).toBeGreaterThan(0);
