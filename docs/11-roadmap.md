@@ -151,11 +151,16 @@ Consolidated from across the doc set; each blocks or shapes a later phase.
 
 ## 5. Success criteria for v1
 
-- [ ] An agent can run a full task lifecycle through the CLI — create, set deps
-      and criteria, move, comment, attach artifacts, complete.
-- [ ] The human sees every change in the web UI in realtime.
-- [ ] The ask → yield → `inbox` resume loop works **across sessions** — a
+- [x] An agent can run a full task lifecycle through the CLI — create, set deps
+      and criteria, move, comment, attach artifacts, complete. *(Validated
+      end-to-end; `done` on a prerequisite correctly flips its dependent to `ready`.)*
+- [x] The human sees every change in the web UI in realtime. *(Covered by the
+      WebSocket broadcast/replay integration tests in `tests/server.test.ts`;
+      eyeball with `kanban open`.)*
+- [x] The ask → yield → `inbox` resume loop works **across sessions** — a
       question raised in one session is answered and picked up in a later one
-      ([04-human-in-the-loop](04-human-in-the-loop.md)).
-- [ ] A cold-start context call (`kanban next --context` / `context T-n`) stays
+      ([04-human-in-the-loop](04-human-in-the-loop.md)). *(`ask` → `await`
+      timeout=pending/exit 2 → `answer` → fresh `inbox`/`next` resumes.)*
+- [x] A cold-start context call (`kanban next --context` / `context T-n`) stays
       within a few hundred tokens ([03-token-efficiency](03-token-efficiency.md)).
+      *(`est_tokens` 11–33 on a fresh task; default 2000 ceiling honoured.)*

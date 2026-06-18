@@ -2,6 +2,7 @@
 import * as fs from 'node:fs';
 import { Command } from 'commander';
 import { api, CliError, connect, initBoard } from './board';
+import { renderInbox } from './format';
 import { boardPaths, findBoardRoot, readBoardMeta, writeBoardMeta } from '../shared/board-paths';
 import type { NudgeConfig } from '../shared/types';
 
@@ -97,7 +98,14 @@ program
   .requiredOption('--since <seq>')
   .action(async (o) => out(JSON.stringify(await api(await conn(), 'GET', `/api/changes?since=${o.since}`), null, 2)));
 
-program.command('inbox').action(async () => out(JSON.stringify(await api(await conn(), 'GET', '/api/inbox'), null, 2)));
+program
+  .command('inbox')
+  .option('--since <seq>', 'only requests answered after this event seq')
+  .option('--json')
+  .action(async (o) => {
+    const r = await api(await conn(), 'GET', `/api/inbox${o.since ? `?since=${o.since}` : ''}`);
+    out(o.json ? JSON.stringify(r, null, 2) : renderInbox(r));
+  });
 
 // ---- write / workflow ----------------------------------------------------
 program

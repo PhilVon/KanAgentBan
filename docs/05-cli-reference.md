@@ -97,10 +97,12 @@ mid-task refresh. Returns the new high-water `seq`.
 Board-wide delta since `seq`. On a stale/expired cursor returns
 `{reset:true, snapshot_cursor}` (exit `0`) signalling a full re-list is needed.
 
-### `kanban inbox [--json]`
-Resume entry point: input requests answered (or still open) since the agent last
-checked. Backed by a persisted "last seen request seq". See
-[04-human-in-the-loop](04-human-in-the-loop.md).
+### `kanban inbox [--since <seq>] [--json]`
+Resume entry point. Terse one-line-per-request plaintext (answered first — the
+resume signal — then still-open); `--json` emits the raw `{open, answered, cursor}`
+payload. `--since <seq>` returns only requests answered after that event `seq`
+(pass back the `cursor` from a prior call); without it, all open + answered
+requests are listed. See [04-human-in-the-loop](04-human-in-the-loop.md).
 
 ---
 
