@@ -174,6 +174,7 @@ interface ShowFidelity {
   dropAgentNotes: boolean; // agent-notes group -> footer (shed first)
   dropOpen: boolean; // open-input detail -> footer
   dropSummary: boolean; // summary line -> footer
+  dropDescription: boolean; // description line (summary fallback) -> footer
   dropUserComments: boolean; // user-comments group -> footer (shed last)
 }
 
@@ -190,6 +191,10 @@ function buildShow(repo: Repo, id: string, t: Task, fid: ShowFidelity): string {
       fid.dropSummary
         ? `[summary trimmed — show ${id} --full]`
         : `summary: ${t.summary}${summaryStale(t) ? '  [summary may be stale]' : ''}`,
+    );
+  else if (t.description)
+    lines.push(
+      fid.dropDescription ? `[description trimmed — show ${id} --full]` : `description: ${t.description}`,
     );
   lines.push(
     `criteria ${done}/${crit.length}  ·  blockers ${remainingBlockerCount(repo.db, id)}` +
@@ -210,19 +215,31 @@ function buildShow(repo: Repo, id: string, t: Task, fid: ShowFidelity): string {
 /**
  * `kanban show <id>` — medium detail. Unbudgeted by default; with `--max-tokens`
  * (and not `--full` / `0`) it sheds in a fixed order — agent notes, then
- * open-input detail, then trims the summary, then user comments (last) — each
- * with a never-silent footer.
+ * open-input detail, then trims the summary (or the description, when that's
+ * what's shown), then user comments (last) — each with a never-silent footer.
  */
 export function renderShow(repo: Repo, id: string, opts: { full?: boolean; maxTokens?: number } = {}): string {
   const t = repo.requireTask(id);
-  const fid: ShowFidelity = { dropAgentNotes: false, dropOpen: false, dropSummary: false, dropUserComments: false };
+  const fid: ShowFidelity = {
+    dropAgentNotes: false,
+    dropOpen: false,
+    dropSummary: false,
+    dropDescription: false,
+    dropUserComments: false,
+  };
   const max = opts.full ? 0 : opts.maxTokens;
   let out = buildShow(repo, id, t, fid);
   if (!max) return out;
   const over = () => estimateTokens(out) > max;
   // Shed agent notes first, then open-input detail, then summary; user comments
   // (the human's directives) drop last, only under the tightest budgets.
-  const rungs: Array<keyof ShowFidelity> = ['dropAgentNotes', 'dropOpen', 'dropSummary', 'dropUserComments'];
+  const rungs: Array<keyof ShowFidelity> = [
+    'dropAgentNotes',
+    'dropOpen',
+    'dropSummary',
+    'dropDescription',
+    'dropUserComments',
+  ];
   for (const rung of rungs) {
     if (!over()) break;
     fid[rung] = true;
@@ -246,6 +263,7 @@ interface Fidelity {
   collapseCriteria: boolean; // checklist -> count line + footer
   collapseSubtasks: boolean; // children list -> count line + footer
   dropSummary: boolean; // summary line -> trimmed footer
+  dropDescription: boolean; // description line (summary fallback) -> trimmed footer
 }
 
 /**
@@ -264,6 +282,10 @@ function buildContextSections(repo: Repo, id: string, t: Task, fid: Fidelity): s
       fid.dropSummary
         ? `[summary trimmed — context ${id} --full]`
         : `summary: ${t.summary}${summaryStale(t) ? '  [summary may be stale]' : ''}`,
+    );
+  } else if (t.description) {
+    sections.push(
+      fid.dropDescription ? `[description trimmed — context ${id} --full]` : `description: ${t.description}`,
     );
   }
 
@@ -342,7 +364,8 @@ function buildContextSections(repo: Repo, id: string, t: Task, fid: Fidelity): s
  * `--max-tokens N`, or opt out entirely with `--full` / `--max-tokens 0`.
  * Over budget, degrade gracefully in a fixed precedence — shed agent notes,
  * collapse criteria to a count, collapse the subtasks list to a count, trim the
- * summary, then (last resort) trim user comments to a floor — before falling
+ * summary (or the description, when that's the fallback shown), then (last
+ * resort) trim user comments to a floor — before falling
  * back to dropping whole trailing sections. User comments (the human's
  * directives) are protected; every step leaves a footer.
  */
@@ -361,6 +384,7 @@ export function renderContext(
     collapseCriteria: false,
     collapseSubtasks: false,
     dropSummary: false,
+    dropDescription: false,
   };
 
   // Resolve the effective budget: explicit value wins; `0` and `--full` opt out;
@@ -389,6 +413,10 @@ export function renderContext(
   }
   if (over(sections) && !fid.dropSummary) {
     fid.dropSummary = true; // 4. trim the summary
+    sections = render();
+  }
+  if (over(sections) && !fid.dropDescription) {
+    fid.dropDescription = true; // 4.5 trim the description (summary fallback)
     sections = render();
   }
   while (over(sections) && fid.userCommentLimit > USER_COMMENT_FLOOR) {

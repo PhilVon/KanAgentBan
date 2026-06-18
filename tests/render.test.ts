@@ -178,6 +178,31 @@ describe('render: context working set', () => {
     expect(renderContext(repo, t.id)).toContain('[summary may be stale]');
     expect(renderShow(repo, t.id)).toContain('[summary may be stale]');
   });
+
+  it('renders the description when there is no summary (no longer stripped)', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 't', description: 'the actual body of work' });
+    expect(renderShow(repo, t.id)).toContain('description: the actual body of work');
+    expect(renderContext(repo, t.id)).toContain('description: the actual body of work');
+  });
+
+  it('prefers the summary over the description when both exist', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 't', summary: 'the gist', description: 'the long body' });
+    const out = renderContext(repo, t.id);
+    expect(out).toContain('summary: the gist');
+    expect(out).not.toContain('description:');
+  });
+
+  it('trims the description to a never-silent footer under a tight budget', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 'big', description: 'D'.repeat(9000) }); // > default ceiling
+    const ctx = renderContext(repo, t.id);
+    expect(ctx).toContain('description trimmed');
+    expect(ctx).not.toContain('D'.repeat(50)); // body actually dropped, not silent
+    const show = renderShow(repo, t.id, { maxTokens: 30 });
+    expect(show).toContain('description trimmed');
+  });
 });
 
 describe('render: next', () => {
