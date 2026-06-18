@@ -185,6 +185,24 @@ payload rather than emitting a separate event.
 `input.answered` is also what unblocks a parked `await` long-poll and what
 `inbox` reports — see [04-human-in-the-loop](04-human-in-the-loop.md).
 
+### Compaction & the retained floor
+
+The event log is bounded by **compaction**: events below a retained floor `seq`
+are deleted, retaining only the most recent `KANBAN_EVENT_RETENTION` events
+(default 50 000). The floor is persisted in `meta.compaction_floor` (the highest
+`seq` deleted; `0` = nothing compacted) and only ever advances. Compaction emits
+no event of its own (it is meta, not a board mutation) and always retains ≥1
+event, so the `seq` counter is the source of truth and `MAX(event.seq)` is
+unaffected. This is safe because state lives in the entity tables and is **never**
+rebuilt from events — compaction loses only delta-replay history below the floor.
+
+A delta read (`changes` / `watch` / `inbox`, WS replay) whose cursor predates the
+floor cannot be served gap-free; instead of silently truncating it gets a
+never-silent **reset** signal (`{reset:true}` over REST, a `{type:'reset', floor,
+cursor}` frame over WS) and reseeds from current board state. `since=0` is a full
+replay and is never stale. See [07-api-reference](07-api-reference.md) and
+[11-roadmap §2](11-roadmap.md).
+
 ---
 
 ## 4. Columns / statuses (default)

@@ -214,8 +214,8 @@ agent: kanban watch T-12 --since <seq>
           ◀── events + new high-water seq
    agent stores new seq for the next watch
 
-If the cursor is below the retained floor:
-   ◀── { reset: true, snapshot_cursor }   → agent does a full re-list
+If the cursor is below the retained compaction floor:
+   ◀── { reset: true, floor, cursor }     → agent does a full re-list
                                              (never a silent partial window)
 ```
 

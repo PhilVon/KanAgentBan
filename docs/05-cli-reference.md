@@ -94,15 +94,25 @@ Scoped delta: events touching `<id>` and its **direct** deps since `seq`. Cheap
 mid-task refresh. Returns the new high-water `seq`.
 
 ### `kanban changes --since <seq> [--json]`
-Board-wide delta since `seq`. On a stale/expired cursor returns
-`{reset:true, snapshot_cursor}` (exit `0`) signalling a full re-list is needed.
+Board-wide delta since `seq`. When the cursor predates the compaction floor the
+response is `{reset:true, floor, cursor}` (exit `0`) — a full re-list is needed;
+otherwise `{events, cursor, floor}`. `watch` shares these reset semantics.
 
 ### `kanban inbox [--since <seq>] [--json]`
 Resume entry point. Terse one-line-per-request plaintext (answered first — the
 resume signal — then still-open); `--json` emits the raw `{open, answered, cursor}`
 payload. `--since <seq>` returns only requests answered after that event `seq`
 (pass back the `cursor` from a prior call); without it, all open + answered
-requests are listed. See [04-human-in-the-loop](04-human-in-the-loop.md).
+requests are listed. A `--since` cursor below the compaction floor prints a
+never-silent reset footer instead of an answered delta. See
+[04-human-in-the-loop](04-human-in-the-loop.md).
+
+### `kanban compact [--keep N]`
+Compact the event log, retaining only the most recent `N` events (default: the
+server's `KANBAN_EVENT_RETENTION`, 50 000). Prints `removed`/`floor`. State is
+unaffected — only delta-replay history below the new floor is dropped; stale
+delta cursors get a reset (above). A low-frequency server sweep does this
+automatically; this command forces it. See [11-roadmap §2](11-roadmap.md).
 
 ---
 

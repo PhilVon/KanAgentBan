@@ -5,8 +5,8 @@
 > realtime web UI, the token-efficiency contract, and hardening. Everything that
 > would broaden the model — an MCP interface, log compaction, real subtasks, cloud
 > sync, analytics — is deferred to v2+ so v1 stays small and correct.
-> Multi-agent claiming, external-nudge auto-resume, and first-class subtasks have
-> since shipped post-v1.
+> Multi-agent claiming, external-nudge auto-resume, first-class subtasks, and
+> event-log compaction have since shipped post-v1.
 >
 > **Decisions:** v1 = single agent, single local board, CLI-driven, sole writer.
 > Model subtasks as deps + labels in v1. Build phases land in dependency order:
@@ -96,7 +96,7 @@ Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficie
 | MCP server interface (alt. to CLI for other agents) | | ✅ |
 | Multi-agent support + `kanban claim` | ✅ (post-v1) | |
 | External-nudge auto-resume (webhook / local command) | ✅ (post-v1) | |
-| Event-log compaction (retained floor `seq` + snapshots) | | ✅ |
+| Event-log compaction (retained floor `seq` + reset signal) | ✅ (post-v1) | |
 | First-class subtasks (`parent_id` + rollup) | ✅ (post-v1) | |
 | Cloud sync / multi-machine | | ✅ |
 | Per-task time tracking, burndown / analytics | | ✅ |
@@ -115,9 +115,15 @@ Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficie
   re-invoke Claude Code — strategy (C) in
   [04-human-in-the-loop §3](04-human-in-the-loop.md). Transport decision:
   [adr/0006](adr/0006-external-nudge-transport.md).
-- **Event-log compaction** — bound log growth by compacting below a retained
-  floor `seq`, emitting `{reset:true}` snapshots so deltas past the floor reseed
-  from a snapshot instead of failing.
+- **Event-log compaction** — ✅ **shipped post-v1.** Bounds log growth by deleting
+  events below a retained floor `seq` (kept in `meta.compaction_floor`), retaining
+  the most recent `KANBAN_EVENT_RETENTION` events (default 50 000; a low-frequency
+  server sweep + an explicit `kanban compact`). Safe because the server is
+  model-free — state lives in the entity tables and is never rebuilt from events,
+  so compaction loses only delta-replay history below the floor. A delta consumer
+  whose cursor predates the floor gets a never-silent `{reset:true}` signal (REST)
+  / `{type:'reset'}` WS frame and reseeds from current state instead of silently
+  missing events ([07-api-reference](07-api-reference.md), [02-data-model §3](02-data-model.md)).
 - **Subtasks** — ✅ **shipped post-v1.** True parent/child tasks via
   `task.parent_id` (single-parent tree, arbitrary depth, cycle-guarded), separate
   from the `blocks` DAG. Rollup semantics: a parent with open children is hidden

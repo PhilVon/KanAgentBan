@@ -15,8 +15,8 @@
 > `If-Match`) turns racing edits into `409`s, never silent clobbers. HITL wakeups
 > are emitter-driven, never DB polling.
 >
-> **Open questions:** Log compaction / retained-floor policy for very old cursors
-> (drives the `reset` frame) — deferred to v2.
+> **Decisions:** Log compaction / retained-floor policy shipped post-v1 — a cursor
+> below the floor drives a never-silent `reset` (see §below, [11-roadmap §2](11-roadmap.md)).
 
 Related: [02-data-model](02-data-model.md) · [04-human-in-the-loop](04-human-in-the-loop.md) ·
 [07-api-reference](07-api-reference.md) · [10-security-lifecycle](10-security-lifecycle.md) ·
@@ -215,10 +215,10 @@ not authenticated — fine for the loopback, single-user model
 
 ## 10. Failure & recovery
 
-- **Stale cursor.** If a client's `since` is below the retained floor (v2 log
-  compaction), `GET /api/changes` returns `{ reset: true, snapshot_cursor }` and
-  the WS sends a reset frame ([07-api-reference](07-api-reference.md)); the client
-  does a full re-list and resumes from `snapshot_cursor`.
+- **Stale cursor.** If a client's `since` is below the retained compaction floor,
+  `GET /api/changes` returns `{ reset: true, floor, cursor }` and the WS sends a
+  `{type:'reset', floor, cursor}` frame ([07-api-reference](07-api-reference.md));
+  the client does a full re-list and resumes from `cursor`.
 - **WebSocket disconnect.** Client reconnects with its last-seen `seq`; the §5
   subscribe-first replay restores it to live with no gap and no duplicates.
 - **Server crash mid-write.** SQLite WAL recovers the database to the last

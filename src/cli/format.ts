@@ -3,9 +3,12 @@
 import type { InputRequest } from '../shared/types';
 
 export interface InboxView {
-  open: InputRequest[];
-  answered: InputRequest[];
+  open?: InputRequest[];
+  answered?: InputRequest[];
   cursor: number;
+  /** Set when the `--since` cursor predated the compaction floor (docs/11 §2). */
+  reset?: boolean;
+  floor?: number;
 }
 
 /**
@@ -16,11 +19,16 @@ export interface InboxView {
  * See docs/04-human-in-the-loop.md (canonical flow) and docs/05-cli-reference.md.
  */
 export function renderInbox(v: InboxView): string {
+  // Never-silent reset: the cursor predated the compaction floor, so the answered
+  // delta can't be computed gap-free. Reseed from current state (docs/11 §2, 03).
+  if (v.reset) {
+    return `# log compacted below seq ${v.floor}; cursor too old — reseed: kanban inbox (no --since) / kanban next`;
+  }
   const lines: string[] = [];
-  for (const q of v.answered) {
+  for (const q of v.answered ?? []) {
     lines.push(`${q.id}  answered: ${q.answer ?? ''}   (task ${q.task_id})`);
   }
-  for (const q of v.open) {
+  for (const q of v.open ?? []) {
     lines.push(`${q.id}  open: ${q.question}   (task ${q.task_id})`);
   }
   return lines.length ? lines.join('\n') : 'inbox empty — no open or answered requests';

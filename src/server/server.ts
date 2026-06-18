@@ -23,6 +23,11 @@ const WEB_DIR = path.resolve(__dirname, '../../web');
 // Non-sensitive client assets served without a token (see auth middleware).
 const STATIC_PATHS = new Set(['/', '/index.html', '/app.js', '/style.css']);
 
+// Event-log retention: keep at most this many events; a low-frequency timer
+// compacts the tail above it and `kanban compact` triggers it on demand. `0`
+// disables auto-compaction. Read at call time so tests can override the env.
+const eventRetention = () => Number(process.env.KANBAN_EVENT_RETENTION ?? 50000);
+
 // helpers
 const errBody = (code: string, message: string) => ({ error: { code, message } });
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length ? v : undefined);
@@ -194,16 +199,28 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
       res.json({ text, task: repo.getTask(req.params.id) });
     }),
   );
+  // Delta reads carry the compaction floor for transparency. A cursor predating
+  // the floor gets `{reset:true}` instead of a silently-truncated delta — the
+  // consumer must reseed from current state (docs/11-roadmap.md §2, docs/03).
+  const resetBody = () => ({ reset: true, floor: repo.floor(), cursor: repo.maxSeq() });
   app.get(
     '/api/tasks/:id/watch',
-    wrap((req, res) =>
-      res.json({ events: repo.watch(req.params.id, num(req.query.since) ?? 0), cursor: repo.maxSeq() }),
-    ),
+    wrap((req, res) => {
+      const since = num(req.query.since) ?? 0;
+      if (repo.isStale(since)) return res.json(resetBody());
+      res.json({ events: repo.watch(req.params.id, since), cursor: repo.maxSeq(), floor: repo.floor() });
+    }),
   );
-  app.get('/api/changes', (req, res) =>
-    res.json({ events: repo.changes(num(req.query.since) ?? 0), cursor: repo.maxSeq() }),
-  );
-  app.get('/api/inbox', (req, res) => res.json(repo.inbox(num(req.query.since) ?? 0)));
+  app.get('/api/changes', (req, res) => {
+    const since = num(req.query.since) ?? 0;
+    if (repo.isStale(since)) return res.json(resetBody());
+    res.json({ events: repo.changes(since), cursor: repo.maxSeq(), floor: repo.floor() });
+  });
+  app.get('/api/inbox', (req, res) => {
+    const since = num(req.query.since) ?? 0;
+    if (repo.isStale(since)) return res.json(resetBody());
+    res.json({ ...repo.inbox(since), floor: repo.floor() });
+  });
 
   // --- mutations --------------------------------------------------------
   app.post('/api/tasks', wrap((req, res) => res.json(repo.createTask({ ...req.body, actor: actor(req) }))));
@@ -359,6 +376,10 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     ),
   );
 
+  // --- compaction -------------------------------------------------------
+  // Bound event-log growth on demand. `keep` defaults to the server's retention.
+  app.post('/api/compact', (req, res) => res.json(repo.compact(num(req.body?.keep) ?? eventRetention())));
+
   // --- export -----------------------------------------------------------
   app.get('/api/export', (_req, res) => res.json({ format_version: FORMAT_VERSION, ...repo.snapshot() }));
 
@@ -398,6 +419,9 @@ export function attachWs(server: http.Server, repo: Repo, token: string): WebSoc
     };
     repo.bus.on('event', onEvent); // subscribe FIRST
     const since = Number(url.searchParams.get('since') ?? 0);
+    // A cursor below the compaction floor can't replay gap-free — tell the client
+    // to reseed from current state before we replay the retained tail.
+    if (repo.isStale(since)) ws.send(JSON.stringify({ type: 'reset', floor: repo.floor(), cursor: repo.maxSeq() }));
     for (const ev of repo.changes(since)) onEvent(ev); // then replay; dedupe by seq
     ws.on('close', () => repo.bus.off('event', onEvent));
   });
@@ -435,6 +459,14 @@ export async function startServer(opts: { root?: string; port?: number } = {}): 
   };
   const detachNudge = attachNudge(repo, nudge, root);
 
+  // Auto-compaction: a low-frequency sweep bounds event-log growth without a
+  // COUNT on every mutation. Inert when retention is 0 (docs/11-roadmap §2).
+  const compactTimer = setInterval(() => {
+    const keep = eventRetention();
+    if (keep > 0 && repo.eventCount() > keep) repo.compact(keep);
+  }, 5 * 60 * 1000);
+  compactTimer.unref?.(); // don't keep the process (or tests) alive
+
   await new Promise<void>((resolve) => server.listen(opts.port ?? 0, '127.0.0.1', resolve));
   const port = (server.address() as any).port as number;
   fs.writeFileSync(paths.port, String(port));
@@ -442,6 +474,7 @@ export async function startServer(opts: { root?: string; port?: number } = {}): 
 
   const close = () =>
     new Promise<void>((resolve) => {
+      clearInterval(compactTimer);
       detachNudge();
       wss.close();
       server.close(() => {

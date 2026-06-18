@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -146,6 +146,14 @@ function migrate(db: DB): void {
   // older boards from the ALTER above). Kept out of SCHEMA_SQL because that runs
   // before this migration, when an old board's `parent_id` does not yet exist.
   db.exec('CREATE INDEX IF NOT EXISTS idx_task_parent ON task(parent_id)');
+
+  // v2 -> v3: event-log compaction floor. The highest `seq` that has been deleted
+  // by compaction; `0` means nothing has been compacted. Seeded for both fresh and
+  // existing boards (idempotent — only inserts when absent). No table change needed
+  // since `meta` already exists. See docs/02-data-model.md and repo.compact().
+  if (!db.prepare('SELECT 1 FROM meta WHERE key = ?').get('compaction_floor')) {
+    db.prepare('INSERT INTO meta(key, value) VALUES(?, ?)').run('compaction_floor', '0');
+  }
 
   if (current < SCHEMA_VERSION) {
     db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)').run(

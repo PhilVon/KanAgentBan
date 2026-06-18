@@ -103,8 +103,13 @@ Long-poll semantics, races, and the state diagram: [04-human-in-the-loop](04-hum
 
 | Method | Path | CLI | Notes |
 |--------|------|-----|-------|
-| `GET` | `/api/changes?since=<seq>` | `changes` | board-wide; `{reset:true,snapshot_cursor}` if cursor stale |
-| `GET` | `/api/tasks/:id/watch?since=<seq>` | `watch` | scoped to task + direct deps |
+| `GET` | `/api/changes?since=<seq>` | `changes` | board-wide; `{reset:true,floor,cursor}` if cursor predates the compaction floor |
+| `GET` | `/api/tasks/:id/watch?since=<seq>` | `watch` | scoped to task + direct deps; same reset semantics |
+| `POST` | `/api/compact` | `compact` | body `{keep?}` (default `KANBAN_EVENT_RETENTION`); returns `{floor,removed}` |
+
+Fresh delta responses also carry the current `floor` for transparency. A cursor of
+`0` is a full replay and never resets. `inbox` resets the same way. Compaction
+detail: [02-data-model §3](02-data-model.md), [11-roadmap §2](11-roadmap.md).
 
 ---
 
@@ -128,9 +133,11 @@ transports (see [09-concurrency](09-concurrency.md)).
   "payload": { "request_id": "Q-7", "answer": "Auth0" } }
 ```
 
-**Reset frame** (cursor below the retained floor — v2 with log compaction):
+**Reset frame** (cursor below the retained compaction floor) — sent *before* the
+retained-tail replay so the client reseeds from current state, then jumps its
+cursor to `cursor` to avoid reset-looping on reconnect:
 ```json
-{ "reset": true, "snapshot_cursor": 90 }
+{ "type": "reset", "floor": 88, "cursor": 90 }
 ```
 
 Event `type` values are exactly the canonical list in

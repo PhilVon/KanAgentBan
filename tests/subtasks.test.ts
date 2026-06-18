@@ -196,7 +196,10 @@ describe('subtasks: schema migration v1 -> v2', () => {
     expect(cols).toContain('parent_id');
     const idx = db.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_task_parent'`).get();
     expect(idx).toBeTruthy();
-    expect(db.prepare('SELECT value FROM meta WHERE key=?').get('schema_version')).toEqual({ value: '2' });
+    // migrate() carries an old board all the way to the current SCHEMA_VERSION (now 3).
+    expect(db.prepare('SELECT value FROM meta WHERE key=?').get('schema_version')).toEqual({ value: '3' });
+    // v2 -> v3 also seeds the compaction floor on the upgraded board.
+    expect(db.prepare('SELECT value FROM meta WHERE key=?').get('compaction_floor')).toEqual({ value: '0' });
     // Existing row intact, new column defaults to NULL, and the repo can use it.
     const repo = new Repo(db);
     expect(repo.getTask('T-1')!.parent_id).toBeNull();

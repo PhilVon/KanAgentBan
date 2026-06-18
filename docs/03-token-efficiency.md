@@ -201,7 +201,7 @@ single-task, so the cheap path is the scoped one.
 
 | Failure | Handling |
 |---------|----------|
-| **Stale/expired cursor** | server returns `{reset:true, snapshot_cursor}`; agent does a full re-list. Never a silent partial window. |
+| **Stale/expired cursor** | cursor below the compaction floor → server returns `{reset:true, floor, cursor}`; agent does a full re-list. Never a silent partial window. |
 | **Cursor portability** | `seq` is per-board; documented as non-portable. |
 | **Summary drift** | store `summary_updated_at` + `description_updated_at`; when description is newer, render `[summary may be stale]`. Manual refresh via `kanban summarize`. Server **never** auto-summarizes. |
 | **Recommendation thrash** | deterministic tiebreak + sticky bias (§6). |

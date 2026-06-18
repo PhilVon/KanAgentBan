@@ -412,6 +412,12 @@ function connectWs() {
   };
   ws.onmessage = (m) => {
     const ev = JSON.parse(m.data);
+    // Log compacted below our cursor: jump past the floor so reconnects don't
+    // reset-loop, then reseed from full state (refresh already refetches /api/board).
+    if (ev.type === 'reset') {
+      lastSeq = Math.max(lastSeq, ev.cursor || ev.floor || 0);
+      return refresh();
+    }
     if (ev.seq) lastSeq = Math.max(lastSeq, ev.seq);
     if (ev.type === 'input.requested' && 'Notification' in window && Notification.permission === 'granted') {
       new Notification('KanAgentBan: agent needs your input', { body: ev.payload.question || ev.task_id });

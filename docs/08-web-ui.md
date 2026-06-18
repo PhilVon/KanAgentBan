@@ -158,10 +158,10 @@ ws://127.0.0.1:<port>/ws?since=<seq>&token=<t>
   live; the **client dedupes by `seq`** so a replayed-then-live overlap is
   idempotent ([07 WebSocket protocol](07-api-reference.md),
   [09-concurrency](09-concurrency.md)).
-- **`{reset:true}` frame** (cursor below the retained floor, v2 compaction): the
-  UI treats it as a hard refresh — discard local state and **full reload** from
-  `GET /api/board` + a fresh `?since=<snapshot_cursor>` subscription
-  ([07](07-api-reference.md)).
+- **`{type:'reset'}` frame** (cursor below the retained compaction floor): the
+  UI treats it as a hard refresh — discard local state, **full reload** from the
+  board view, and jump `lastSeq` to the frame's `cursor` so reconnects don't
+  reset-loop ([07](07-api-reference.md)).
 
 Rendering is keyed off `seq` ordering, which is consistent across push, delta
 sync, and HITL wakeups ([09-concurrency](09-concurrency.md)).

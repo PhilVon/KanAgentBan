@@ -216,6 +216,57 @@ export class Repo {
     ).map(this.mapEvent);
   }
 
+  /** Highest `seq` deleted by compaction; `0` means nothing has been compacted. */
+  floor(): number {
+    const r = this.db.prepare("SELECT value FROM meta WHERE key = 'compaction_floor'").get() as
+      | { value: string }
+      | undefined;
+    return r ? Number(r.value) : 0;
+  }
+
+  /**
+   * A delta cursor predating the compaction floor cannot receive a gap-free delta —
+   * the events between it and the floor are gone. Such a consumer must reseed from
+   * current state (the never-silent reset signal). `since === 0` is a full replay
+   * request and never stale.
+   */
+  isStale(since: number): boolean {
+    return since > 0 && since < this.floor();
+  }
+
+  eventCount(): number {
+    return (this.db.prepare('SELECT COUNT(*) n FROM event').get() as { n: number }).n;
+  }
+
+  /**
+   * Bound event-log growth: retain the most recent `keep` events, delete the rest,
+   * and advance the persisted compaction floor. State is never rebuilt from events
+   * (the server is model-free — see derive.ts), so this loses only delta-replay
+   * history below the floor; consumers whose cursor predates it reseed via the
+   * reset signal. Always retains >=1 event so `MAX(event.seq)` stays equal to the
+   * `seq` counter and existing `maxSeq()` cursors are unaffected. Runs in its own
+   * transaction and emits no domain event (compaction is meta, not a board
+   * mutation). See docs/11-roadmap.md §2 and docs/02-data-model.md.
+   */
+  compact(keep: number): { floor: number; removed: number } {
+    const k = Math.max(1, Math.floor(keep));
+    // The (k+1)-th newest event: everything at or below its seq is deleted, leaving
+    // exactly the k newest. Undefined when there are <= k events -> nothing to do.
+    const cutoff = this.db
+      .prepare('SELECT seq FROM event ORDER BY seq DESC LIMIT 1 OFFSET ?')
+      .get(k) as { seq: number } | undefined;
+    if (!cutoff) return { floor: this.floor(), removed: 0 };
+    const newFloor = Math.max(this.floor(), cutoff.seq);
+    const tx = this.db.transaction(() => {
+      const info = this.db.prepare('DELETE FROM event WHERE seq <= ?').run(newFloor);
+      this.db
+        .prepare("INSERT OR REPLACE INTO meta(key, value) VALUES('compaction_floor', ?)")
+        .run(String(newFloor));
+      return info.changes as number;
+    });
+    return { floor: newFloor, removed: tx() };
+  }
+
   /** Scoped delta: events touching the task or its direct deps. */
   watch(taskId: string, sinceSeq: number): BoardEvent[] {
     const related = new Set<string>([taskId]);
@@ -265,6 +316,10 @@ export class Repo {
     return {
       exported_at: now(),
       seq: this.maxSeq(),
+      // Full state (all tables above) is always complete; the event tail may be
+      // bounded by compaction. `compaction_floor` makes that never-silent — events
+      // at or below it are gone (docs/11-roadmap.md §2).
+      compaction_floor: this.floor(),
       tasks,
       dependencies: this.getDependencies(),
       input_requests: this.getAllRequests(),

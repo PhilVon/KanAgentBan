@@ -107,6 +107,15 @@ program
     out(o.json ? JSON.stringify(r, null, 2) : renderInbox(r));
   });
 
+program
+  .command('compact')
+  .description('compact the event log, retaining only the most recent events')
+  .option('--keep <n>', 'events to retain (default: server KANBAN_EVENT_RETENTION)')
+  .action(async (o) => {
+    const r = await api(await conn(), 'POST', '/api/compact', o.keep ? { keep: Number(o.keep) } : {});
+    out(`compacted: removed ${r.removed} event(s); floor now seq ${r.floor}`);
+  });
+
 // ---- write / workflow ----------------------------------------------------
 program
   .command('add <title>')
