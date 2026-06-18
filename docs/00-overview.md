@@ -12,8 +12,9 @@
 > board. CLI is a thin client over a local REST + WebSocket server. Human input is
 > a durable, async request the agent yields on — not a held connection. Everything
 > the agent reads is tiered and budgeted in tokens. Subtasks and multi-agent
-> claiming were out of v1 scope; both have since shipped post-v1
-> ([11-roadmap](11-roadmap.md)).
+> claiming were out of v1 scope; both have since shipped post-v1, as has an **MCP
+> interface** (`kanban-mcp`) for agents that aren't running the CLI/skill — a thin
+> client of the same sole-writer server ([11-roadmap](11-roadmap.md), [12-mcp](12-mcp.md)).
 >
 > **Open questions:** external-nudge transport for v2
 > auto-resume (see [04-human-in-the-loop](04-human-in-the-loop.md)). (Storage is

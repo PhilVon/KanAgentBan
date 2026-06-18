@@ -5,16 +5,19 @@
 > realtime web UI, the token-efficiency contract, and hardening. Everything that
 > would broaden the model — an MCP interface, log compaction, real subtasks, cloud
 > sync, analytics — is deferred to v2+ so v1 stays small and correct.
-> Multi-agent claiming, external-nudge auto-resume, first-class subtasks, and
-> event-log compaction have since shipped post-v1.
+> Multi-agent claiming, external-nudge auto-resume, first-class subtasks,
+> event-log compaction, input-request cancel/expiry, and the **MCP server
+> interface** have since shipped post-v1.
 >
 > **Decisions:** v1 = single agent, single local board, CLI-driven, sole writer.
 > Model subtasks as deps + labels in v1. Build phases land in dependency order:
-> data/event spine before CLI before UI before polish before hardening.
+> data/event spine before CLI before UI before polish before hardening. The MCP
+> interface shipped as a thin client of the same sole-writer server, not a second
+> writer ([12-mcp](12-mcp.md)).
 >
-> **Open questions:** MCP vs CLI as the v2 agent
-> interface. Consolidated in §4. (Storage is **locked: one SQLite DB per project**
-> at `.kanban/board.db`.)
+> **Open questions:** none outstanding for the agent interface — both CLI and MCP
+> ship (MCP as the alternative for non-skill agents). Consolidated in §4. (Storage
+> is **locked: one SQLite DB per project** at `.kanban/board.db`.)
 
 Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficiency.md) ·
 [04-human-in-the-loop](04-human-in-the-loop.md) · [09-concurrency](09-concurrency.md)
@@ -93,18 +96,23 @@ Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficie
 | Migrations, export/backup, tests | ✅ | |
 | Dependency DAG + labels (subtask stand-in) | ✅ | |
 | Answer-event hook designed (trigger not wired) | ✅ | |
-| MCP server interface (alt. to CLI for other agents) | | ✅ |
+| MCP server interface (alt. to CLI for other agents) | | ✅ (post-v1) |
 | Multi-agent support + `kanban claim` | ✅ (post-v1) | |
 | External-nudge auto-resume (webhook / local command) | ✅ (post-v1) | |
 | Event-log compaction (retained floor `seq` + reset signal) | ✅ (post-v1) | |
 | First-class subtasks (`parent_id` + rollup) | ✅ (post-v1) | |
+| Input-request cancel + expiry (`input.cancelled` / `input.expired` fired) | ✅ (post-v1) | |
 | Cloud sync / multi-machine | | ✅ |
 | Per-task time tracking, burndown / analytics | | ✅ |
 
 ### Deferred to v2+ (detail)
 
-- **MCP server interface** — expose the board over MCP as an alternative to the
-  CLI so non-Claude-Code agents can drive it. v1 ships CLI only.
+- **MCP server interface** — ✅ **shipped post-v1.** `kanban-mcp` exposes the
+  board over the Model Context Protocol (stdio) as an alternative to the CLI so
+  non-Claude-Code agents can drive it. It is a **thin MCP client of the same
+  sole-writer server** (reusing `connect()`/`api()`), never a second writer, with
+  a curated ~21-tool subset of the CLI that preserves the token-efficiency and
+  durable-async contracts ([12-mcp](12-mcp.md)).
 - **Multi-agent support + `kanban claim`** — ✅ **shipped post-v1.** Atomic task
   claiming (`claim` / `release` / `claim --force`) so multiple agents share one
   board without stepping on each other; a claimed task drops out of other agents'
@@ -156,7 +164,7 @@ Consolidated from across the doc set; each blocks or shapes a later phase.
 | ~~Default `--max-tokens` value~~ — **resolved: `2000` for the context tier** (opt out: `--full` / `--max-tokens 0`) | [03-token-efficiency](03-token-efficiency.md), [00-overview](00-overview.md) | 4 |
 | ~~Ship a `--json` token meter~~ — **resolved: shipped** (`est_tokens`, format-version `2`) | [03-token-efficiency](03-token-efficiency.md) | 4 |
 | ~~One DB per board vs a central DB~~ — **locked: one DB per project** (`.kanban/board.db`) | [02-data-model](02-data-model.md), [00-overview](00-overview.md) | 1 |
-| MCP vs CLI as the agent interface | [00-overview](00-overview.md) | v2 |
+| ~~MCP vs CLI as the agent interface~~ — **resolved: both ship.** CLI is primary; MCP (`kanban-mcp`) is the alternative for non-skill agents, a thin client of the same server ([12-mcp](12-mcp.md)) | [00-overview](00-overview.md) | post-v1 |
 | ~~External-nudge transport (webhook vs desktop notification)~~ — **resolved: both** (webhook + local command) | [04-human-in-the-loop](04-human-in-the-loop.md), [adr/0006](adr/0006-external-nudge-transport.md) | post-v1 |
 
 ---

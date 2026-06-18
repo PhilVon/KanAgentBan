@@ -5,17 +5,20 @@
   "license": "MIT",
   "type": "commonjs",
   "bin": {
-    "kanban": "dist/cli/kanban.js"
+    "kanban": "dist/cli/kanban.js",
+    "kanban-mcp": "dist/mcp/server.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev:server": "tsx src/server/server.ts",
     "cli": "tsx src/cli/kanban.ts",
+    "mcp": "tsx src/mcp/server.ts",
     "start": "node dist/server/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^11.3.0",
     "commander": "^12.1.0",
     "express": "^4.21.0",

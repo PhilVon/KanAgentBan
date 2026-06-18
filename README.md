@@ -22,6 +22,9 @@ The flagship design goal: **deliver task context to the agent token-efficiently.
 `Claude Code → kanban skill → kanban CLI → (HTTP 127.0.0.1 + token) → Node+TS
 single sole-writer server (REST + WebSocket + static UI + SQLite/WAL) → WebSocket → browser UI`
 
+Other agents can drive the same server over **MCP** (`kanban-mcp`, stdio) — a thin
+client, not a second writer (see [docs/12-mcp.md](docs/12-mcp.md)).
+
 ## Status
 
 **Scaffold + working vertical slice.** The full design lives in [`docs/`](docs/);
@@ -46,7 +49,7 @@ Dev mode without building: `npm run cli -- <args>` and `npm run dev:server`.
 ### Test
 
 ```bash
-npm test          # vitest: 77 tests across 6 suites
+npm test          # vitest: 153 tests across 12 suites
 ```
 
 - `tests/repo.test.ts` — data layer: ids, DAG (self/dup/cycle rejection), the
@@ -77,15 +80,19 @@ npm test          # vitest: 77 tests across 6 suites
   `context` with deterministic, never-silent truncation; recommendation engine.
 - **Web UI** (`web/`): realtime board, "Needs your input" inbox, card drawer.
 - **Skill** (`skill/SKILL.md`): the Claude Code skill wrapping the CLI.
+- **MCP server** (`src/mcp/`, post-v1): `kanban-mcp` exposes a curated ~21-tool
+  subset over the Model Context Protocol (stdio) for non-skill agents — a thin
+  client of the same sole-writer server. See [docs/12-mcp.md](docs/12-mcp.md).
 
 Verified end-to-end (create → dep → next → ask → answer/await → done → recompute)
 plus auth rejection and the pending-await exit code.
 
 ### Deferred (see [docs/11-roadmap](docs/11-roadmap.md))
 
-MCP interface, external-nudge auto-resume, event-log compaction, first-class
-subtasks, schema migrations beyond v1. (Basic `kanban export` ships now;
-multi-agent `claim` shipped post-v1 — see above.)
+Cloud sync / multi-machine, per-task time tracking and burndown/analytics.
+(The MCP interface, external-nudge auto-resume, event-log compaction, first-class
+subtasks, and input cancel/expiry have all shipped post-v1; basic `kanban export`
+and multi-agent `claim` ship too — see above.)
 
 ## Documentation
 
@@ -105,4 +112,5 @@ Start with **[docs/00-overview.md](docs/00-overview.md)**, then read in order:
 | [09-concurrency](docs/09-concurrency.md) | Sole-writer model, transactions, `seq`, replay |
 | [10-security-lifecycle](docs/10-security-lifecycle.md) | Local token auth, board resolution, lifecycle |
 | [11-roadmap](docs/11-roadmap.md) | Phased build plan; v1 vs deferred (v2+) |
+| [12-mcp](docs/12-mcp.md) | The `kanban-mcp` MCP interface for non-skill agents |
 | [adr/](docs/adr/README.md) | Architecture Decision Records |

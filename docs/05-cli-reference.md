@@ -15,7 +15,12 @@
 
 Related: [03-token-efficiency](03-token-efficiency.md) ·
 [04-human-in-the-loop](04-human-in-the-loop.md) ·
-[06-skill](06-skill.md) · [07-api-reference](07-api-reference.md)
+[06-skill](06-skill.md) · [07-api-reference](07-api-reference.md) ·
+[12-mcp](12-mcp.md)
+
+> **Other agents:** agents that speak MCP rather than running this CLI use the
+> parallel **`kanban-mcp`** stdio server — a curated subset of these commands over
+> the Model Context Protocol, backed by the same sole-writer server ([12-mcp](12-mcp.md)).
 
 ---
 
@@ -26,7 +31,7 @@ Related: [03-token-efficiency](03-token-efficiency.md) ·
 - **Auto-start:** any command health-checks the server and starts it detached if
   down (`kanban serve`), then proceeds.
 - **Output:** terse plaintext by default. `--json` emits a JSON object.
-  `--format-version <n>` pins the plaintext schema (current: `3`). No ANSI colour
+  `--format-version <n>` pins the plaintext schema (current: `4`). No ANSI colour
   when stdout is not a TTY.
 - **Token control:** read commands accept `--max-tokens N` and never silently
   truncate — they emit an explicit footer (see [03](03-token-efficiency.md)).
@@ -99,9 +104,10 @@ response is `{reset:true, floor, cursor}` (exit `0`) — a full re-list is neede
 otherwise `{events, cursor, floor}`. `watch` shares these reset semantics.
 
 ### `kanban inbox [--since <seq>] [--json]`
-Resume entry point. Terse one-line-per-request plaintext (answered first — the
-resume signal — then still-open); `--json` emits the raw `{open, answered, cursor}`
-payload. `--since <seq>` returns only requests answered after that event `seq`
+Resume entry point. Terse one-line-per-request plaintext (resolutions first — the
+resume signal: `answered`, then `cancelled`/`expired` — then still-open); `--json`
+emits the raw `{open, answered, resolved, cursor}` payload. `--since <seq>` returns
+only requests answered or resolved after that event `seq`
 (pass back the `cursor` from a prior call); without it, all open + answered
 requests are listed. A `--since` cursor below the compaction floor prints a
 never-silent reset footer instead of an answered delta. See
@@ -191,9 +197,11 @@ Q-7  created on T-12 (task now needs input)
 ```
 
 ### `kanban await <Q-id | --task <id> | --any> [--timeout S] [--json]`
-Long-polls for an answer. **Use only for short gates.** Checks committed state
-*before* parking (no lost wakeups).
+Long-polls for any terminal resolution. **Use only for short gates.** Checks
+committed state *before* parking (no lost wakeups).
 - answered → prints the answer, exit `0`
+- cancelled / expired → prints `Q-n cancelled` / `Q-n expired`, exit `0` (resolved,
+  just without an answer)
 - timeout → prints `pending`, exit `2` (not an error)
 
 ```
@@ -203,6 +211,10 @@ Q-7 answered: Auth0
 
 ### `kanban answer <Q-id> "<text>"`
 Records an answer from the CLI (parity with the UI; mostly for testing/automation).
+
+### `kanban cancel <Q-id>`
+Withdraws an open input request the agent no longer needs (fires `input.cancelled`).
+Clears the task's needs-input. Only an `open` request can be cancelled.
 
 ---
 
