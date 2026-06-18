@@ -131,7 +131,14 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     const n = num(req.query.n);
     const agent = agentId(req);
     const mine = req.query.mine !== undefined;
-    const text = renderNext(repo, { context: req.query.context !== undefined, n, agent, mine });
+    const text = renderNext(repo, {
+      context: req.query.context !== undefined,
+      n,
+      agent,
+      mine,
+      full: req.query.full !== undefined,
+      maxTokens: num(req.query.max_tokens),
+    });
     if (req.query.json !== undefined) {
       const r = recommend(repo, n ?? 1, agent, mine);
       const meter = { est_tokens: estimateTokens(text) };
@@ -140,7 +147,13 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     res.json({ text });
   });
   app.get('/api/tasks', (req, res) => {
-    const opts = { status: str(req.query.status), label: str(req.query.label), limit: num(req.query.limit) };
+    const opts = {
+      status: str(req.query.status),
+      label: str(req.query.label),
+      limit: num(req.query.limit),
+      full: req.query.full !== undefined,
+      maxTokens: num(req.query.max_tokens),
+    };
     if (req.query.json !== undefined)
       return res.json({ tasks: repo.listTasks(opts), est_tokens: estimateTokens(renderList(repo, opts)) });
     res.json({ text: renderList(repo, opts) });
@@ -155,7 +168,10 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
               full: req.query.full !== undefined,
               maxTokens: num(req.query.max_tokens),
             })
-          : renderShow(repo, req.params.id);
+          : renderShow(repo, req.params.id, {
+              full: req.query.full !== undefined,
+              maxTokens: num(req.query.max_tokens),
+            });
       if (req.query.json !== undefined) {
         const meter = { est_tokens: estimateTokens(text) };
         return res.json(

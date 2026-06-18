@@ -26,7 +26,7 @@ Related: [03-token-efficiency](03-token-efficiency.md) ·
 - **Auto-start:** any command health-checks the server and starts it detached if
   down (`kanban serve`), then proceeds.
 - **Output:** terse plaintext by default. `--json` emits a JSON object.
-  `--format-version <n>` pins the plaintext schema (current: `1`). No ANSI colour
+  `--format-version <n>` pins the plaintext schema (current: `3`). No ANSI colour
   when stdout is not a TTY.
 - **Token control:** read commands accept `--max-tokens N` and never silently
   truncate — they emit an explicit footer (see [03](03-token-efficiency.md)).
@@ -51,7 +51,7 @@ Related: [03-token-efficiency](03-token-efficiency.md) ·
 
 ## Read & context commands
 
-### `kanban next [--context] [--n N] [--mine] [--json]`
+### `kanban next [--context] [--n N] [--mine] [--max-tokens N] [--full] [--json]`
 The recommendation engine. Returns the single best `ready` task (~5 lines), with a
 one-clause *why*. `--context` appends that task's full working set in the **same
 call** (cold-start path). `--n N` lists the top N candidates. Tasks claimed by
@@ -70,7 +70,7 @@ $ kanban next
 no ready tasks. 3 blocked: T-4 needs input (Q-7), T-7 waits on T-2, T-9 waits on T-2
 ```
 
-### `kanban list [--status S] [--label L] [--limit N] [--json]`
+### `kanban list [--status S] [--label L] [--limit N] [--max-tokens N] [--full] [--json]`
 Compact one-line-per-task. Flags column: `D`=dep-blocked, `?`=needs-input,
 `💬n`=comments.
 
@@ -80,7 +80,7 @@ T-12 [P1] In Progress  Wire up OAuth callback        ?  💬2
 T-08 [P2] In Progress  Refactor token store          D
 ```
 
-### `kanban show <id> [--json]`
+### `kanban show <id> [--max-tokens N] [--full] [--json]`
 Medium detail: task line, summary, criteria count, dep counts, open questions,
 last 3 comments.
 

@@ -61,7 +61,8 @@ Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficie
 
 - Truncation contract: deterministic, never-silent, always a footer
   ([03-token-efficiency](03-token-efficiency.md)).
-- `--max-tokens` budgeting across tiers.
+- ~~`--max-tokens` budgeting across tiers.~~ **Done** — honoured on `list` / `next`
+  / `show` / `context`, each with never-silent footers (`FORMAT_VERSION 3`).
 - Recommendation engine tuning for `next`, incl. sticky bias (prefer the
   in-progress task) to avoid context thrash.
 - Summary-drift indicators flagging stale task summaries vs recent activity.

@@ -23,6 +23,8 @@ program
   .option('--context', 'include the recommended task’s full working set')
   .option('--n <n>', 'list top N candidates')
   .option('--mine', 'only tasks you have claimed')
+  .option('--max-tokens <n>', 'token budget (sheds trailing candidates / context)')
+  .option('--full', 'ignore the token budget')
   .option('--json')
   .action(async (o) => {
     const c = await conn();
@@ -30,6 +32,8 @@ program
     if (o.context) q.set('context', '1');
     if (o.n) q.set('n', o.n);
     if (o.mine) q.set('mine', '1');
+    if (o.maxTokens) q.set('max_tokens', o.maxTokens);
+    if (o.full) q.set('full', '1');
     if (o.json) q.set('json', '1');
     const r = await api(c, 'GET', `/api/next?${q}`);
     out(o.json ? JSON.stringify(r, null, 2) : r.text);
@@ -40,10 +44,14 @@ program
   .option('--status <s>')
   .option('--label <l>')
   .option('--limit <n>')
+  .option('--max-tokens <n>', 'token budget (sheds trailing rows)')
+  .option('--full', 'ignore the token budget')
   .option('--json')
   .action(async (o) => {
     const c = await conn();
-    const q = new URLSearchParams(clean({ status: o.status, label: o.label, limit: o.limit, json: o.json }));
+    const q = new URLSearchParams(
+      clean({ status: o.status, label: o.label, limit: o.limit, max_tokens: o.maxTokens, full: o.full, json: o.json }),
+    );
     const r = await api(c, 'GET', `/api/tasks?${q}`);
     // print the full envelope under --json so the est_tokens meter rides through
     out(o.json ? JSON.stringify(r, null, 2) : r.text);
@@ -51,10 +59,13 @@ program
 
 program
   .command('show <id>')
+  .option('--max-tokens <n>', 'token budget (sheds comments, then open input, then summary)')
+  .option('--full', 'ignore the token budget')
   .option('--json')
   .action(async (id, o) => {
-    const q = o.json ? '?json=1' : '';
-    const r = await api(await conn(), 'GET', `/api/tasks/${id}${q}`);
+    const q = new URLSearchParams(clean({ max_tokens: o.maxTokens, full: o.full, json: o.json }));
+    const qs = q.toString();
+    const r = await api(await conn(), 'GET', `/api/tasks/${id}${qs ? `?${qs}` : ''}`);
     out(o.json ? JSON.stringify(r, null, 2) : r.text);
   });
 

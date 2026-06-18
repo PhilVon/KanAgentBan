@@ -5,7 +5,9 @@ import type { Task } from '../shared/types';
 
 // Output format contract — see docs/03-token-efficiency.md §5. Bump on change.
 // v2: `--json` reads carry `est_tokens`; context budgeting degrades gracefully.
-export const FORMAT_VERSION = 2;
+// v3: `--max-tokens` budgeting extends to the list/next/show tiers (never-silent
+//     footers on those tiers).
+export const FORMAT_VERSION = 3;
 
 const DEFAULT_COMMENTS = 4;
 
@@ -19,6 +21,30 @@ export const DEFAULT_CONTEXT_MAX_TOKENS = 2000;
 /** Token estimate used by both the budgeter and the `--json` meter (chars/4). */
 export function estimateTokens(s: string): number {
   return Math.ceil(s.length / 4);
+}
+
+/**
+ * Drop whole trailing blocks (lowest value first — lists/recs are rank-ordered)
+ * until the joined render is under budget, always leaving a never-silent footer.
+ * `full` or a falsy `maxTokens` (incl. `0`) opts out entirely. See docs/03 §4.
+ */
+function budgetBlocks(
+  blocks: string[],
+  opts: { full?: boolean; maxTokens?: number },
+  sep: string,
+  footer: (dropped: number) => string,
+): string {
+  const max = opts.full ? 0 : opts.maxTokens;
+  if (!max) return blocks.join(sep);
+  let kept = [...blocks];
+  let dropped = 0;
+  while (kept.length > 1 && estimateTokens(kept.join(sep)) > max) {
+    kept = kept.slice(0, -1);
+    dropped++;
+  }
+  let out = kept.join(sep);
+  if (dropped) out += sep + footer(dropped);
+  return out;
 }
 
 function rel(iso: string): string {
@@ -41,28 +67,32 @@ function flags(repo: Repo, t: Task): string {
 }
 
 /** `kanban list` — compact one-line-per-task. */
-export function renderList(repo: Repo, opts: { status?: string; label?: string; limit?: number }): string {
+export function renderList(
+  repo: Repo,
+  opts: { status?: string; label?: string; limit?: number; full?: boolean; maxTokens?: number },
+): string {
   const tasks = repo.listTasks(opts);
   if (!tasks.length) return '(no tasks)';
-  return tasks
-    .map((t) => `${t.id} [${t.priority}] ${t.status.padEnd(11)} ${t.title}  ${flags(repo, t)}`.trimEnd())
-    .join('\n');
+  const rows = tasks.map((t) =>
+    `${t.id} [${t.priority}] ${t.status.padEnd(11)} ${t.title}  ${flags(repo, t)}`.trimEnd(),
+  );
+  return budgetBlocks(rows, opts, '\n', (n) => `[+${n} tasks hidden for token budget — kanban list --full]`);
 }
 
 /** `kanban next` — recommended task (+ optional full context). */
 export function renderNext(
   repo: Repo,
-  opts: { context?: boolean; n?: number; agent?: string; mine?: boolean },
+  opts: { context?: boolean; n?: number; agent?: string; mine?: boolean; full?: boolean; maxTokens?: number },
 ): string {
   const r = recommend(repo, opts.n ?? 1, opts.agent, opts.mine);
   if ('none' in r) return renderBlocked(r);
   if (opts.context && r[0]) {
-    return `${renderRecLine(r[0].task)}\nwhy: ${r[0].why}\n\n${renderContext(repo, r[0].task.id)}`;
+    const ctx = renderContext(repo, r[0].task.id, { full: opts.full, maxTokens: opts.maxTokens });
+    return `${renderRecLine(r[0].task)}\nwhy: ${r[0].why}\n\n${ctx}`;
   }
-  return r
-    .map((rec) => `${renderRecLine(rec.task)}\nwhy: ${rec.why}`)
-    .join('\n\n')
-    .concat('\n(use: kanban context <id>  ·  kanban next --context)');
+  const blocks = r.map((rec) => `${renderRecLine(rec.task)}\nwhy: ${rec.why}`);
+  const body = budgetBlocks(blocks, opts, '\n\n', (n) => `[+${n} candidates hidden for token budget — kanban next --full]`);
+  return body.concat('\n(use: kanban context <id>  ·  kanban next --context)');
 }
 
 function renderRecLine(t: Task): string {
@@ -75,25 +105,60 @@ function renderBlocked(b: BlockedSummary): string {
   return `no ready tasks. ${b.blocked.length} blocked: ${list}`;
 }
 
-/** `kanban show <id>` — medium detail. */
-export function renderShow(repo: Repo, id: string): string {
-  const t = repo.requireTask(id);
+interface ShowFidelity {
+  dropComments: boolean; // recent-comments group -> footer
+  dropOpen: boolean; // open-input detail -> footer
+  dropSummary: boolean; // summary line -> footer
+}
+
+/** Build the `show` detail at a given fidelity. Re-invoked by the budget ladder. */
+function buildShow(repo: Repo, id: string, t: Task, fid: ShowFidelity): string {
   const crit = repo.getCriteria(id);
   const done = crit.filter((c) => c.checked).length;
   const open = repo.getOpenRequests(id);
   const comments = repo.getComments(id, 3);
-  const lines = [
-    `${t.id} [${t.priority}] ${t.status}  "${t.title}"`,
-    t.summary ? `summary: ${t.summary}${summaryStale(t) ? '  [summary may be stale]' : ''}` : '',
+  const lines: string[] = [`${t.id} [${t.priority}] ${t.status}  "${t.title}"`];
+  if (t.summary)
+    lines.push(
+      fid.dropSummary
+        ? `[summary trimmed — show ${id} --full]`
+        : `summary: ${t.summary}${summaryStale(t) ? '  [summary may be stale]' : ''}`,
+    );
+  lines.push(
     `criteria ${done}/${crit.length}  ·  blockers ${remainingBlockerCount(repo.db, id)}  ·  comments ${repo.countComments(id)}  ·  open input ${open.length}${t.assignee ? `  ·  assignee ${t.assignee}` : ''}`,
-  ];
-  if (open.length) lines.push(...open.map((q) => `  ${q.id} "${q.question}"`));
+  );
+  if (open.length)
+    lines.push(
+      fid.dropOpen ? `  [open input hidden — show ${id} --full]` : open.map((q) => `  ${q.id} "${q.question}"`).join('\n'),
+    );
   if (comments.length)
     lines.push(
-      'recent comments:',
-      ...comments.map((c) => `  ${c.author_type}/${c.author_name} ${rel(c.created_at)}  "${c.body}"`),
+      fid.dropComments
+        ? `[recent comments hidden — show ${id} --full]`
+        : ['recent comments:', ...comments.map((c) => `  ${c.author_type}/${c.author_name} ${rel(c.created_at)}  "${c.body}"`)].join('\n'),
     );
-  return lines.filter(Boolean).join('\n');
+  return lines.join('\n');
+}
+
+/**
+ * `kanban show <id>` — medium detail. Unbudgeted by default; with `--max-tokens`
+ * (and not `--full` / `0`) it sheds in a fixed order — recent comments, then
+ * open-input detail, then trims the summary — each with a never-silent footer.
+ */
+export function renderShow(repo: Repo, id: string, opts: { full?: boolean; maxTokens?: number } = {}): string {
+  const t = repo.requireTask(id);
+  const fid: ShowFidelity = { dropComments: false, dropOpen: false, dropSummary: false };
+  const max = opts.full ? 0 : opts.maxTokens;
+  let out = buildShow(repo, id, t, fid);
+  if (!max) return out;
+  const over = () => estimateTokens(out) > max;
+  const rungs: Array<keyof ShowFidelity> = ['dropComments', 'dropOpen', 'dropSummary'];
+  for (const rung of rungs) {
+    if (!over()) break;
+    fid[rung] = true;
+    out = buildShow(repo, id, t, fid);
+  }
+  return out;
 }
 
 function summaryStale(t: Task): boolean {
@@ -244,13 +309,10 @@ export function renderContext(
  * under budget, always leaving an explicit footer. Never silent.
  */
 function budget(sections: string[], maxTokens: number, id: string): string {
-  let kept = [...sections];
-  const dropped: number[] = [];
-  while (kept.length > 1 && estimateTokens(kept.join('\n\n')) > maxTokens) {
-    dropped.push(kept.length);
-    kept = kept.slice(0, -1);
-  }
-  let out = kept.join('\n\n');
-  if (dropped.length) out += `\n\n[${dropped.length} section(s) hidden for token budget — context ${id} --full]`;
-  return out;
+  return budgetBlocks(
+    sections,
+    { maxTokens },
+    '\n\n',
+    (n) => `[${n} section(s) hidden for token budget — context ${id} --full]`,
+  );
 }

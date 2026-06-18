@@ -109,11 +109,18 @@ The trailing bracketed lines are **truncation footers** — see §4.
   same `estimateTokens` the `--json` meter reports — §5). The context tier applies
   a **default ceiling of `2000` tokens** when `--max-tokens` is omitted, so a
   cold-start read is bounded even for a token-bomb task; opt out with `--full` or
-  `--max-tokens 0`.
-- Truncation degrades **gracefully** in a fixed precedence, re-estimating after
-  each rung and stopping as soon as it's under budget: (1) shed oldest comments
-  (floor: newest 1), (2) collapse criteria to a count, (3) trim the summary, then
-  as a last resort (4) drop whole trailing sections, lowest-priority first.
+  `--max-tokens 0`. `--max-tokens` (and `--full`) are honoured on **every read
+  tier** — `list`, `next`, `show`, and `context`; only `context` carries the
+  default ceiling, so `list`/`next`/`show` stay unbudgeted unless asked.
+- Truncation degrades **gracefully** in a fixed precedence per tier, re-estimating
+  after each rung and stopping as soon as it's under budget:
+  - **context**: (1) shed oldest comments (floor: newest 1), (2) collapse criteria
+    to a count, (3) trim the summary, then (4) drop whole trailing sections,
+    lowest-priority first.
+  - **show**: shed recent comments → drop open-input detail → trim the summary
+    (the header + counts line is never dropped).
+  - **list** / **next**: drop whole trailing rows / candidates (already
+    rank-ordered, so the tail is lowest value); `next`'s usage hint is never dropped.
   Deterministic, so output is stable.
 - Truncation is **never silent**. Every rung emits a footer naming what was
   hidden and how to get it:
@@ -122,6 +129,9 @@ The trailing bracketed lines are **truncation footers** — see §4.
   [criteria collapsed — context T-12 --full]
   [summary trimmed — context T-12 --full]
   [2 section(s) hidden for token budget — context T-12 --full]
+  [recent comments hidden — show T-12 --full]
+  [+4 tasks hidden for token budget — kanban list --full]
+  [+2 candidates hidden for token budget — kanban next --full]
   ```
   Silent dropping is the cardinal sin: an agent that can't see what it's missing
   makes confident decisions on missing context.
@@ -137,9 +147,11 @@ The trailing bracketed lines are **truncation footers** — see §4.
 - Terse plaintext default; `--json` opt-in for machine parsing.
 - Stable field order, stable section headers, no decorative noise.
 - No ANSI colour when stdout is not a TTY.
-- Versioned: `--format-version` (current `2`); changes bump the version so a
+- Versioned: `--format-version` (current `3`); changes bump the version so a
   pinned agent/skill never silently breaks. **v2** added the `est_tokens` field to
-  `--json` reads and the graceful-degradation truncation footers (§4).
+  `--json` reads and the context-tier graceful-degradation truncation footers (§4);
+  **v3** extended `--max-tokens` budgeting (and its never-silent footers) to the
+  `list`, `next`, and `show` tiers.
 
 This lets the skill and the agent regex specific fields without re-reading prose.
 

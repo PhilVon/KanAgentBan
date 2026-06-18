@@ -198,3 +198,73 @@ describe('render: next', () => {
     expect(out).toContain('needs input');
   });
 });
+
+describe('render: cross-tier --max-tokens budgeting (docs/03 §4)', () => {
+  it('list sheds trailing rows with a never-silent footer; unbudgeted by default', () => {
+    const repo = makeRepo();
+    for (let i = 0; i < 10; i++)
+      repo.createTask({ title: `Task ${'X'.repeat(40)}`, status: 'Ready', priority: 'P2' });
+    const full = renderList(repo, {});
+    expect(full).not.toContain('hidden for token budget'); // default: no budget
+
+    const out = renderList(repo, { maxTokens: 30 });
+    expect(out).toContain('tasks hidden for token budget');
+    expect(out).toContain('kanban list --full');
+    expect(out.split('\n').length).toBeLessThan(full.split('\n').length);
+
+    // --full opts back out
+    expect(renderList(repo, { maxTokens: 30, full: true })).not.toContain('hidden for token budget');
+  });
+
+  it('next sheds trailing candidates but keeps the hint line', () => {
+    const repo = makeRepo();
+    for (let i = 0; i < 4; i++)
+      repo.createTask({ title: `cand ${'Y'.repeat(30)}`, status: 'Ready', priority: 'P0' });
+    const full = renderNext(repo, { n: 5 });
+    expect(full).not.toContain('candidates hidden');
+
+    const out = renderNext(repo, { n: 5, maxTokens: 30 });
+    expect(out).toContain('candidates hidden for token budget');
+    expect(out).toContain('kanban next --full');
+    expect(out).toContain('(use: kanban context'); // hint stays outside the budget
+  });
+
+  it('next --context plumbs the budget into the context ladder', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 'ctx', status: 'Ready', priority: 'P0', summary: 'S'.repeat(400) });
+    repo.addCriterion(t.id, 'c one');
+    repo.addCriterion(t.id, 'c two');
+    for (let i = 0; i < 5; i++) repo.addComment(t.id, `note ${i}`, 'agent', 'claude');
+    // default ceiling (2000) leaves the summary intact...
+    expect(renderNext(repo, { context: true })).not.toContain('summary trimmed');
+    // ...a tight --max-tokens, plumbed through, makes the ladder trim it.
+    expect(renderNext(repo, { context: true, maxTokens: 80 })).toContain('summary trimmed');
+  });
+
+  it('show sheds recent comments before the summary, with footers', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 'show me', status: 'In Progress', priority: 'P1', summary: 'short' });
+    for (let i = 0; i < 3; i++) repo.addComment(t.id, 'B'.repeat(200), 'agent', 'claude');
+    const base = renderShow(repo, t.id);
+    expect(base).not.toContain('hidden'); // default: no budget
+    expect(base).not.toContain('trimmed');
+
+    const out = renderShow(repo, t.id, { maxTokens: estimateTokens(base) - 30 });
+    expect(out).toContain('recent comments hidden');
+    expect(out).toContain(`show ${t.id} --full`);
+    expect(out).not.toContain('summary trimmed'); // shedding comments was enough
+    expect(out).toContain('show me'); // header always survives
+  });
+
+  it('show degrades all the way (comments -> open input -> summary) under a tiny budget', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 'x', status: 'Ready', priority: 'P2', summary: 'S'.repeat(200) });
+    repo.ask(t.id, 'Q'.repeat(80));
+    repo.addComment(t.id, 'c', 'agent', 'claude');
+    const out = renderShow(repo, t.id, { maxTokens: 1 });
+    expect(out).toContain('recent comments hidden');
+    expect(out).toContain('open input hidden');
+    expect(out).toContain('summary trimmed');
+    expect(out).toContain('criteria 0/0'); // counts line is never dropped
+  });
+});

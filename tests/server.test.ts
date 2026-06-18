@@ -125,6 +125,32 @@ describe('server: --json structured reads', () => {
   });
 });
 
+describe('server: --max-tokens budgeting across tiers (docs/03 §4)', () => {
+  it('list / next / show honor --max-tokens and shrink est_tokens', async () => {
+    for (let i = 0; i < 8; i++)
+      await api('POST', '/api/tasks', { title: `task ${'Z'.repeat(40)}`, status: 'Ready', priority: 'P1' });
+
+    const listFull = await api('GET', '/api/tasks?json=1');
+    const listBudget = await api('GET', '/api/tasks?json=1&max_tokens=30');
+    expect(listBudget.body.est_tokens).toBeLessThan(listFull.body.est_tokens);
+
+    const nextFull = await api('GET', '/api/next?json=1&n=5');
+    const nextBudget = await api('GET', '/api/next?json=1&n=5&max_tokens=30');
+    expect(nextBudget.body.est_tokens).toBeLessThan(nextFull.body.est_tokens);
+    expect(nextBudget.body.text).toContain('candidates hidden for token budget');
+
+    await api('POST', '/api/tasks/T-1/comments', { body: 'B'.repeat(300) });
+    const showFull = await api('GET', '/api/tasks/T-1?json=1');
+    const showBudget = await api('GET', '/api/tasks/T-1?json=1&max_tokens=20');
+    expect(showBudget.body.est_tokens).toBeLessThan(showFull.body.est_tokens);
+  });
+
+  it('/healthz reports the bumped format_version', async () => {
+    const r = await api('GET', '/healthz');
+    expect(r.body.format_version).toBe(3);
+  });
+});
+
 describe('server: scoped await (--task / --any)', () => {
   it('returns {status:"none"} when nothing is open in scope', async () => {
     await api('POST', '/api/tasks', { title: 't' });
@@ -179,7 +205,7 @@ describe('server: export', () => {
     await api('POST', '/api/tasks', { title: 'keep me', priority: 'P1' });
     const r = await api('GET', '/api/export');
     expect(r.status).toBe(200);
-    expect(r.body.format_version).toBe(2);
+    expect(r.body.format_version).toBe(3);
     expect(r.body.tasks).toHaveLength(1);
     expect(r.body.tasks[0].title).toBe('keep me');
     expect(r.body.events.length).toBeGreaterThan(0);
