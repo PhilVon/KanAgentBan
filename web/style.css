@@ -120,6 +120,12 @@ input {
   border-radius: 10px;
   padding: 0 0.45rem;
 }
+.flag.subtasks, .flag.parent {
+  background: #2a3a32;
+  color: #9be7c4;
+  border-radius: 10px;
+  padding: 0 0.45rem;
+}
 
 .drawer {
   position: fixed;
@@ -140,6 +146,12 @@ input {
 .desc { color: var(--muted); white-space: pre-wrap; }
 .crit { display: block; margin: 0.2rem 0; }
 .deps { color: var(--muted); font-size: 0.85rem; margin: 0.2rem 0; }
+.parent-link { color: var(--accent); font-size: 0.85rem; margin: 0.3rem 0; cursor: pointer; }
+.parent-link:hover { text-decoration: underline; }
+.subtask { padding: 0.25rem 0; border-top: 1px solid var(--line); cursor: pointer; font-size: 0.88rem; }
+.subtask:hover { color: var(--accent); }
+.subtask .st-status { color: var(--muted); font-size: 0.78rem; }
+.subtask-input { width: 70%; margin-top: 0.5rem; }
 .comment { padding: 0.3rem 0; border-top: 1px solid var(--line); }
 .comment .author { color: var(--accent); font-size: 0.8rem; }
 .comment-input { width: 70%; margin-top: 0.5rem; }

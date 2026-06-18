@@ -48,9 +48,10 @@ Related: [02-data-model](02-data-model.md) · [05-cli-reference](05-cli-referenc
 | `GET` | `/api/tasks?status=&label=&limit=` | `list` |
 | `GET` | `/api/tasks/:id?view=show\|context&max_tokens=` | `show` / `context` |
 | `GET` | `/api/next?context=&n=&mine=` | `next` |
-| `POST` | `/api/tasks` | `add` |
+| `POST` | `/api/tasks` (body may include `parent`) | `add` |
 | `PATCH` | `/api/tasks/:id` (header `If-Match: <version>`) | `update` |
 | `POST` | `/api/tasks/:id/move` | `move` / `done` |
+| `POST` / `DELETE` | `/api/tasks/:id/parent` (body `{parent}`) | `parent --to` / `--clear` |
 | `POST` | `/api/tasks/:id/claim` (body `{force?}`) | `claim` |
 | `POST` | `/api/tasks/:id/release` (body `{force?}`) | `release` |
 | `POST` | `/api/tasks/:id/archive` | `archive` |
@@ -64,6 +65,13 @@ stale `If-Match` returns `409` → exit `4`.
 `409` if held by another agent (unless `{force:true}`), `400` for a Done/archived
 task. `next` hides tasks claimed by *other* agents; `?mine=1` shows only the caller's.
 Both emit `task.claimed` / `task.released` events. See [09 §9](09-concurrency.md).
+
+**Subtasks.** `POST /api/tasks` accepts an optional `parent` (parent `T-n`).
+`POST /api/tasks/:id/parent {parent}` nests a task; `DELETE` detaches it; both emit
+`task.reparented` and return the updated task. Self-parenting and cycles return
+`400`. `POST /api/tasks/:id/move {status:'Done'}` returns `400` while the parent has
+open subtasks, as does `archive` with live children. Parent state (`blocked_by_children`)
+is derived, never stored ([02-data-model §5-6](02-data-model.md)).
 
 ## Dependencies, comments, criteria, labels, artifacts
 

@@ -14,7 +14,7 @@ import {
   FORMAT_VERSION,
 } from './render';
 import { recommend } from './recommend';
-import { deriveState } from './derive';
+import { childProgress, deriveState } from './derive';
 import { ensureBoard, readToken, readBoardMeta } from '../shared/board-paths';
 import { attachNudge } from './nudge';
 import { DISPLAY_COLUMNS, type ActorType, type NudgeConfig } from '../shared/types';
@@ -83,12 +83,20 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
   // Structured working set for the UI drawer and `--json` context reads.
   const taskDetail = (id: string) => {
     const t = repo.requireTask(id);
+    const parent = repo.getParent(t.id);
     return {
       task: t,
       derived: deriveState(db, t),
       criteria: repo.getCriteria(t.id),
       blockers: repo.getBlockers(t.id),
       blocked_by: repo.getBlockedBy(t.id),
+      parent: parent ? { id: parent.id, title: parent.title, status: parent.status } : null,
+      children: repo.getChildren(t.id).map((c) => ({
+        id: c.id,
+        title: c.title,
+        status: c.status,
+        ...deriveState(db, c),
+      })),
       comments: repo.getComments(t.id),
       artifacts: repo.getArtifacts(t.id),
       labels: repo.getLabels(t.id),
@@ -109,14 +117,17 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     const tasks = repo.listTasks({}).map((t) => {
       const d = deriveState(db, t);
       const crit = repo.getCriteria(t.id);
+      const kids = childProgress(db, t.id);
       return {
         ...t,
         ...d,
-        column: d.blocked_by_deps || d.needs_input ? 'Blocked' : t.status,
+        column: d.blocked_by_deps || d.needs_input || d.blocked_by_children ? 'Blocked' : t.status,
         comments: repo.countComments(t.id),
         open_input: repo.getOpenRequests(t.id).length,
         criteria_done: crit.filter((c) => c.checked).length,
         criteria_total: crit.length,
+        child_done: kids.done,
+        child_total: kids.total,
         labels: repo.getLabels(t.id),
       };
     });
@@ -209,6 +220,10 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     }),
   );
   app.post('/api/tasks/:id/move', wrap((req, res) => res.json(repo.moveTask(req.params.id, req.body.status, actor(req)))));
+  app.post('/api/tasks/:id/parent', wrap((req, res) =>
+    res.json(repo.setParent(req.params.id, req.body.parent ?? null, actor(req))),
+  ));
+  app.delete('/api/tasks/:id/parent', wrap((req, res) => res.json(repo.setParent(req.params.id, null, actor(req)))));
   app.post('/api/tasks/:id/claim', wrap((req, res) =>
     res.json(repo.claimTask(req.params.id, agentId(req), { force: !!req.body?.force, actor: actor(req) })),
   ));

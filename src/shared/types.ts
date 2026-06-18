@@ -45,6 +45,8 @@ export interface Task {
   priority: Priority;
   position: number | null;
   assignee: string | null;
+  /** Parent task id (`T-n`) when this is a subtask; null at the top level. */
+  parent_id: string | null;
   version: number;
   created_at: string;
   updated_at: string;
@@ -111,6 +113,7 @@ export type EventType =
   | 'task.archived'
   | 'task.claimed'
   | 'task.released'
+  | 'task.reparented'
   | 'dep.added'
   | 'dep.removed'
   | 'comment.added'
@@ -138,6 +141,8 @@ export interface BoardEvent {
 export interface DerivedState {
   blocked_by_deps: boolean;
   needs_input: boolean;
+  /** Has at least one non-archived child task that is not yet Done. */
+  blocked_by_children: boolean;
   ready: boolean;
 }
 

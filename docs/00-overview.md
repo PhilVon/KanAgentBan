@@ -12,7 +12,8 @@
 > board. CLI is a thin client over a local REST + WebSocket server. Human input is
 > a durable, async request the agent yields on — not a held connection. Everything
 > the agent reads is tiered and budgeted in tokens. Subtasks and multi-agent
-> claiming are out of v1.
+> claiming were out of v1 scope; both have since shipped post-v1
+> ([11-roadmap](11-roadmap.md)).
 >
 > **Open questions:** external-nudge transport for v2
 > auto-resume (see [04-human-in-the-loop](04-human-in-the-loop.md)). (Storage is
@@ -71,8 +72,9 @@ the one doing data entry.
 - **Auth beyond a local token** — a per-board token over `127.0.0.1`, nothing more
   ([10-security-lifecycle](10-security-lifecycle.md)).
 - **Real-time collaboration cursors** — the UI broadcasts state, not presence.
-- **Subtasks** — model nesting with dependencies + a label, keeping the DAG flat
-  ([02-data-model §6](02-data-model.md)).
+- ~~**Subtasks**~~ — **shipped post-v1** as first-class `parent_id` nesting with
+  rollup (a parent can't complete until its children do) ([02-data-model §6](02-data-model.md),
+  [11-roadmap](11-roadmap.md)).
 - **Mobile app** — desktop browser only.
 - **Multi-agent claiming** — single agent in v1; **shipped post-v1** via
   `kanban claim`/`release` over the `assignee` field ([09 §9](09-concurrency.md),

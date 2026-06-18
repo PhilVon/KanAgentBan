@@ -65,6 +65,7 @@ each sequence under the write transaction.
 | `priority` | TEXT | `P0`..`P3` (P0 highest) |
 | `position` | REAL | manual ordering within a column |
 | `assignee` | TEXT NULL | agent identity holding the task (`kanban claim`/`release`, [09 §9](09-concurrency.md)) |
+| `parent_id` | TEXT NULL | parent task (`T-n`) when this is a subtask; null at the top level (§6) |
 | `version` | INTEGER | optimistic-concurrency token, bumped per mutation |
 | `created_at` / `updated_at` | TEXT | |
 | `archived_at` | TEXT NULL | soft delete; non-null = archived |
@@ -163,7 +164,7 @@ Every mutation appends exactly one event. This list is the shared contract for
 
 ```
 task.created      task.updated      task.moved        task.archived
-task.claimed      task.released
+task.claimed      task.released     task.reparented
 dep.added         dep.removed
 comment.added
 criterion.added   criterion.checked criterion.unchecked
@@ -175,6 +176,11 @@ input.requested   input.answered    input.cancelled   input.expired
 `task.claimed` / `task.released` carry the multi-agent `assignee` change; their
 payloads are `{assignee, stolen_from?}` and `{released_from}` respectively — see
 [09-concurrency §9](09-concurrency.md).
+
+`task.reparented` carries `{from, to}` — the old and new `parent_id` (either may be
+null) when a task is nested under, or detached from, a parent (§6). A subtask
+created with a parent records its `parent_id` directly in the `task.created`
+payload rather than emitting a separate event.
 
 `input.answered` is also what unblocks a parked `await` long-poll and what
 `inbox` reports — see [04-human-in-the-loop](04-human-in-the-loop.md).
@@ -195,31 +201,38 @@ Backlog → Ready → In Progress → Blocked → Review → Done
 
 ---
 
-## 5. Derived state — the two-flag model
+## 5. Derived state — the three-flag model
 
-Two independent, separately-computed booleans (so the recommendation engine can
+Three independent, separately-computed booleans (so the recommendation engine can
 explain *why* a task is not actionable):
 
 ```
-blocked_by_deps = EXISTS dep d WHERE d.from_task = task
-                                 AND d.type = 'blocks'
-                                 AND d.to_task.status != 'Done'
-                                 AND d.to_task.archived_at IS NULL
+blocked_by_deps     = EXISTS dep d WHERE d.from_task = task
+                                     AND d.type = 'blocks'
+                                     AND d.to_task.status != 'Done'
+                                     AND d.to_task.archived_at IS NULL
 
-needs_input     = EXISTS input_request q WHERE q.task_id = task
-                                          AND q.status = 'open'
+needs_input         = EXISTS input_request q WHERE q.task_id = task
+                                              AND q.status = 'open'
 
-ready           = NOT blocked_by_deps
-                  AND NOT needs_input
-                  AND status IN ('Ready','In Progress')
-                  AND archived_at IS NULL
+blocked_by_children = EXISTS task c WHERE c.parent_id = task
+                                     AND c.status != 'Done'
+                                     AND c.archived_at IS NULL
+
+ready               = NOT blocked_by_deps
+                      AND NOT needs_input
+                      AND NOT blocked_by_children
+                      AND status IN ('Ready','In Progress')
+                      AND archived_at IS NULL
 ```
 
 - `next` (recommendation engine, [03-token-efficiency](03-token-efficiency.md))
-  considers only `ready` tasks.
+  considers only `ready` tasks. A parent with open subtasks is **not** `ready` —
+  its children are the actionable work (§6).
 - Completing a task emits `task.updated`/`task.moved` and triggers readiness
-  **recomputation for its dependents** (each emits no extra event unless its
-  derived state is surfaced; recomputation is on-read to stay cheap).
+  **recomputation for its dependents and its parent** (each emits no extra event
+  unless its derived state is surfaced; recomputation is on-read to stay cheap).
+- The UI "Blocked" projection (§4) covers all three flags.
 
 ---
 
@@ -233,9 +246,16 @@ ready           = NOT blocked_by_deps
 - **Free-form vs constrained answers:** if `options` set and `answer_freeform`
   false, the answer must be one of `options` (validated at write).
 - **Cycles / self-deps / duplicates:** rejected at insert (§dependency).
-- **Subtasks:** deferred from v1 — model nesting with `blocks` deps + a label
-  instead, to keep the DAG flat and the queries simple
-  ([11-roadmap](11-roadmap.md)).
+- **Subtasks:** first-class via `task.parent_id` (a single-parent tree, distinct
+  from the `blocks` DAG). Arbitrary nesting depth, cycle-guarded — a task cannot be
+  set as a descendant of itself (`setParent` rejects it, mirroring the dep cycle
+  check). A parent with any non-archived, non-Done child is `blocked_by_children`
+  (§5): it is hidden from `next` and **cannot move to `Done`** until its children
+  are Done. Archiving a parent that still has non-archived children is refused —
+  archive or reparent them first. Children stay in their own status column in the
+  UI with a `⤷T-parent` badge; the parent's drawer/`context` lists them with a
+  `subtasks d/t` count. (Subtasks were deferred in v1, which faked nesting with
+  deps + a label — see [11-roadmap](11-roadmap.md).)
 - **Deletion:** there is none — only `archived_at`. Keeps the event log's
   references valid forever.
 
@@ -250,7 +270,8 @@ CREATE TABLE task (
   id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT,
   summary TEXT, summary_source TEXT, summary_updated_at TEXT,
   description_updated_at TEXT, status TEXT NOT NULL, priority TEXT DEFAULT 'P2',
-  position REAL, assignee TEXT, version INTEGER NOT NULL DEFAULT 1,
+  position REAL, assignee TEXT, parent_id TEXT REFERENCES task(id),
+  version INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived_at TEXT
 );
 
@@ -275,7 +296,12 @@ CREATE TABLE event (
 CREATE INDEX idx_event_seq ON event(seq);
 CREATE INDEX idx_ir_status ON input_request(status);
 CREATE INDEX idx_task_status ON task(status) WHERE archived_at IS NULL;
+CREATE INDEX idx_task_parent ON task(parent_id);
 ```
+
+`parent_id` shipped as the first real schema migration (`schema_version` 1 → 2):
+fresh boards get the column from `CREATE TABLE`; existing boards get it via an
+idempotent `ALTER TABLE task ADD COLUMN parent_id` in `openDb`'s migrator.
 
 Single-process server is the **sole writer**; WAL allows the UI's concurrent
 reads. Transaction boundaries and `seq` allocation: see

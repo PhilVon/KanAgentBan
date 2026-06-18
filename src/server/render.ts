@@ -1,5 +1,5 @@
 import type { Repo } from './repo';
-import { deriveState, remainingBlockerCount } from './derive';
+import { childProgress, deriveState, remainingBlockerCount } from './derive';
 import { recommend, type BlockedSummary } from './recommend';
 import type { Task } from '../shared/types';
 
@@ -60,9 +60,14 @@ function flags(repo: Repo, t: Task): string {
   const out: string[] = [];
   if (d.blocked_by_deps) out.push('D');
   if (d.needs_input) out.push('?');
+  if (d.blocked_by_children) {
+    const { done, total } = childProgress(repo.db, t.id);
+    out.push(`S${done}/${total}`);
+  }
   const c = repo.countComments(t.id);
   if (c) out.push(`💬${c}`);
   if (t.assignee) out.push(`@${t.assignee}`);
+  if (t.parent_id) out.push(`⤷${t.parent_id}`);
   return out.join(' ');
 }
 
@@ -117,7 +122,9 @@ function buildShow(repo: Repo, id: string, t: Task, fid: ShowFidelity): string {
   const done = crit.filter((c) => c.checked).length;
   const open = repo.getOpenRequests(id);
   const comments = repo.getComments(id, 3);
+  const kids = childProgress(repo.db, id);
   const lines: string[] = [`${t.id} [${t.priority}] ${t.status}  "${t.title}"`];
+  if (t.parent_id) lines.push(`parent: ${t.parent_id}`);
   if (t.summary)
     lines.push(
       fid.dropSummary
@@ -125,7 +132,9 @@ function buildShow(repo: Repo, id: string, t: Task, fid: ShowFidelity): string {
         : `summary: ${t.summary}${summaryStale(t) ? '  [summary may be stale]' : ''}`,
     );
   lines.push(
-    `criteria ${done}/${crit.length}  ·  blockers ${remainingBlockerCount(repo.db, id)}  ·  comments ${repo.countComments(id)}  ·  open input ${open.length}${t.assignee ? `  ·  assignee ${t.assignee}` : ''}`,
+    `criteria ${done}/${crit.length}  ·  blockers ${remainingBlockerCount(repo.db, id)}` +
+      (kids.total ? `  ·  subtasks ${kids.done}/${kids.total}` : '') +
+      `  ·  comments ${repo.countComments(id)}  ·  open input ${open.length}${t.assignee ? `  ·  assignee ${t.assignee}` : ''}`,
   );
   if (open.length)
     lines.push(
@@ -173,6 +182,7 @@ interface Fidelity {
   full: boolean;
   commentLimit: number; // newest-N comments to show
   collapseCriteria: boolean; // checklist -> count line + footer
+  collapseSubtasks: boolean; // children list -> count line + footer
   dropSummary: boolean; // summary line -> trimmed footer
 }
 
@@ -185,6 +195,7 @@ function buildContextSections(repo: Repo, id: string, t: Task, fid: Fidelity): s
 
   // 1. task line + summary
   sections.push(`${t.id} [${t.priority}] ${t.status}  "${t.title}"`);
+  if (t.parent_id) sections.push(`parent: ${t.parent_id}`);
   if (t.assignee) sections.push(`assignee: ${t.assignee}`);
   if (t.summary) {
     sections.push(
@@ -203,6 +214,18 @@ function buildContextSections(repo: Repo, id: string, t: Task, fid: Fidelity): s
         ? `criteria ${done}/${crit.length}\n  [criteria collapsed — context ${id} --full]`
         : `criteria ${done}/${crit.length}:\n` +
             crit.map((c) => `  [${c.checked ? 'x' : ' '}] ${c.id} ${c.text}`).join('\n'),
+    );
+  }
+
+  // 2.5 subtasks (direct children, or collapsed to a count under budget)
+  const children = repo.getChildren(id);
+  if (children.length) {
+    const cdone = children.filter((c) => c.status === 'Done').length;
+    sections.push(
+      fid.collapseSubtasks
+        ? `subtasks ${cdone}/${children.length}\n  [subtasks collapsed — context ${id} --full]`
+        : `subtasks ${cdone}/${children.length}:\n` +
+            children.map((c) => `  ${c.id} ${c.title} [${c.status}]`).join('\n'),
     );
   }
 
@@ -262,8 +285,9 @@ function buildContextSections(repo: Repo, id: string, t: Task, fid: Fidelity): s
  * Budgeting applies by default (`DEFAULT_CONTEXT_MAX_TOKENS`); pass an explicit
  * `--max-tokens N`, or opt out entirely with `--full` / `--max-tokens 0`.
  * Over budget, degrade gracefully in a fixed precedence — shed oldest comments,
- * then collapse criteria to a count, then trim the summary — before falling back
- * to dropping whole trailing sections. Every step leaves a footer.
+ * collapse criteria to a count, collapse the subtasks list to a count, then trim
+ * the summary — before falling back to dropping whole trailing sections. Every
+ * step leaves a footer.
  */
 export function renderContext(
   repo: Repo,
@@ -276,6 +300,7 @@ export function renderContext(
     full: !!opts.full,
     commentLimit: opts.full ? total : DEFAULT_COMMENTS,
     collapseCriteria: false,
+    collapseSubtasks: false,
     dropSummary: false,
   };
 
@@ -295,6 +320,10 @@ export function renderContext(
   }
   if (over(sections) && !fid.collapseCriteria) {
     fid.collapseCriteria = true; // 2. collapse criteria to a count
+    sections = render();
+  }
+  if (over(sections) && !fid.collapseSubtasks) {
+    fid.collapseSubtasks = true; // 3. collapse the subtasks list to a count
     sections = render();
   }
   if (over(sections) && !fid.dropSummary) {

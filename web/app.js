@@ -115,6 +115,8 @@ function card(t) {
   const flags = el('div', 'flags');
   if (t.blocked_by_deps) flags.append(el('span', 'flag dep', '🔒'));
   if (t.needs_input) flags.append(el('span', 'flag input', '❓'));
+  if (t.child_total) flags.append(el('span', 'flag subtasks', `⊞${t.child_done}/${t.child_total}`));
+  if (t.parent_id) flags.append(el('span', 'flag parent', `⤷${t.parent_id}`));
   if (t.comments) flags.append(el('span', 'flag', `💬${t.comments}`));
   if (t.criteria_total) flags.append(el('span', 'flag', `✓${t.criteria_done}/${t.criteria_total}`));
   if (t.assignee) flags.append(el('span', 'flag assignee', `👤${t.assignee}`));
@@ -179,6 +181,11 @@ async function openDrawer(id) {
   body.append(
     el('div', 'meta', `${d.task.priority} · ${d.task.status}${d.task.assignee ? ' · 👤 ' + d.task.assignee : ''}`),
   );
+  if (d.parent) {
+    const p = el('div', 'parent-link', `⤷ parent: ${d.parent.id} ${d.parent.title} (${d.parent.status})`);
+    p.onclick = () => openDrawer(d.parent.id);
+    body.append(p);
+  }
   if (d.task.summary) {
     body.append(el('p', 'summary', d.task.summary));
     if (
@@ -209,6 +216,32 @@ async function openDrawer(id) {
       row.append(cb, el('span', '', ` ${c.text}`));
       body.append(row);
     }
+  }
+
+  {
+    const done = d.children.filter((c) => c.status === 'Done').length;
+    body.append(el('h4', '', `Subtasks ${done}/${d.children.length}`));
+    for (const c of d.children) {
+      const row = el('div', 'subtask');
+      row.append(el('span', 'tid', c.id));
+      row.append(el('span', '', ` ${c.title} `));
+      row.append(el('span', 'st-status', `[${c.status}]`));
+      row.onclick = () => openDrawer(c.id);
+      body.append(row);
+    }
+    const stIn = el('input', 'subtask-input');
+    stIn.placeholder = 'new subtask title…';
+    const stBtn = el('button', 'send', '+ Subtask');
+    stBtn.onclick = () =>
+      stIn.value.trim() &&
+      api('/api/tasks', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: stIn.value.trim(), parent: d.task.id }),
+      })
+        .then(() => openDrawer(d.task.id))
+        .catch((err) => toast(`subtask failed: ${err.message}`));
+    body.append(stIn, stBtn);
   }
 
   if (d.blockers.length) body.append(el('div', 'deps', `Blocked by: ${d.blockers.map((b) => `${b.id} (${b.status})`).join(', ')}`));

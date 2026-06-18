@@ -114,6 +114,7 @@ program
   .option('--summary <t>')
   .option('--status <s>')
   .option('--prio <p>')
+  .option('--parent <id>', 'parent task id (creates a subtask)')
   .option('--label <list>', 'comma-separated')
   .option('--depends <list>', 'comma-separated task ids')
   .option('--ac <text...>', 'acceptance criterion (repeatable)')
@@ -124,11 +125,12 @@ program
       summary: o.summary,
       status: o.status,
       priority: o.prio,
+      parent: o.parent,
       labels: split(o.label),
       depends: split(o.depends),
       criteria: o.ac,
     });
-    out(`${t.id}  created`);
+    out(`${t.id}  created${t.parent_id ? `  (subtask of ${t.parent_id})` : ''}`);
   });
 
 program
@@ -166,6 +168,22 @@ program.command('release <id>').option('--force', 'release a claim held by anoth
 const dep = program.command('dep');
 dep.command('add <id>').requiredOption('--on <id>').action(async (id, o) => { await api(await conn(), 'POST', `/api/tasks/${id}/deps`, { on: o.on }); out(`${id} now blocked by ${o.on}`); });
 dep.command('rm <id>').requiredOption('--on <id>').action(async (id, o) => { await api(await conn(), 'DELETE', `/api/tasks/${id}/deps?on=${o.on}`); out(`removed ${id} -> ${o.on}`); });
+
+program.command('parent <id>')
+  .description('set or clear a task\'s parent (subtask nesting)')
+  .option('--to <pid>', 'parent task id')
+  .option('--clear', 'detach from parent (make top-level)')
+  .action(async (id, o) => {
+    if (o.clear) {
+      const t = await api(await conn(), 'DELETE', `/api/tasks/${id}/parent`);
+      out(`${t.id} detached (now top-level)`);
+    } else if (o.to) {
+      const t = await api(await conn(), 'POST', `/api/tasks/${id}/parent`, { parent: o.to });
+      out(`${t.id} now a subtask of ${t.parent_id}`);
+    } else {
+      out('specify --to <pid> or --clear');
+    }
+  });
 
 program.command('comment <id> <body>').action(async (id, body) => { const c = await api(await conn(), 'POST', `/api/tasks/${id}/comments`, { body }); out(`${c.id} added`); });
 

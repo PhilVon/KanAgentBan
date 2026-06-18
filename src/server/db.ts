@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS task (
   priority TEXT NOT NULL DEFAULT 'P2',
   position REAL,
   assignee TEXT,
+  parent_id TEXT REFERENCES task(id),
   version INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
@@ -132,11 +133,32 @@ function migrate(db: DB): void {
     | { value: string }
     | undefined;
   const current = row ? Number(row.value) : 0;
-  if (current === 0) {
+
+  // A brand-new DB already has the latest shape from SCHEMA_SQL above; only an
+  // existing board at an older version needs its tables altered. `current === 0`
+  // covers both a fresh DB and a pre-`meta` board — the column guard below keeps
+  // the ALTER idempotent either way.
+  if (current > 0 && current < 2) {
+    addColumnIfMissing(db, 'task', 'parent_id', 'TEXT REFERENCES task(id)');
+  }
+
+  // Safe once the column is guaranteed present (fresh DBs get it from CREATE TABLE,
+  // older boards from the ALTER above). Kept out of SCHEMA_SQL because that runs
+  // before this migration, when an old board's `parent_id` does not yet exist.
+  db.exec('CREATE INDEX IF NOT EXISTS idx_task_parent ON task(parent_id)');
+
+  if (current < SCHEMA_VERSION) {
     db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)').run(
       'schema_version',
       String(SCHEMA_VERSION),
     );
   }
-  // Future migrations: if (current < N) { ...; bump } — see docs/10 §migrations.
+}
+
+/** Add a column only if absent — keeps repeated migrations idempotent. */
+function addColumnIfMissing(db: DB, table: string, column: string, decl: string): void {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
+  }
 }

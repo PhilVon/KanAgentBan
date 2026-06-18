@@ -5,7 +5,8 @@
 > realtime web UI, the token-efficiency contract, and hardening. Everything that
 > would broaden the model — an MCP interface, log compaction, real subtasks, cloud
 > sync, analytics — is deferred to v2+ so v1 stays small and correct.
-> Multi-agent claiming and external-nudge auto-resume have since shipped post-v1.
+> Multi-agent claiming, external-nudge auto-resume, and first-class subtasks have
+> since shipped post-v1.
 >
 > **Decisions:** v1 = single agent, single local board, CLI-driven, sole writer.
 > Model subtasks as deps + labels in v1. Build phases land in dependency order:
@@ -96,7 +97,7 @@ Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficie
 | Multi-agent support + `kanban claim` | ✅ (post-v1) | |
 | External-nudge auto-resume (webhook / local command) | ✅ (post-v1) | |
 | Event-log compaction (retained floor `seq` + snapshots) | | ✅ |
-| First-class subtasks | | ✅ |
+| First-class subtasks (`parent_id` + rollup) | ✅ (post-v1) | |
 | Cloud sync / multi-machine | | ✅ |
 | Per-task time tracking, burndown / analytics | | ✅ |
 
@@ -117,8 +118,13 @@ Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficie
 - **Event-log compaction** — bound log growth by compacting below a retained
   floor `seq`, emitting `{reset:true}` snapshots so deltas past the floor reseed
   from a snapshot instead of failing.
-- **Subtasks** — true parent/child tasks. v1 models nesting with dependencies +
-  a label, keeping the DAG flat ([00-overview §3](00-overview.md)).
+- **Subtasks** — ✅ **shipped post-v1.** True parent/child tasks via
+  `task.parent_id` (single-parent tree, arbitrary depth, cycle-guarded), separate
+  from the `blocks` DAG. Rollup semantics: a parent with open children is hidden
+  from `next` and can't move to `Done` until they finish (`blocked_by_children`
+  flag); archiving a parent with live children is refused. v1 had faked nesting
+  with deps + a label ([00-overview §3](00-overview.md),
+  [02-data-model §6](02-data-model.md)).
 - **Cloud sync / multi-machine** — v1 is one local process on one machine.
 - **Per-task time tracking, burndown / analytics** — reporting layer over the
   event log, out of v1.

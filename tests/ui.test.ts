@@ -163,6 +163,46 @@ describe('web UI (real app.js against a real server)', () => {
     expect(h.repo.getTask(created.id)!.status).toBe('Ready'); // unchanged
   });
 
+  it('a child card shows the parent badge; the parent drawer lists subtasks', async () => {
+    const parent = h.repo.createTask({ title: 'Parent task', status: 'In Progress', priority: 'P2' });
+    h.repo.createTask({ title: 'Child task', status: 'Ready', parent: parent.id });
+    loadApp();
+
+    // The child card carries a ⤷<parent> badge.
+    await until(() => {
+      const badges = [...document.querySelectorAll('.flag.parent')];
+      return badges.some((b) => b.textContent === `⤷${parent.id}`);
+    });
+
+    // Open the parent's drawer and confirm the Subtasks section renders the child.
+    const parentCard = await until(() =>
+      [...document.querySelectorAll('.card')].find(
+        (c) => c.querySelector('.title')?.textContent === 'Parent task',
+      ) as HTMLElement | undefined,
+    );
+    parentCard.click();
+    const sub = await until(() =>
+      [...document.querySelectorAll('.subtask')].find((s) => s.textContent?.includes('Child task')),
+    );
+    expect(sub).toBeTruthy();
+  });
+
+  it('the "+ Subtask" button in the drawer creates a child under the open task', async () => {
+    const parent = h.repo.createTask({ title: 'Has subtasks', status: 'In Progress', priority: 'P2' });
+    loadApp();
+
+    (await until(() => document.querySelector('.card') as HTMLElement)).click(); // openDrawer
+    const stInput = await until(() => document.querySelector('input.subtask-input') as HTMLInputElement);
+    stInput.value = 'Drawer-made child';
+    const btn = [...document.querySelectorAll('button.send')].find(
+      (b) => b.textContent === '+ Subtask',
+    ) as HTMLElement;
+    btn.click();
+
+    const child = await until(() => h.repo.getChildren(parent.id).find((c) => c.title === 'Drawer-made child'));
+    expect(child.parent_id).toBe(parent.id);
+  });
+
   it('editing a task in the drawer patches it (with version bump)', async () => {
     const created = h.repo.createTask({ title: 'Edit me', priority: 'P2' });
     loadApp();

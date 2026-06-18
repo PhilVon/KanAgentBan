@@ -40,7 +40,9 @@ export function recommend(
           ? 'needs input'
           : d.blocked_by_deps
             ? `waits on ${repo.getBlockers(t.id).filter((b) => b.status !== 'Done').map((b) => b.id).join(', ')}`
-            : 'not actionable';
+            : d.blocked_by_children
+              ? `has ${repo.openChildCount(t.id)} open subtask(s)`
+              : 'not actionable';
         return { id: t.id, reason };
       });
     return { none: true, blocked };

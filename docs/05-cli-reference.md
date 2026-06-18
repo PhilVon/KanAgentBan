@@ -108,9 +108,10 @@ requests are listed. See [04-human-in-the-loop](04-human-in-the-loop.md).
 
 ## Write & workflow commands
 
-### `kanban add "<title>" [--desc T] [--summary T] [--status S] [--prio P0..P3] [--label L,...] [--depends T-3,T-4] [--ac "text" ...]`
+### `kanban add "<title>" [--desc T] [--summary T] [--status S] [--prio P0..P3] [--parent T-1] [--label L,...] [--depends T-3,T-4] [--ac "text" ...]`
 Creates a task; prints the new `T-n`. `--depends` adds `blocks` edges;
-`--ac` adds acceptance criteria.
+`--ac` adds acceptance criteria. `--parent` nests it as a subtask under an
+existing task (§subtasks).
 
 ### `kanban update <id> [--title T] [--desc T] [--summary T] [--prio P] [--expect-version N]`
 Edits fields. `--expect-version` enables optimistic concurrency; a stale version
@@ -118,10 +119,20 @@ exits `4`.
 
 ### `kanban move <id> <column>`
 Sets workflow `status`. (Being *blocked* is derived, not a column you move to —
-see [02-data-model §5](02-data-model.md).)
+see [02-data-model §5](02-data-model.md).) Moving a parent to `Done` while it has
+open subtasks is rejected (exit `1`).
 
 ### `kanban dep add <id> --on <id>` / `kanban dep rm <id> --on <id>`
 Add/remove a `blocks` edge. Cycle/self/duplicate rejected (exit `1`).
+
+### `kanban parent <id> --to <pid>` / `kanban parent <id> --clear`
+Nest `<id>` as a subtask of `<pid>`, or detach it back to the top level.
+Single-parent tree (distinct from `blocks` deps); self-parenting and cycles
+(making a task a descendant of itself) are rejected (exit `1`). A parent with open
+subtasks is hidden from `next` and **cannot** `move`/`done` to `Done` until they
+finish; archiving a parent with live children is refused. `show`/`context` and the
+UI surface children with a `subtasks d/t` count, and child cards carry a
+`⤷T-parent` badge ([02-data-model §6](02-data-model.md)).
 
 ### `kanban comment <id> "<body>"`
 Adds an `agent` comment. (Users comment from the UI.)

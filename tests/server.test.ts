@@ -301,3 +301,38 @@ describe('server: websocket realtime', () => {
     expect(code).toBe(4401);
   });
 });
+
+describe('server: subtasks', () => {
+  it('creates a subtask via POST /api/tasks {parent} and sets/clears it via the parent endpoints', async () => {
+    const { body: p } = await api('POST', '/api/tasks', { title: 'parent' });
+    const { body: c } = await api('POST', '/api/tasks', { title: 'child', parent: p.id });
+    expect(c.parent_id).toBe(p.id);
+
+    const { body: detached } = await api('DELETE', `/api/tasks/${c.id}/parent`);
+    expect(detached.parent_id).toBeNull();
+    const { body: reattached } = await api('POST', `/api/tasks/${c.id}/parent`, { parent: p.id });
+    expect(reattached.parent_id).toBe(p.id);
+  });
+
+  it('rejects a cycle (400) and a Done move with open children (400)', async () => {
+    const { body: a } = await api('POST', '/api/tasks', { title: 'a', status: 'In Progress' });
+    const { body: b } = await api('POST', '/api/tasks', { title: 'b', parent: a.id });
+    const cycle = await api('POST', `/api/tasks/${a.id}/parent`, { parent: b.id });
+    expect(cycle.status).toBe(400);
+    const done = await api('POST', `/api/tasks/${a.id}/move`, { status: 'Done' });
+    expect(done.status).toBe(400);
+  });
+
+  it('the UI board carries parent_id / child counts and projects a blocked parent into Blocked', async () => {
+    const { body: p } = await api('POST', '/api/tasks', { title: 'parent', status: 'In Progress' });
+    await api('POST', '/api/tasks', { title: 'child', status: 'Ready', parent: p.id });
+    const { body } = await api('GET', '/api/ui/board');
+    const parentCard = body.tasks.find((t: any) => t.id === p.id);
+    expect(parentCard.child_total).toBe(1);
+    expect(parentCard.child_done).toBe(0);
+    expect(parentCard.blocked_by_children).toBe(true);
+    expect(parentCard.column).toBe('Blocked');
+    const detail = await api('GET', `/api/ui/tasks/${p.id}`);
+    expect(detail.body.children.map((c: any) => c.title)).toEqual(['child']);
+  });
+});

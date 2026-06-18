@@ -69,6 +69,10 @@ Each card is a compact summary keyed by its public id:
     is mirrored in the inbox (§4). Visually emphasized over the others.
   - 💬 **unread comments** — count of comments newer than the human's last view
     of the card (badge with the number).
+  - ⊞ **subtasks `d/t`** — on a parent: how many of its children are Done
+    (`blocked_by_children` keeps it out of `next` until `d == t`).
+  - ⤷`T-parent` **subtask-of** — on a child: a link/badge to its parent task
+    ([02-data-model §6](02-data-model.md)).
 
 Cards are ordered within a column by `position`
 ([02-data-model §task](02-data-model.md)).
@@ -115,6 +119,12 @@ Opening a card slides in a drawer backed by `GET /api/tasks/:id?view=show`
 - **Acceptance criteria** — a checklist with a **`x/y` progress** count. Each
   item toggles via `PATCH /api/criteria/:acid` (`criterion.checked` /
   `criterion.unchecked`).
+- **Parent** — when the task is a subtask, a `⤷ parent: T-p` link that opens the
+  parent's drawer.
+- **Subtasks** — a **`d/t`** count and the list of children (id, title, status);
+  each row opens that child's drawer. A **+ Subtask** field creates a child via
+  `POST /api/tasks {parent}`. A parent can't be dragged to `Done` until its
+  children are Done ([02-data-model §6](02-data-model.md)).
 - **Dependencies** — two lists with each entry's status:
   - **Blockers** (this task is blocked by →): the `to_task`s; flagged until each
     is `Done`.
@@ -161,8 +171,9 @@ sync, and HITL wakeups ([09-concurrency](09-concurrency.md)).
 | Event type | UI effect |
 |------------|-----------|
 | `task.created` / `task.updated` | upsert card; refresh open drawer |
-| `task.moved` | relocate card to its column / position |
+| `task.moved` | relocate card to its column / position; recompute parent's `blocked_by_children` |
 | `task.archived` | remove card |
+| `task.reparented` | update child's parent badge + both tasks' subtask counts |
 | `dep.added` / `dep.removed` | recompute dep-blocked flag + Blocked projection |
 | `comment.added` | append to thread; bump unread badge |
 | `criterion.*` | re-render checklist + `x/y` |
