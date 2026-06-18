@@ -3,18 +3,17 @@
 > **Summary:** A phased build plan from design → v1 → v2+. Phase 0 is this doc
 > set; v1 (phases 1–5) ships the sole-writer server, the `kanban` CLI + skill, the
 > realtime web UI, the token-efficiency contract, and hardening. Everything that
-> would broaden the model — multi-agent claiming, an MCP interface, external-nudge
-> auto-resume, log compaction, real subtasks, cloud sync, analytics — is
-> explicitly deferred to v2+ so v1 stays small and correct.
+> would broaden the model — an MCP interface, log compaction, real subtasks, cloud
+> sync, analytics — is deferred to v2+ so v1 stays small and correct.
+> Multi-agent claiming and external-nudge auto-resume have since shipped post-v1.
 >
 > **Decisions:** v1 = single agent, single local board, CLI-driven, sole writer.
-> Ship the *answer-event hook* now but the external trigger later. Model subtasks
-> as deps + labels in v1. Build phases land in dependency order: data/event spine
-> before CLI before UI before polish before hardening.
+> Model subtasks as deps + labels in v1. Build phases land in dependency order:
+> data/event spine before CLI before UI before polish before hardening.
 >
 > **Open questions:** Default `--max-tokens`; MCP vs CLI as the v2 agent
-> interface; external-nudge transport. Consolidated in §4. (Storage is **locked:
-> one SQLite DB per project** at `.kanban/board.db`.)
+> interface. Consolidated in §4. (Storage is **locked: one SQLite DB per project**
+> at `.kanban/board.db`.)
 
 Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficiency.md) ·
 [04-human-in-the-loop](04-human-in-the-loop.md) · [09-concurrency](09-concurrency.md)
@@ -94,7 +93,7 @@ Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficie
 | Answer-event hook designed (trigger not wired) | ✅ | |
 | MCP server interface (alt. to CLI for other agents) | | ✅ |
 | Multi-agent support + `kanban claim` | ✅ (post-v1) | |
-| External-nudge auto-resume (webhook / desktop notify) | | ✅ |
+| External-nudge auto-resume (webhook / local command) | ✅ (post-v1) | |
 | Event-log compaction (retained floor `seq` + snapshots) | | ✅ |
 | First-class subtasks | | ✅ |
 | Cloud sync / multi-machine | | ✅ |
@@ -109,10 +108,11 @@ Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficie
   board without stepping on each other; a claimed task drops out of other agents'
   `next`. Agent identity travels via `KANBAN_AGENT` / `--as`
   ([09-concurrency §9](09-concurrency.md)).
-- **External-nudge auto-resume** — on `input.answered`, fire a webhook / desktop
-  notification that a wrapper uses to re-invoke Claude Code. This is strategy (C)
-  in [04-human-in-the-loop §3](04-human-in-the-loop.md); the answer-event hook is
-  designed in v1, the trigger ships in v2.
+- **External-nudge auto-resume** — ✅ **shipped post-v1.** On `input.answered` the
+  server fires an opt-in webhook and/or local command that a wrapper uses to
+  re-invoke Claude Code — strategy (C) in
+  [04-human-in-the-loop §3](04-human-in-the-loop.md). Transport decision:
+  [adr/0006](adr/0006-external-nudge-transport.md).
 - **Event-log compaction** — bound log growth by compacting below a retained
   floor `seq`, emitting `{reset:true}` snapshots so deltas past the floor reseed
   from a snapshot instead of failing.
@@ -143,7 +143,7 @@ Consolidated from across the doc set; each blocks or shapes a later phase.
 | Default `--max-tokens` value | [03-token-efficiency](03-token-efficiency.md), [00-overview](00-overview.md) | 4 |
 | ~~One DB per board vs a central DB~~ — **locked: one DB per project** (`.kanban/board.db`) | [02-data-model](02-data-model.md), [00-overview](00-overview.md) | 1 |
 | MCP vs CLI as the agent interface | [00-overview](00-overview.md) | v2 |
-| External-nudge transport (webhook vs desktop notification) | [04-human-in-the-loop](04-human-in-the-loop.md) | v2 |
+| ~~External-nudge transport (webhook vs desktop notification)~~ — **resolved: both** (webhook + local command) | [04-human-in-the-loop](04-human-in-the-loop.md), [adr/0006](adr/0006-external-nudge-transport.md) | post-v1 |
 
 ---
 

@@ -2,6 +2,8 @@
 import * as fs from 'node:fs';
 import { Command } from 'commander';
 import { api, CliError, connect, initBoard } from './board';
+import { boardPaths, findBoardRoot, readBoardMeta, writeBoardMeta } from '../shared/board-paths';
+import type { NudgeConfig } from '../shared/types';
 
 const program = new Command();
 program
@@ -190,7 +192,43 @@ program.command('answer <qid> <text>').action(async (qid, text) => { const r = a
 // ---- lifecycle -----------------------------------------------------------
 const board = program.command('board');
 board.command('init').option('--name <n>').action((o) => { const p = initBoard(program.opts().board || process.cwd(), o.name); out(`board initialized at ${p.dir}`); });
-board.command('show').action(async () => out(JSON.stringify(await api(await conn(), 'GET', '/api/board'), null, 2)));
+board.command('show').action(async () => {
+  const r = await api(await conn(), 'GET', '/api/board');
+  const meta = readBoardMeta(boardPaths(r.root));
+  out(JSON.stringify({ ...r, nudge: meta.nudge ? redactNudge(meta.nudge) : null }, null, 2));
+});
+
+// External-nudge auto-resume config (docs/04 §3C). Local board.json edit — no
+// server round-trip. Env (KANBAN_NUDGE_URL / KANBAN_NUDGE_CMD) overrides at runtime.
+board
+  .command('nudge')
+  .description('configure external-nudge auto-resume (webhook / command on input.answered)')
+  .option('--url <url>', 'webhook URL to POST answered events to')
+  .option('--cmd <cmd>', 'local command to spawn on an answer')
+  .option('--header <kv...>', 'webhook header as key=value (repeatable)')
+  .option('--clear', 'remove all nudge config')
+  .action((o) => {
+    const root = program.opts().board ?? findBoardRoot(process.cwd());
+    if (!root) throw new CliError('no board here — run `kanban board init` first', 3);
+    const paths = boardPaths(root);
+    const meta = readBoardMeta(paths);
+    if (o.clear) {
+      delete meta.nudge;
+      writeBoardMeta(paths, meta);
+      out('nudge config cleared');
+      return;
+    }
+    if (o.url || o.cmd || o.header) {
+      const nudge: NudgeConfig = { ...meta.nudge };
+      if (o.url) nudge.url = o.url;
+      if (o.cmd) nudge.cmd = o.cmd;
+      if (o.header) nudge.headers = { ...nudge.headers, ...parseHeaders(o.header) };
+      meta.nudge = nudge;
+      writeBoardMeta(paths, meta);
+      out('nudge config saved (restart the server to apply)');
+    }
+    out(meta.nudge ? JSON.stringify(redactNudge(meta.nudge), null, 2) : 'no nudge configured');
+  });
 
 program.command('export').option('--out <file>', 'write JSON to a file instead of stdout').action(async (o) => {
   const snap = await api(await conn(), 'GET', '/api/export');
@@ -225,5 +263,28 @@ function split(s?: string): string[] | undefined {
 function clean<T extends Record<string, unknown>>(o: T): Record<string, string> {
   const r: Record<string, string> = {};
   for (const [k, v] of Object.entries(o)) if (v !== undefined && v !== null && v !== false) r[k] = String(v);
+  return r;
+}
+function parseHeaders(pairs: string[]): Record<string, string> {
+  const h: Record<string, string> = {};
+  for (const p of pairs) {
+    const i = p.indexOf('=');
+    if (i > 0) h[p.slice(0, i).trim()] = p.slice(i + 1).trim();
+  }
+  return h;
+}
+/** Hide secrets when displaying nudge config: drop the URL query/userinfo and
+ *  mask any header values (they may carry auth tokens). */
+function redactNudge(n: NudgeConfig): NudgeConfig {
+  const r: NudgeConfig = { ...n };
+  if (r.url) {
+    try {
+      const u = new URL(r.url);
+      r.url = `${u.protocol}//${u.host}${u.pathname}${u.search ? '?…' : ''}`;
+    } catch {
+      /* leave malformed URL as-is */
+    }
+  }
+  if (r.headers) r.headers = Object.fromEntries(Object.keys(r.headers).map((k) => [k, '…']));
   return r;
 }

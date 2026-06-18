@@ -140,3 +140,21 @@ export interface DerivedState {
   needs_input: boolean;
   ready: boolean;
 }
+
+/** External-nudge auto-resume transport config (docs/04-human-in-the-loop §3C,
+ *  docs/adr/0006). Both transports are optional and off by default. */
+export interface NudgeConfig {
+  /** Webhook URL; the server POSTs the `input.answered` event here. */
+  url?: string;
+  /** Extra headers sent with the webhook POST (e.g. an auth token). */
+  headers?: Record<string, string>;
+  /** Local command to spawn; event fields are passed via KANBAN_* env vars. */
+  cmd?: string;
+}
+
+/** Persisted per-board metadata in `.kanban/board.json`. */
+export interface BoardMeta {
+  name?: string;
+  created_at?: string;
+  nudge?: NudgeConfig;
+}

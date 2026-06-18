@@ -9,10 +9,9 @@
 > **Decisions:** Default = durable-async (ask → yield → inbox → resume). `await`
 > long-poll is opt-in for short waits and returns *pending* (not an error) on
 > timeout. Lost-wakeup race is closed by checking committed state before parking.
-> Multiple open questions allowed per task/board.
->
-> **Open questions:** External-nudge transport (webhook vs desktop notification)
-> for v2 auto-resume.
+> Multiple open questions allowed per task/board. External-nudge auto-resume
+> (strategy C) is now shipped over both a webhook and a local command
+> ([adr/0006](adr/0006-external-nudge-transport.md)).
 
 Related: [02-data-model](02-data-model.md) · [05-cli-reference](05-cli-reference.md) ·
 [07-api-reference](07-api-reference.md) · [06-skill](06-skill.md)
@@ -89,11 +88,24 @@ kanban context T-12    # reload working set, continue
 This is the token- and reliability-optimal path: no held connection, survives
 session boundaries, and lets the agent stay productive on other tasks.
 
-### (C) External nudge — *v2*
-On `input.answered` the server fires a webhook / desktop notification that a
-wrapper uses to re-invoke Claude Code automatically. The answer-event hook is
-designed now ([07-api-reference](07-api-reference.md)); the trigger ships later
-([11-roadmap](11-roadmap.md)).
+### (C) External nudge — **shipped (post-v1)**
+On `input.answered` the server fires an outbound nudge that a wrapper uses to
+re-invoke Claude Code automatically — so the human answering a question resumes the
+agent without anyone running `inbox` by hand. Two opt-in transports, both
+fire-and-forget and off by default ([adr/0006](adr/0006-external-nudge-transport.md)):
+
+- **Webhook** — POSTs the `input.answered` event (the WS frame shape,
+  [07-api-reference](07-api-reference.md)) to a configured URL.
+- **Local command** — spawns a shell command with the event in `KANBAN_*` env
+  vars; covers desktop-notify and re-invoke scripts.
+
+Configure per board (env overrides `board.json`):
+
+```
+kanban board nudge --url https://hooks.example.com/kanban --header x-auth=secret
+kanban board nudge --cmd 'notify-send "kanban: $KANBAN_TASK_ID answered"'
+# or, ad-hoc:  KANBAN_NUDGE_URL=… / KANBAN_NUDGE_CMD=…  in the server's env
+```
 
 ---
 

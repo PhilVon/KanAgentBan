@@ -127,3 +127,35 @@ Event `type` values are exactly the canonical list in
 [02-data-model §3](02-data-model.md). The UI re-renders affected cards;
 parked `await` long-polls resolve off the same in-process emitter that feeds this
 stream, guaranteeing ordering consistency between push, delta sync, and HITL wakeups.
+
+---
+
+## External-nudge auto-resume (outbound)
+
+A third consumer of the same in-process event spine: an opt-in notifier that, on
+`input.answered`, fires an **outbound** nudge so a wrapper can auto-resume the
+agent (strategy (C) in [04-human-in-the-loop §3](04-human-in-the-loop.md),
+[adr/0006](adr/0006-external-nudge-transport.md)). Off by default.
+
+Config lives in `.kanban/board.json` under `nudge`, with env overrides
+(`KANBAN_NUDGE_URL`, `KANBAN_NUDGE_CMD`); set via `kanban board nudge`:
+
+```json
+{ "nudge": { "url": "https://hooks.example.com/kanban",
+             "headers": { "x-auth": "…" },
+             "cmd": "notify-send \"kanban: $KANBAN_TASK_ID answered\"" } }
+```
+
+- **Webhook** — `POST <url>` (configured `headers` merged in, 5s timeout). Body is
+  the WS event frame plus `board_root`:
+  ```json
+  { "board_root": "/path/to/project", "seq": 142, "type": "input.answered",
+    "task_id": "T-12", "actor_type": "user", "ts": "2026-06-18T10:03:00Z",
+    "payload": { "request_id": "Q-7", "answer": "Auth0" } }
+  ```
+- **Command** — spawns `cmd` (shell, detached) with `KANBAN_EVENT_TYPE`,
+  `KANBAN_TASK_ID`, `KANBAN_REQUEST_ID`, `KANBAN_ANSWER`, `KANBAN_BOARD_ROOT` set.
+
+Both are fire-and-forget: failures are logged and swallowed, never breaking the
+answer write. Security notes (outbound URL carries the answer; command runs with
+server privileges): [10-security-lifecycle](10-security-lifecycle.md).

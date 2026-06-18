@@ -189,8 +189,10 @@ Records an answer from the CLI (parity with the UI; mostly for testing/automatio
 | `kanban serve [--port N]` | Start the server (usually auto-invoked). |
 | `kanban open` | Open the web UI in the browser (mints a one-time UI token URL). |
 | `kanban board init [--name N]` | Create `.kanban/` + DB + token for this project. |
-| `kanban board show` | Print board id, port, db path, column config. |
+| `kanban board show` | Print board id, port, db path, column config, and nudge config. |
+| `kanban board nudge [--url U] [--cmd C] [--header K=V…] [--clear]` | Configure external-nudge auto-resume; no flags prints current config (see [04 §3C](04-human-in-the-loop.md)). |
 | `kanban export [--out FILE]` | Dump board to JSON for backup. |
 
-Every command above maps 1:1 to a REST endpoint in
-[07-api-reference](07-api-reference.md).
+Most commands above map 1:1 to a REST endpoint in
+[07-api-reference](07-api-reference.md); `board init` / `board nudge` are local
+edits to `.kanban/` and need no running server.

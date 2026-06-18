@@ -139,6 +139,23 @@ alone (see the threat table in §1).
 - The token file and DB inherit `0600` / user-only filesystem permissions; backups
   produced by `kanban export` (§8) contain board *data* only, not the token.
 
+### External-nudge egress
+
+External-nudge auto-resume ([04-human-in-the-loop §3C](04-human-in-the-loop.md),
+[adr/0006](adr/0006-external-nudge-transport.md)) is the one path that sends data
+**off the loopback interface**, so it is **off by default** and entirely
+user-configured:
+
+- The **webhook** POSTs the `input.answered` event — which includes the **answer
+  text** — to a user-chosen URL. Point it only at endpoints you trust; put any
+  endpoint auth in the `nudge.headers` (or a secret-bearing `KANBAN_NUDGE_URL`),
+  not in board content.
+- The **command** runs with the **server's privileges**. Only configure a command
+  you control; the answer arrives via `KANBAN_*` env vars (never interpolated into
+  a shell string by the server).
+- Both are fire-and-forget and failures are swallowed, so a hostile or dead
+  endpoint cannot break answering or wedge the sole-writer server.
+
 ---
 
 ## 6. Server lifecycle & auto-start
@@ -244,3 +261,4 @@ Boards are keyed by **project path**.
 | Registry consistent | `~/.kanban/registry.json` keyed by `project_path`; port file / `/healthz` wins on mismatch (§7) |
 | Export available | `kanban export` JSON backup; back up WAL sidecars with the DB (§7, §8) |
 | Schema migrated | `schema_version` checked & migrated on server start (§8) |
+| Nudge egress controlled | External nudge off by default; webhook URL/command user-configured & trusted (§5) |

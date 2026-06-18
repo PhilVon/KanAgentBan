@@ -17,3 +17,4 @@ docs in [`../`](../) (data model, token efficiency, human-in-the-loop, and more)
 | [0003](0003-single-writer-server.md) | Single-Writer Server per Board | Accepted |
 | [0004](0004-derived-blocked-status.md) | "Blocked" Is Derived, Not a Stored Status | Accepted |
 | [0005](0005-artifacts-are-references-not-blobs.md) | Artifacts Are References, Not Blobs | Accepted |
+| [0006](0006-external-nudge-transport.md) | External-Nudge Transport: Webhook + Local Command | Accepted |

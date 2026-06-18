@@ -14,8 +14,9 @@ import {
 } from './render';
 import { recommend } from './recommend';
 import { deriveState } from './derive';
-import { ensureBoard, readToken } from '../shared/board-paths';
-import { DISPLAY_COLUMNS, type ActorType } from '../shared/types';
+import { ensureBoard, readToken, readBoardMeta } from '../shared/board-paths';
+import { attachNudge } from './nudge';
+import { DISPLAY_COLUMNS, type ActorType, type NudgeConfig } from '../shared/types';
 
 const WEB_DIR = path.resolve(__dirname, '../../web');
 // Non-sensitive client assets served without a token (see auth middleware).
@@ -387,6 +388,16 @@ export async function startServer(opts: { root?: string; port?: number } = {}): 
   const server = http.createServer(app);
   const wss = attachWs(server, repo, token);
 
+  // External-nudge auto-resume (docs/04 §3C). Config from board.json, with env
+  // overrides for ad-hoc / secret-bearing values. Inert unless configured.
+  const meta = readBoardMeta(paths);
+  const nudge: NudgeConfig = {
+    ...meta.nudge,
+    url: process.env.KANBAN_NUDGE_URL ?? meta.nudge?.url,
+    cmd: process.env.KANBAN_NUDGE_CMD ?? meta.nudge?.cmd,
+  };
+  const detachNudge = attachNudge(repo, nudge, root);
+
   await new Promise<void>((resolve) => server.listen(opts.port ?? 0, '127.0.0.1', resolve));
   const port = (server.address() as any).port as number;
   fs.writeFileSync(paths.port, String(port));
@@ -394,6 +405,7 @@ export async function startServer(opts: { root?: string; port?: number } = {}): 
 
   const close = () =>
     new Promise<void>((resolve) => {
+      detachNudge();
       wss.close();
       server.close(() => {
         db.close();

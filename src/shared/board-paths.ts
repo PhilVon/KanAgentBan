@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import type { BoardMeta } from './types';
 
 // Per-project board layout (storage is locked to one DB per project —
 // see docs/02-data-model.md, docs/10-security-lifecycle.md).
@@ -13,6 +14,7 @@ export interface BoardPaths {
   token: string;
   port: string;
   pid: string;
+  meta: string;
 }
 
 export function boardPaths(root: string): BoardPaths {
@@ -24,6 +26,7 @@ export function boardPaths(root: string): BoardPaths {
     token: path.join(dir, 'token'),
     port: path.join(dir, 'port'),
     pid: path.join(dir, 'pid'),
+    meta: path.join(dir, 'board.json'),
   };
 }
 
@@ -44,14 +47,23 @@ export function ensureBoard(root: string, name?: string): BoardPaths {
   if (!fs.existsSync(p.token)) {
     fs.writeFileSync(p.token, crypto.randomBytes(24).toString('hex'), { mode: 0o600 });
   }
-  const metaPath = path.join(p.dir, 'board.json');
-  if (!fs.existsSync(metaPath)) {
-    fs.writeFileSync(
-      metaPath,
-      JSON.stringify({ name: name ?? path.basename(root), created_at: new Date().toISOString() }, null, 2),
-    );
+  if (!fs.existsSync(p.meta)) {
+    writeBoardMeta(p, { name: name ?? path.basename(root), created_at: new Date().toISOString() });
   }
   return p;
+}
+
+/** Read `.kanban/board.json`; returns `{}` if missing or malformed. */
+export function readBoardMeta(p: BoardPaths): BoardMeta {
+  try {
+    return JSON.parse(fs.readFileSync(p.meta, 'utf8')) as BoardMeta;
+  } catch {
+    return {};
+  }
+}
+
+export function writeBoardMeta(p: BoardPaths, meta: BoardMeta): void {
+  fs.writeFileSync(p.meta, JSON.stringify(meta, null, 2));
 }
 
 export const readToken = (p: BoardPaths): string => fs.readFileSync(p.token, 'utf8').trim();
