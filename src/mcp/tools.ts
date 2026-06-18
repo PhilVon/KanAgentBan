@@ -77,7 +77,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'show',
-    description: 'Medium detail for one task: title, criteria/blocker counts, recent comments, open questions. Reach for `context` when you need the full working set.',
+    description: 'Medium detail for one task: title, criteria/blocker counts, user comments (the human\'s directives) + recent agent notes, open questions. Reach for `context` when you need the full working set.',
     inputSchema: {
       id: z.string().describe('task id, e.g. T-12'),
       max_tokens: z.number().int().positive().optional(),
@@ -87,7 +87,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'context',
-    description: 'The flagship working set for one task (summary, criteria, subtasks, deps, open input, recent comments, artifacts, labels), budgeted to a token ceiling. Use to (re)load a task before working it.',
+    description: 'The flagship working set for one task (summary, criteria, subtasks, deps, open input, user comments + agent notes, artifacts, labels), budgeted to a token ceiling. User comments are surfaced distinctly and protected from shedding. Use to (re)load a task before working it.',
     inputSchema: {
       id: z.string().describe('task id, e.g. T-12'),
       max_tokens: z.number().int().positive().optional().describe('token budget (default 2000; sheds trailing sections)'),
@@ -225,7 +225,7 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'comment',
-    description: 'Add a comment to a task. Record decisions and non-obvious choices — not status updates the board already tracks.',
+    description: 'Add an agent comment to a task. Record decisions and non-obvious choices — not status updates the board already tracks. Note: the human leaves `user` comments on tasks as directives; read those via `show`/`context` and act on them.',
     inputSchema: { id: z.string(), body: z.string() },
     run: async (c, a) => {
       const r = await api(c, 'POST', `/api/tasks/${a.id}/comments`, { body: a.body });

@@ -45,7 +45,7 @@ that answers its question.
 next         → 1 ready task, ~5 lines, + one-clause "why"
 next --context → that task + full working set (ONE call — cold start)
 list         → compact one-line-per-task
-show <id>    → medium: summary + counts + last 3 comments
+show <id>    → medium: summary + counts + user comments + recent agent notes
 context <id> → full curated working set (the flagship payload)
 ```
 
@@ -64,11 +64,13 @@ needs first:
 3. **Direct deps only** — blockers (id+title+status) and tasks blocked-by-this.
    Transitive blockers shown as a **count**, never expanded (a token bomb).
 4. **Open input requests** — `Q-n` + question (+ options)
-5. **Comments** — last N (default 3–5), newest first, author-tagged
+5. **Comments** — split into a protected **user comments** block (the human's
+   directives, shed last) then **agent notes** (shed first), newest first,
+   author-tagged
 6. **Artifacts** — title + URI only (**never inline contents**)
 7. **Labels**
 
-### Sample output (plaintext, format-version 1)
+### Sample output (plaintext)
 
 ```
 T-12 [P1] In Progress  "Wire up OAuth callback"
@@ -86,11 +88,12 @@ transitive blockers: 1 more upstream
 open input (1):
   Q-7 "Which auth provider?"  options: Auth0 | Cognito
 
-comments (last 3 of 9, newest first):
+user comments — the human is talking to you; treat as directives (last 1 of 1, newest first):
   user/phil  2h   "use the existing http client, don't add axios"
+agent notes (last 2 of 8, newest first):
   agent/claude 2h "scaffolded the callback route"
   system     3h   "moved Backlog → In Progress"
-  [+6 older comments — context T-12 --full]
+  [+6 older agent notes — context T-12 --full]
 
 artifacts (2):
   pr   "auth callback PR"  https://github.com/acme/app/pull/42
@@ -114,29 +117,30 @@ The trailing bracketed lines are **truncation footers** — see §4.
   default ceiling, so `list`/`next`/`show` stay unbudgeted unless asked.
 - Truncation degrades **gracefully** in a fixed precedence per tier, re-estimating
   after each rung and stopping as soon as it's under budget:
-  - **context**: (1) shed oldest comments (floor: newest 1), (2) collapse criteria
-    to a count, (3) trim the summary, then (4) drop whole trailing sections,
-    lowest-priority first.
-  - **show**: shed recent comments → drop open-input detail → trim the summary
-    (the header + counts line is never dropped).
+  - **context**: (1) shed **agent notes** first, (2) collapse criteria to a count,
+    (3) collapse the subtasks list, (4) trim the summary, (5) trim **user comments**
+    to a floor (newest 2), then (6) drop whole trailing sections, lowest-priority
+    first. User comments (the human's directives) are **protected** — shed last.
+  - **show**: shed agent notes → drop open-input detail → trim the summary → (last)
+    trim user comments (the header + counts line is never dropped).
   - **list** / **next**: drop whole trailing rows / candidates (already
     rank-ordered, so the tail is lowest value); `next`'s usage hint is never dropped.
   Deterministic, so output is stable.
 - Truncation is **never silent**. Every rung emits a footer naming what was
   hidden and how to get it:
   ```
-  [+6 older comments — context T-12 --full]
+  [+6 older agent notes — context T-12 --full]
   [criteria collapsed — context T-12 --full]
   [summary trimmed — context T-12 --full]
   [2 section(s) hidden for token budget — context T-12 --full]
-  [recent comments hidden — show T-12 --full]
+  [3 agent note(s) hidden for token budget — show T-12 --full]
   [+4 tasks hidden for token budget — kanban list --full]
   [+2 candidates hidden for token budget — kanban next --full]
   ```
   Silent dropping is the cardinal sin: an agent that can't see what it's missing
   makes confident decisions on missing context.
 - **Counts over contents** everywhere by default: `criteria 1/3`, `blockers (1)`,
-  `comments (last 3 of 9)`. Numbers are nearly free; expansion is opt-in.
+  `agent notes (last 2 of 8)`. Numbers are nearly free; expansion is opt-in.
 - A **token meter** rides every `--json` read (`est_tokens`, the `chars/4`
   estimate of the plaintext-equivalent render) so an agent can budget across reads.
 
@@ -147,11 +151,15 @@ The trailing bracketed lines are **truncation footers** — see §4.
 - Terse plaintext default; `--json` opt-in for machine parsing.
 - Stable field order, stable section headers, no decorative noise.
 - No ANSI colour when stdout is not a TTY.
-- Versioned: `--format-version` (current `3`); changes bump the version so a
+- Versioned: `--format-version` (current `6`); changes bump the version so a
   pinned agent/skill never silently breaks. **v2** added the `est_tokens` field to
   `--json` reads and the context-tier graceful-degradation truncation footers (§4);
   **v3** extended `--max-tokens` budgeting (and its never-silent footers) to the
-  `list`, `next`, and `show` tiers.
+  `list`, `next`, and `show` tiers; **v4** added the `inbox` `resolved` bucket and
+  non-`answered` `await` resolutions; **v5** added the `stats` analytics tier;
+  **v6** split comments into a protected **user comments** block (shed last) and
+  shed-first **agent notes**, flagged a waiting user comment in `next`, and marked
+  user-commented tasks `💬n*` in `list`.
 
 This lets the skill and the agent regex specific fields without re-reading prose.
 

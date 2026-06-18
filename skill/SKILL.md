@@ -22,26 +22,30 @@ UI and answers your questions. Full design: `docs/`. CLI contract:
 - Need a human decision → `ask`, then resume (see below).
 - **Skip it** for trivial one-shot requests.
 
-## Token discipline (this is the point — see docs/03)
+## Reading efficiently (see docs/03)
 
-Always read the **narrowest** thing that answers your question:
+You drive this board — the **whole** command surface (cheat-sheet below) is yours to
+use. These read tiers just help you pull the *narrowest* view that answers the
+question, so you don't burn tokens dumping the board when one task's working set
+would do:
 
-- `kanban next` — "what should I work on?" (~5 lines)
+- `kanban next` — "what should I work on?" (~5 lines; flags any waiting user comment)
 - `kanban next --context` — cold start: the task to do **and** its full working set, one call
 - `kanban context <id>` — full working set for a known task
 - `kanban show <id>` — medium detail
 - `kanban watch <id> --since <seq>` — cheap mid-task refresh (only what changed)
-- **Avoid** dumping the whole board. Trust truncation footers; expand with `--full` only when needed.
+- Reads carry never-silent truncation footers; expand with `--full` (or raise
+  `--max-tokens`) whenever you need the dropped detail.
 
 ## Working a task
 
 ```
-kanban next --context                  # load only what you need
+kanban next --context                  # load only what you need (incl. user comments)
 kanban claim T-12                       # multi-agent: reserve it so peers skip it
 kanban move T-12 "In Progress"
 kanban criterion add T-12 "handles error responses"
 kanban criterion check AC-32
-kanban comment T-12 "scaffolded the callback route"
+kanban comment T-12 "scaffolded the callback route"   # your own progress note
 kanban artifact T-12 --kind pr --title "auth PR" --uri https://github.com/acme/app/pull/42
 kanban done T-12
 ```
@@ -52,6 +56,23 @@ they do, set a distinct `KANBAN_AGENT` per agent (else they collide on the defau
 `kanban next`; it does **not** change status. `done` needs no release (Done tasks
 never surface in `next`); `kanban release T-12` returns an **unfinished** task you're
 abandoning to the pool, and `kanban next --mine` lists only what you hold.
+
+## User comments = the human talking to you
+
+Comments are a **two-way** channel, not just your scratchpad. The human leaves
+comments on tasks from the web UI to steer you — corrections, extra requirements,
+answers you didn't formally `ask` for. **Treat a user comment as a directive:**
+
+- **Read them before you start or resume a task.** `kanban next` flags a waiting
+  one (`↳ user comment: …`); `kanban show`/`context` print them in their own
+  **"user comments — the human is talking to you"** block; `kanban list` marks the
+  task `💬n*` (the `*` = at least one user comment).
+- They're **protected from token-budget trimming** — agent notes get shed first, so
+  a human directive won't silently vanish under `--max-tokens`. If you ever see a
+  `[user comment(s) hidden …]` footer, re-read with `--full`.
+- **Act on them, then acknowledge** — adjust the work, and reply with your own
+  `kanban comment <id> "…"` (or `kanban ask` if you need a decision) so the human
+  sees you got it. Don't silently ignore a comment.
 
 ## Subtasks (decomposing a task)
 
@@ -113,8 +134,12 @@ need a human decision?
 
 ## Command cheat-sheet
 
-- Read: `next [--context|--n]`, `list`, `show <id>`, `context <id> [--full|--max-tokens]`, `watch <id> --since`, `changes --since`, `inbox`
-- Write: `add [--parent T-1]`, `update`, `move`, `done`, `archive`, `claim [--force]`, `release [--force]`, `dep add/rm`, `parent <id> --to <pid>|--clear`, `comment`, `criterion add/check`, `label`, `artifact`, `summarize`
-- HITL: `ask [--options|--expires-at]`, `await`, `answer`, `cancel`
-- Lifecycle: `board init/show`, `serve`, `open`
-- Reporting (not the work loop): `stats [id]` — board analytics / per-task timing, read-only.
+The full surface — nothing here is off-limits. Any read takes `--json` and
+`--max-tokens N`/`--full`; global flags `--board <path>` and `--as <id>` (or
+`KANBAN_AGENT`) apply everywhere. Full flag detail: `docs/05-cli-reference.md`.
+
+- Read: `next [--context|--n N|--mine]`, `list [--status|--label|--limit]`, `show <id>`, `context <id>`, `watch <id> --since <seq>`, `changes --since <seq>`, `inbox [--since]`, `compact [--keep N]`
+- Write: `add [--parent T-1|--depends|--label|--ac|--prio|--status]`, `update [--expect-version N]`, `move <id> <col>`, `done`, `archive`, `claim [--force]`, `release [--force]`, `dep add/rm --on <id>`, `parent <id> --to <pid>|--clear`, `comment <id> "…"`, `criterion add/check [--off]`, `label --add/--rm`, `artifact --kind --title --uri`, `summarize`
+- HITL: `ask [--options|--freeform|--expires-at]`, `await [qid|--task|--any] [--timeout S]`, `answer`, `cancel`
+- Lifecycle: `board init/show/nudge`, `serve [--port]`, `export [--out FILE]`, `open`
+- Reporting (not the work loop): `stats [id] [--window N]` — board analytics / per-task timing, read-only.

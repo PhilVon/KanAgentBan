@@ -77,17 +77,19 @@ no ready tasks. 3 blocked: T-4 needs input (Q-7), T-7 waits on T-2, T-9 waits on
 
 ### `kanban list [--status S] [--label L] [--limit N] [--max-tokens N] [--full] [--json]`
 Compact one-line-per-task. Flags column: `D`=dep-blocked, `?`=needs-input,
-`💬n`=comments.
+`💬n`=comments (`💬n*` when at least one is a **user** comment).
 
 ```
 $ kanban list --status "In Progress"
-T-12 [P1] In Progress  Wire up OAuth callback        ?  💬2
+T-12 [P1] In Progress  Wire up OAuth callback        ?  💬2*
 T-08 [P2] In Progress  Refactor token store          D
 ```
 
 ### `kanban show <id> [--max-tokens N] [--full] [--json]`
-Medium detail: task line, summary, criteria count, dep counts, open questions,
-last 3 comments.
+Medium detail: task line, summary, criteria count, dep counts, open questions, and
+comments split into a protected **user comments** block (the human's directives)
+plus recent **agent notes**. Under `--max-tokens`, agent notes shed first; user
+comments are kept (shed last). See `comment` below.
 
 ### `kanban context <id> [--full] [--max-tokens N] [--json]`
 The flagship. Full curated working set in fixed section order with per-section
@@ -120,6 +122,14 @@ unaffected — only delta-replay history below the new floor is dropped; stale
 delta cursors get a reset (above). A low-frequency server sweep does this
 automatically; this command forces it. See [11-roadmap §2](11-roadmap.md).
 
+### `kanban stats [id] [--window N] [--max-tokens N] [--full] [--json]`
+Board analytics, or per-task timing when `<id>` is given. Read-only derivation
+over the event log: per-task lead/cycle time and time-per-status; board
+throughput/velocity, WIP & aging, and a burndown series (`--window`, default 14
+days). Honours the token-budget contract and is never-silent about the compaction
+floor (tasks predating it are excluded from timing aggregates).
+See [13-analytics](13-analytics.md).
+
 ---
 
 ## Write & workflow commands
@@ -151,7 +161,12 @@ UI surface children with a `subtasks d/t` count, and child cards carry a
 `⤷T-parent` badge ([02-data-model §6](02-data-model.md)).
 
 ### `kanban comment <id> "<body>"`
-Adds an `agent` comment. (Users comment from the UI.)
+Adds an `agent` comment — your progress note. **Users comment from the UI**, and
+those `user` comments are an inbound channel: read them as directives. The agent
+surfaces user comments distinctly and protects them from token-budget shedding —
+`next` flags a waiting one (`↳ user comment: …`), `show`/`context` render them in a
+labelled **"user comments — the human is talking to you"** block (agent notes shed
+first), and `list` marks the task `💬n*`.
 
 ### `kanban criterion add <id> "<text>"` / `kanban criterion check <AC-id> [--off]`
 Manage acceptance criteria; `check --off` unchecks.

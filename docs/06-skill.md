@@ -76,9 +76,9 @@ Rules the skill enforces:
 
 - **Never dump the whole board.** `kanban list --json --limit 0` is a token bomb;
   use `next`/`context` instead.
-- **Trust the truncation footers.** Counts (`comments (last 3 of 9)`,
+- **Trust the truncation footers.** Counts (`agent notes (last 2 of 8)`,
   `blockers (1)`, `criteria 1/3`) are nearly free; only expand with `--full` when
-  a specific hidden item is actually needed.
+  a specific hidden item is actually needed. (User comments are kept, not counted.)
 - **Refresh with the scoped delta.** Prefer `watch <id> --since <seq>` over the
   board-wide `changes --since <seq>`; carry the returned high-water `seq`.
 
@@ -97,9 +97,13 @@ When the agent picks up a task, the skill steers it through:
    `kanban criterion add T-12 "token exchange handles errors"`, then
    `kanban criterion check AC-32` as each lands. Criteria are the agent's own
    definition-of-done contract.
-4. **Comment meaningfully, not chattily.** `kanban comment T-12 "..."` for
-   decisions and non-obvious choices — not a play-by-play. Comment threads are
-   default-truncated, so signal beats volume.
+4. **Read user comments as directives; comment back meaningfully.** Comments are a
+   two-way channel. The human leaves `user` comments to steer the agent — read them
+   before starting/resuming and treat them as instructions (`next` flags a waiting
+   one, `show`/`context` print a protected **user comments** block, `list` marks the
+   task `💬n*`). Then `kanban comment T-12 "..."` for the agent's own decisions and
+   non-obvious choices — not a play-by-play. Agent notes are shed first under
+   budget; **user comments are protected** (shed last), so a directive won't vanish.
 5. **Record artifacts as references, never contents.**
    `kanban artifact T-12 --kind pr --title "auth callback PR" --uri <url>`.
    The board stores the pointer; the contents live where they live.
