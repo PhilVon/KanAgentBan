@@ -10,12 +10,21 @@
     <header>
       <h1>KanAgentBan</h1>
       <button id="add-task" class="add-task">+ Add task</button>
+      <button id="metrics-btn" class="ghost">📊 Metrics</button>
       <span id="conn" class="conn">connecting…</span>
     </header>
 
     <section id="inbox" class="inbox hidden">
       <h2>❓ Needs your input</h2>
       <div id="inbox-items"></div>
+    </section>
+
+    <section id="metrics-panel" class="metrics-panel hidden">
+      <div class="metrics-head">
+        <h2>📊 Metrics</h2>
+        <button id="metrics-close" class="ghost">×</button>
+      </div>
+      <div id="metrics-body"></div>
     </section>
 
     <main id="board" class="board"></main>

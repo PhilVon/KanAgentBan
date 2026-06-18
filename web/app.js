@@ -46,6 +46,7 @@ async function refresh() {
   const data = await api('/api/ui/board');
   renderBoard(data);
   renderInbox(data.inbox);
+  if (!$('#metrics-panel').classList.contains('hidden')) loadStats();
 }
 
 function renderBoard({ columns, tasks }) {
@@ -344,6 +345,117 @@ function openEdit(d) {
 }
 
 $('#drawer-close').onclick = () => $('#drawer').classList.add('hidden');
+
+// --- metrics / burndown panel ----------------------------------------------
+const SVG_NS = 'http://www.w3.org/2000/svg';
+function svgEl(tag, attrs = {}) {
+  const n = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+  return n;
+}
+
+function fmtDur(ms) {
+  if (ms === null || ms === undefined) return '—';
+  if (ms < 60000) return '0m';
+  const m = Math.floor(ms / 60000);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h' + (m % 60 ? ` ${m % 60}m` : '');
+  const d = Math.floor(h / 24);
+  return d + 'd' + (h % 24 ? ` ${h % 24}h` : '');
+}
+
+function tile(label, value, sub) {
+  const t = el('div', 'tile');
+  t.append(el('div', 'tile-val', value));
+  t.append(el('div', 'tile-label', label));
+  if (sub) t.append(el('div', 'tile-sub', sub));
+  return t;
+}
+
+// Palette mirrors style.css vars (SVG presentation attrs don't resolve CSS var()).
+const C = { line: '#2e3a48', accent: '#4c9aff', warn: '#ffb454', muted: '#8a97a6' };
+// Three-line burndown: remaining (warn) vs done (accent) vs created (line).
+function burndownChart(burndown) {
+  const W = 560, H = 160, padL = 28, padB = 18, padT = 8, padR = 8;
+  // Default preserveAspectRatio (xMidYMid meet) scales uniformly — non-uniform
+  // ('none') stretches the axis text horizontally on a wide panel.
+  const svg = svgEl('svg', { class: 'burndown', viewBox: `0 0 ${W} ${H}` });
+  if (burndown.length < 2) {
+    const t = svgEl('text', { x: padL, y: H / 2, fill: C.muted, 'font-size': '11' });
+    t.textContent = 'not enough data yet';
+    svg.append(t);
+    return svg;
+  }
+  const max = Math.max(1, ...burndown.map((p) => p.created_cum));
+  const n = burndown.length;
+  const x = (i) => padL + (i / (n - 1)) * (W - padL - padR);
+  const y = (v) => padT + (1 - v / max) * (H - padT - padB);
+  // axis baseline
+  svg.append(svgEl('line', { x1: padL, y1: H - padB, x2: W - padR, y2: H - padB, stroke: C.line }));
+  const series = (key, color) =>
+    svgEl('polyline', {
+      points: burndown.map((p, i) => `${x(i)},${y(p[key])}`).join(' '),
+      fill: 'none',
+      stroke: color,
+      'stroke-width': '2',
+    });
+  svg.append(series('created_cum', C.line));
+  svg.append(series('done', C.accent));
+  svg.append(series('remaining', C.warn));
+  // y-axis max label + date ends
+  const tx = (s, ax, ay, anchor) => {
+    const t = svgEl('text', { x: ax, y: ay, fill: C.muted, 'font-size': '10', 'text-anchor': anchor || 'start' });
+    t.textContent = s;
+    return t;
+  };
+  svg.append(tx(String(max), 2, y(max) + 4));
+  svg.append(tx('0', 2, H - padB + 4));
+  svg.append(tx(burndown[0].date.slice(5), padL, H - 4));
+  svg.append(tx(burndown[n - 1].date.slice(5), W - padR, H - 4, 'end'));
+  return svg;
+}
+
+async function loadStats() {
+  let s;
+  try {
+    s = await api('/api/stats?json');
+  } catch (e) {
+    $('#metrics-body').innerHTML = '';
+    $('#metrics-body').append(el('div', 'metrics-banner', `stats failed: ${e.message}`));
+    return;
+  }
+  const body = $('#metrics-body');
+  body.innerHTML = '';
+
+  if (s.partial_history) {
+    body.append(
+      el(
+        'div',
+        'metrics-banner',
+        `History bounded — ${s.excluded_partial.length} task(s) excluded from timing (older events compacted).`,
+      ),
+    );
+  }
+
+  const tiles = el('div', 'tiles');
+  tiles.append(tile('done / window', String(s.throughput.total), `${s.throughput.rolling_avg_per_day}/day · ${s.throughput.per_week}/wk`));
+  tiles.append(tile('lead p50', fmtDur(s.timing_summary.lead_ms.p50), `p90 ${fmtDur(s.timing_summary.lead_ms.p90)} · n=${s.timing_summary.lead_ms.n}`));
+  tiles.append(tile('cycle p50', fmtDur(s.timing_summary.cycle_ms.p50), `p90 ${fmtDur(s.timing_summary.cycle_ms.p90)} · n=${s.timing_summary.cycle_ms.n}`));
+  for (const c of s.wip) tiles.append(tile(`WIP ${c.status}`, String(c.count), c.oldest ? `oldest ${c.oldest.id} ${fmtDur(c.oldest.age_ms)}` : ''));
+  body.append(tiles);
+
+  body.append(el('h3', 'metrics-sub', `Burndown · window ${s.window.days}d`));
+  body.append(burndownChart(s.burndown));
+}
+
+function toggleMetrics() {
+  const p = $('#metrics-panel');
+  p.classList.toggle('hidden');
+  if (!p.classList.contains('hidden')) loadStats();
+}
+$('#metrics-btn').addEventListener('click', toggleMetrics);
+$('#metrics-close').addEventListener('click', () => $('#metrics-panel').classList.add('hidden'));
 
 // --- create task modal ------------------------------------------------------
 (() => {

@@ -104,6 +104,15 @@ parked `kanban await` resolves off the same emitter
 Constrained answers are validated server-side (answer ∈ `options`); the UI
 mirrors the constraint by offering buttons, but the server is authoritative.
 
+### Metrics / burndown panel
+
+A **📊 Metrics** toggle in the header opens a panel backed by `GET /api/stats?json`
+([13-analytics](13-analytics.md)): metric tiles (throughput, lead/cycle p50·p90,
+WIP-per-column with aging) and an inline-SVG **burndown** chart (remaining vs done
+vs created over the window — no external chart library). It refetches on each
+WebSocket frame while open, and shows a bounded-history banner when
+`partial_history` (some tasks predate the compaction floor).
+
 ---
 
 ## 4. Card detail drawer

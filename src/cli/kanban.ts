@@ -116,6 +116,21 @@ program
     out(`compacted: removed ${r.removed} event(s); floor now seq ${r.floor}`);
   });
 
+program
+  .command('stats [id]')
+  .description('board analytics (throughput, WIP, burndown), or per-task timing when <id> is given')
+  .option('--window <days>', 'burndown / throughput window in days (default 14)')
+  .option('--max-tokens <n>', 'token budget (sheds trailing lines)')
+  .option('--full', 'ignore the token budget')
+  .option('--json')
+  .action(async (id, o) => {
+    const q = new URLSearchParams(clean({ window: o.window, max_tokens: o.maxTokens, full: o.full, json: o.json }));
+    const qs = q.toString();
+    const path = id ? `/api/tasks/${id}/stats` : '/api/stats';
+    const r = await api(await conn(), 'GET', `${path}${qs ? `?${qs}` : ''}`);
+    out(o.json ? JSON.stringify(r, null, 2) : r.text);
+  });
+
 // ---- write / workflow ----------------------------------------------------
 program
   .command('add <title>')
