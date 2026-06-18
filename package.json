@@ -1,0 +1,37 @@
+{
+  "name": "kanagentban",
+  "version": "0.1.0",
+  "description": "Agent-first kanban board: a token-efficient task surface for AI agents with a human in the loop.",
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "kanban": "dist/cli/kanban.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev:server": "tsx src/server/server.ts",
+    "cli": "tsx src/cli/kanban.ts",
+    "start": "node dist/server/server.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "commander": "^12.1.0",
+    "express": "^4.21.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.7.0",
+    "@types/ws": "^8.5.12",
+    "jsdom": "^29.1.1",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

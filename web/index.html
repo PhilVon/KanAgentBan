@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>KanAgentBan</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>KanAgentBan</h1>
+      <button id="add-task" class="add-task">+ Add task</button>
+      <span id="conn" class="conn">connecting…</span>
+    </header>
+
+    <section id="inbox" class="inbox hidden">
+      <h2>❓ Needs your input</h2>
+      <div id="inbox-items"></div>
+    </section>
+
+    <main id="board" class="board"></main>
+
+    <div id="drawer" class="drawer hidden">
+      <button id="drawer-close" class="close">×</button>
+      <div id="drawer-body"></div>
+    </div>
+
+    <div id="create-modal" class="modal-overlay hidden">
+      <form id="create-form" class="modal">
+        <h2>New task</h2>
+        <label>Title<input id="ct-title" type="text" required autocomplete="off" /></label>
+        <div class="modal-row">
+          <label>Priority
+            <select id="ct-priority">
+              <option value="P0">P0</option>
+              <option value="P1">P1</option>
+              <option value="P2" selected>P2</option>
+              <option value="P3">P3</option>
+            </select>
+          </label>
+          <label>Column<select id="ct-status"></select></label>
+        </div>
+        <label>Description<textarea id="ct-desc" rows="3"></textarea></label>
+        <div class="modal-actions">
+          <button type="button" id="ct-cancel" class="ghost">Cancel</button>
+          <button type="button" id="ct-create" class="send">Create</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
