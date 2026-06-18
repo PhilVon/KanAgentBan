@@ -64,7 +64,7 @@ each sequence under the write transaction.
 | `status` | TEXT | one of board columns (see §4) — the *workflow* state |
 | `priority` | TEXT | `P0`..`P3` (P0 highest) |
 | `position` | REAL | manual ordering within a column |
-| `assignee` | TEXT NULL | reserved for multi-agent (v2) |
+| `assignee` | TEXT NULL | agent identity holding the task (`kanban claim`/`release`, [09 §9](09-concurrency.md)) |
 | `version` | INTEGER | optimistic-concurrency token, bumped per mutation |
 | `created_at` / `updated_at` | TEXT | |
 | `archived_at` | TEXT NULL | soft delete; non-null = archived |
@@ -163,6 +163,7 @@ Every mutation appends exactly one event. This list is the shared contract for
 
 ```
 task.created      task.updated      task.moved        task.archived
+task.claimed      task.released
 dep.added         dep.removed
 comment.added
 criterion.added   criterion.checked criterion.unchecked
@@ -170,6 +171,10 @@ label.added       label.removed
 artifact.added
 input.requested   input.answered    input.cancelled   input.expired
 ```
+
+`task.claimed` / `task.released` carry the multi-agent `assignee` change; their
+payloads are `{assignee, stolen_from?}` and `{released_from}` respectively — see
+[09-concurrency §9](09-concurrency.md).
 
 `input.answered` is also what unblocks a parked `await` long-poll and what
 `inbox` reports — see [04-human-in-the-loop](04-human-in-the-loop.md).

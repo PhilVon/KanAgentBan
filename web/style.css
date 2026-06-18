@@ -114,6 +114,12 @@ input {
   border-radius: 10px;
   padding: 0 0.45rem;
 }
+.flag.assignee {
+  background: #34304a;
+  color: #c8b6ff;
+  border-radius: 10px;
+  padding: 0 0.45rem;
+}
 
 .drawer {
   position: fixed;

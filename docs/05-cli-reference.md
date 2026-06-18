@@ -30,6 +30,11 @@ Related: [03-token-efficiency](03-token-efficiency.md) ·
   when stdout is not a TTY.
 - **Token control:** read commands accept `--max-tokens N` and never silently
   truncate — they emit an explicit footer (see [03](03-token-efficiency.md)).
+- **Agent identity (multi-agent):** `claim`/`release` and `next`'s claim filtering
+  key off an agent identity resolved as `--as <id>` > `KANBAN_AGENT` env > default
+  `agent`. To run several agents on one board, give each a **distinct**
+  `KANBAN_AGENT` — two agents on the default `agent` collide and won't isolate.
+  Identity is cooperative, not authenticated ([09 §9](09-concurrency.md)).
 
 ### Exit codes (semantic — the skill branches on these)
 
@@ -46,10 +51,11 @@ Related: [03-token-efficiency](03-token-efficiency.md) ·
 
 ## Read & context commands
 
-### `kanban next [--context] [--n N] [--json]`
+### `kanban next [--context] [--n N] [--mine] [--json]`
 The recommendation engine. Returns the single best `ready` task (~5 lines), with a
 one-clause *why*. `--context` appends that task's full working set in the **same
-call** (cold-start path). `--n N` lists the top N candidates.
+call** (cold-start path). `--n N` lists the top N candidates. Tasks claimed by
+*another* agent are hidden; `--mine` narrows to only the tasks **you** have claimed.
 
 ```
 $ kanban next
@@ -131,6 +137,21 @@ auto-summarizes — this is the manual refresh path.
 
 ### `kanban done <id>` / `kanban archive <id>`
 `done` moves to Done (recomputes dependents' readiness); `archive` soft-deletes.
+
+### `kanban claim <id> [--force]` / `kanban release <id> [--force]`
+Multi-agent coordination ([09 §9](09-concurrency.md)). `claim` sets `assignee` to
+your identity so the task drops out of other agents' `next`; idempotent if you
+already hold it, conflict (exit `4`) if another agent does (use `--force` to steal).
+Claiming a Done/archived task is rejected (exit `1`). `release` returns it to the
+pool (no-op if already free; `--force` releases another agent's claim). Claiming is
+**orthogonal to status** — it does not move the task; pair with `move`.
+
+```
+$ KANBAN_AGENT=alice kanban claim T-12
+T-12 claimed by alice
+$ KANBAN_AGENT=bob kanban claim T-12
+error: T-12 already claimed by alice        # exit 4
+```
 
 ---
 

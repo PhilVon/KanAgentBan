@@ -186,20 +186,30 @@ be asked to reconcile.
 
 ---
 
-## 9. Multi-agent future (v2)
+## 9. Multi-agent claiming
 
-The model is already concurrency-safe for multiple agents:
+The model is concurrency-safe for multiple agents:
 
-- `event.actor_type` (`agent` | `user` | `system`) distinguishes writers in the
-  log.
+- `event.actor_type` (`agent` | `user` | `system`) distinguishes writer *kinds* in
+  the log; the writer *identity* travels as the `x-agent` header and lands in
+  `task.assignee`.
 - Per-row `version` (§7) means two agents editing the same task conflict via
-  `409` rather than clobbering.
+  `409` rather than clobbering. Claim/release bump `version` too, so a claim that
+  lands mid-edit correctly 409s a concurrent `--expect-version` writer.
 
-The one missing piece is **coordination on recommendations**: two agents calling
-`next` could both pick the same task. The planned fix is an explicit
-`kanban claim T-1` (assigning `task.assignee`, reserved today in
-[02-data-model](02-data-model.md)) so a claimed task drops out of the other
-agent's `next`. Tracked in [11-roadmap](11-roadmap.md).
+**Coordination on recommendations** was the one gap — two agents calling `next`
+could both pick the same task. The fix is shipped: `kanban claim T-1` sets
+`task.assignee` atomically (the check-and-set runs inside the sole-writer's single
+write transaction, so exactly one of two racing claimers wins), and a claimed task
+drops out of every *other* agent's `next` (unassigned tasks and the caller's own
+claims stay visible; `next --mine` shows only the caller's claims). `kanban release`
+(or `claim --force` to steal) returns a task to the pool. Identity is cooperative,
+not authenticated — fine for the loopback, single-user model
+([10-security-lifecycle](10-security-lifecycle.md)); each agent must set a distinct
+`KANBAN_AGENT` (or pass `--as`) or they collide on the default `agent` identity.
+
+> **Still future (v2+):** a crashed agent leaves its task claimed indefinitely;
+> reclaim it with `release --force`. A TTL / heartbeat auto-release is out of scope.
 
 ---
 

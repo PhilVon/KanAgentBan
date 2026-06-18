@@ -23,6 +23,7 @@ function flags(repo: Repo, t: Task): string {
   if (d.needs_input) out.push('?');
   const c = repo.countComments(t.id);
   if (c) out.push(`💬${c}`);
+  if (t.assignee) out.push(`@${t.assignee}`);
   return out.join(' ');
 }
 
@@ -36,8 +37,11 @@ export function renderList(repo: Repo, opts: { status?: string; label?: string; 
 }
 
 /** `kanban next` — recommended task (+ optional full context). */
-export function renderNext(repo: Repo, opts: { context?: boolean; n?: number }): string {
-  const r = recommend(repo, opts.n ?? 1);
+export function renderNext(
+  repo: Repo,
+  opts: { context?: boolean; n?: number; agent?: string; mine?: boolean },
+): string {
+  const r = recommend(repo, opts.n ?? 1, opts.agent, opts.mine);
   if ('none' in r) return renderBlocked(r);
   if (opts.context && r[0]) {
     return `${renderRecLine(r[0].task)}\nwhy: ${r[0].why}\n\n${renderContext(repo, r[0].task.id)}`;
@@ -68,7 +72,7 @@ export function renderShow(repo: Repo, id: string): string {
   const lines = [
     `${t.id} [${t.priority}] ${t.status}  "${t.title}"`,
     t.summary ? `summary: ${t.summary}${summaryStale(t) ? '  [summary may be stale]' : ''}` : '',
-    `criteria ${done}/${crit.length}  ·  blockers ${remainingBlockerCount(repo.db, id)}  ·  comments ${repo.countComments(id)}  ·  open input ${open.length}`,
+    `criteria ${done}/${crit.length}  ·  blockers ${remainingBlockerCount(repo.db, id)}  ·  comments ${repo.countComments(id)}  ·  open input ${open.length}${t.assignee ? `  ·  assignee ${t.assignee}` : ''}`,
   ];
   if (open.length) lines.push(...open.map((q) => `  ${q.id} "${q.question}"`));
   if (comments.length)
@@ -101,6 +105,7 @@ export function renderContext(
 
   // 1. task line
   sections.push(`${t.id} [${t.priority}] ${t.status}  "${t.title}"`);
+  if (t.assignee) sections.push(`assignee: ${t.assignee}`);
   if (t.summary) sections.push(`summary: ${t.summary}${summaryStale(t) ? '  [summary may be stale]' : ''}`);
 
   // 2. acceptance criteria

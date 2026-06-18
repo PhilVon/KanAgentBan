@@ -45,15 +45,23 @@ Related: [02-data-model](02-data-model.md) · [05-cli-reference](05-cli-referenc
 |--------|------|-----|
 | `GET` | `/api/tasks?status=&label=&limit=` | `list` |
 | `GET` | `/api/tasks/:id?view=show\|context&max_tokens=` | `show` / `context` |
-| `GET` | `/api/next?context=&n=` | `next` |
+| `GET` | `/api/next?context=&n=&mine=` | `next` |
 | `POST` | `/api/tasks` | `add` |
 | `PATCH` | `/api/tasks/:id` (header `If-Match: <version>`) | `update` |
 | `POST` | `/api/tasks/:id/move` | `move` / `done` |
+| `POST` | `/api/tasks/:id/claim` (body `{force?}`) | `claim` |
+| `POST` | `/api/tasks/:id/release` (body `{force?}`) | `release` |
 | `POST` | `/api/tasks/:id/archive` | `archive` |
 
 `view=context` returns the curated working-set object (sections + truncation
 footers) defined in [03-token-efficiency](03-token-efficiency.md). `PATCH` with a
 stale `If-Match` returns `409` → exit `4`.
+
+**Agent identity** for `claim`/`release` and `next`'s claim filtering travels in the
+`X-Agent: <id>` header (distinct from `X-Actor`, the writer *kind*). `claim` returns
+`409` if held by another agent (unless `{force:true}`), `400` for a Done/archived
+task. `next` hides tasks claimed by *other* agents; `?mine=1` shows only the caller's.
+Both emit `task.claimed` / `task.released` events. See [09 §9](09-concurrency.md).
 
 ## Dependencies, comments, criteria, labels, artifacts
 

@@ -46,7 +46,7 @@ Dev mode without building: `npm run cli -- <args>` and `npm run dev:server`.
 ### Test
 
 ```bash
-npm test          # vitest: 53 tests across 4 suites
+npm test          # vitest: 77 tests across 6 suites
 ```
 
 - `tests/repo.test.ts` — data layer: ids, DAG (self/dup/cycle rejection), the
@@ -70,6 +70,9 @@ npm test          # vitest: 53 tests across 4 suites
   localhost-only with per-board bearer token and Origin checks; auto port/pid files.
 - **CLI** (`src/cli/`): the `kanban` command surface, board resolution, server
   auto-start, terse plaintext output + semantic exit codes.
+- **Multi-agent claiming** (post-v1): `kanban claim` / `release` (`--force` to
+  steal) reserve a task via `assignee` so it drops out of other agents' `next`;
+  identity via `KANBAN_AGENT` / `--as`. See [docs/09 §9](docs/09-concurrency.md).
 - **Token-efficiency renderers** (`src/server/render.ts`): `next`, `list`, `show`,
   `context` with deterministic, never-silent truncation; recommendation engine.
 - **Web UI** (`web/`): realtime board, "Needs your input" inbox, card drawer.
@@ -80,8 +83,9 @@ plus auth rejection and the pending-await exit code.
 
 ### Deferred (see [docs/11-roadmap](docs/11-roadmap.md))
 
-MCP interface, multi-agent `claim`, external-nudge auto-resume, event-log
-compaction, schema migrations beyond v1. (Basic `kanban export` ships now.)
+MCP interface, external-nudge auto-resume, event-log compaction, first-class
+subtasks, schema migrations beyond v1. (Basic `kanban export` ships now;
+multi-agent `claim` shipped post-v1 — see above.)
 
 ## Documentation
 

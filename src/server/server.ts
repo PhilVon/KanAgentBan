@@ -75,6 +75,8 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
   });
 
   const actor = (req: Request): ActorType => (req.get('x-actor') as ActorType) || 'agent';
+  // Agent *identity* (multi-agent claim), distinct from the actor *type* above.
+  const agentId = (req: Request): string => str(req.get('x-agent')) ?? 'agent';
 
   // Structured working set for the UI drawer and `--json` context reads.
   const taskDetail = (id: string) => {
@@ -125,9 +127,11 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
   // --- reads ------------------------------------------------------------
   app.get('/api/next', (req, res) => {
     const n = num(req.query.n);
-    const text = renderNext(repo, { context: req.query.context !== undefined, n });
+    const agent = agentId(req);
+    const mine = req.query.mine !== undefined;
+    const text = renderNext(repo, { context: req.query.context !== undefined, n, agent, mine });
     if (req.query.json !== undefined) {
-      const r = recommend(repo, n ?? 1);
+      const r = recommend(repo, n ?? 1, agent, mine);
       return res.json('none' in r ? { text, blocked: r.blocked } : { text, next: r });
     }
     res.json({ text });
@@ -182,6 +186,12 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     }),
   );
   app.post('/api/tasks/:id/move', wrap((req, res) => res.json(repo.moveTask(req.params.id, req.body.status, actor(req)))));
+  app.post('/api/tasks/:id/claim', wrap((req, res) =>
+    res.json(repo.claimTask(req.params.id, agentId(req), { force: !!req.body?.force, actor: actor(req) })),
+  ));
+  app.post('/api/tasks/:id/release', wrap((req, res) =>
+    res.json(repo.releaseTask(req.params.id, agentId(req), { force: !!req.body?.force, actor: actor(req) })),
+  ));
   app.post(
     '/api/tasks/:id/archive',
     wrap((req, res) => {

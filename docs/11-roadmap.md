@@ -93,7 +93,7 @@ Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficie
 | Dependency DAG + labels (subtask stand-in) | ✅ | |
 | Answer-event hook designed (trigger not wired) | ✅ | |
 | MCP server interface (alt. to CLI for other agents) | | ✅ |
-| Multi-agent support + `kanban claim` | | ✅ |
+| Multi-agent support + `kanban claim` | ✅ (post-v1) | |
 | External-nudge auto-resume (webhook / desktop notify) | | ✅ |
 | Event-log compaction (retained floor `seq` + snapshots) | | ✅ |
 | First-class subtasks | | ✅ |
@@ -104,9 +104,11 @@ Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficie
 
 - **MCP server interface** — expose the board over MCP as an alternative to the
   CLI so non-Claude-Code agents can drive it. v1 ships CLI only.
-- **Multi-agent support + `kanban claim`** — atomic task claiming so multiple
-  agents share one board without stepping on each other; the `assignee` field is
-  reserved now ([00-overview §3](00-overview.md), [09-concurrency](09-concurrency.md)).
+- **Multi-agent support + `kanban claim`** — ✅ **shipped post-v1.** Atomic task
+  claiming (`claim` / `release` / `claim --force`) so multiple agents share one
+  board without stepping on each other; a claimed task drops out of other agents'
+  `next`. Agent identity travels via `KANBAN_AGENT` / `--as`
+  ([09-concurrency §9](09-concurrency.md)).
 - **External-nudge auto-resume** — on `input.answered`, fire a webhook / desktop
   notification that a wrapper uses to re-invoke Claude Code. This is strategy (C)
   in [04-human-in-the-loop §3](04-human-in-the-loop.md); the answer-event hook is

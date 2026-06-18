@@ -7,24 +7,27 @@ const program = new Command();
 program
   .name('kanban')
   .description('Agent-first kanban board CLI (see docs/05-cli-reference.md)')
-  .option('--board <path>', 'board root (defaults to nearest .kanban/ above CWD)');
+  .option('--board <path>', 'board root (defaults to nearest .kanban/ above CWD)')
+  .option('--as <id>', 'agent identity for claim / next (or KANBAN_AGENT env)');
 
 const out = (s: string): void => {
   process.stdout.write(s.endsWith('\n') ? s : s + '\n');
 };
-const conn = () => connect({ board: program.opts().board });
+const conn = () => connect({ board: program.opts().board, agent: program.opts().as });
 
 // ---- read / context ------------------------------------------------------
 program
   .command('next')
   .option('--context', 'include the recommended task’s full working set')
   .option('--n <n>', 'list top N candidates')
+  .option('--mine', 'only tasks you have claimed')
   .option('--json')
   .action(async (o) => {
     const c = await conn();
     const q = new URLSearchParams();
     if (o.context) q.set('context', '1');
     if (o.n) q.set('n', o.n);
+    if (o.mine) q.set('mine', '1');
     if (o.json) q.set('json', '1');
     const r = await api(c, 'GET', `/api/next?${q}`);
     out(o.json ? JSON.stringify(r, null, 2) : r.text);
@@ -128,6 +131,15 @@ program.command('done <id>').action(async (id) => {
   out(`${t.id} -> Done`);
 });
 program.command('archive <id>').action(async (id) => { await api(await conn(), 'POST', `/api/tasks/${id}/archive`); out(`${id} archived`); });
+
+program.command('claim <id>').option('--force', 'steal a claim held by another agent').action(async (id, o) => {
+  const t = await api(await conn(), 'POST', `/api/tasks/${id}/claim`, o.force ? { force: true } : undefined);
+  out(`${t.id} claimed by ${t.assignee}`);
+});
+program.command('release <id>').option('--force', 'release a claim held by another agent').action(async (id, o) => {
+  const t = await api(await conn(), 'POST', `/api/tasks/${id}/release`, o.force ? { force: true } : undefined);
+  out(t.assignee ? `${t.id} still claimed by ${t.assignee}` : `${t.id} released`);
+});
 
 const dep = program.command('dep');
 dep.command('add <id>').requiredOption('--on <id>').action(async (id, o) => { await api(await conn(), 'POST', `/api/tasks/${id}/deps`, { on: o.on }); out(`${id} now blocked by ${o.on}`); });

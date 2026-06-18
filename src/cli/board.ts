@@ -14,6 +14,7 @@ export interface Conn {
   base: string;
   token: string;
   paths: BoardPaths;
+  agent: string;
 }
 
 export class CliError extends Error {
@@ -23,17 +24,20 @@ export class CliError extends Error {
 }
 
 /** Resolve the board for the current dir, auto-starting the server if needed. */
-export async function connect(opts: { board?: string } = {}): Promise<Conn> {
+export async function connect(opts: { board?: string; agent?: string } = {}): Promise<Conn> {
   const root = opts.board ?? findBoardRoot(process.cwd());
   if (!root) throw new CliError('no board here — run `kanban board init` first', 3);
   const paths = boardPaths(root);
   const token = readToken(paths);
+  // Agent identity for multi-agent claim/`next` (docs/09 §9). Stable across CLI
+  // invocations, so it cannot derive from PID — set KANBAN_AGENT per agent.
+  const agent = opts.agent ?? process.env.KANBAN_AGENT ?? 'agent';
 
   let port = readPort(paths);
   if (!port || !(await healthy(port, token))) {
     port = await autostart(root, paths, token);
   }
-  return { base: `http://127.0.0.1:${port}`, token, paths };
+  return { base: `http://127.0.0.1:${port}`, token, paths, agent };
 }
 
 async function healthy(port: number, _token: string): Promise<boolean> {
@@ -92,6 +96,7 @@ export async function api(
     headers: {
       authorization: `Bearer ${conn.token}`,
       'x-actor': 'agent',
+      'x-agent': conn.agent,
       ...(body ? { 'content-type': 'application/json' } : {}),
       ...headers,
     },

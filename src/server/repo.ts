@@ -344,6 +344,69 @@ export class Repo {
     });
   }
 
+  /**
+   * Atomically claim a task for an agent (multi-agent coordination, docs/09 §9).
+   * The check-and-set runs inside `mutate()`'s single write transaction, so two
+   * agents racing to claim the same task are serialized — exactly one wins.
+   * Idempotent when already held by the same agent; `force` steals another's claim.
+   */
+  claimTask(
+    id: string,
+    agent: string,
+    opts: { force?: boolean; actor?: ActorType } = {},
+  ): Task {
+    const actor = opts.actor ?? 'agent';
+    return this.mutate((rec) => {
+      const t = this.requireTask(id);
+      if (t.archived_at !== null) throw new ValidationError(`cannot claim an archived task (${id})`);
+      if (t.status === 'Done') throw new ValidationError(`cannot claim a Done task (${id})`);
+      if (t.assignee === agent) return t; // idempotent: already mine, no event
+      if (t.assignee && t.assignee !== agent && !opts.force) {
+        throw new ConflictError(`${id} already claimed by ${t.assignee}`);
+      }
+      const stolenFrom = t.assignee && t.assignee !== agent ? t.assignee : undefined;
+      this.db
+        .prepare('UPDATE task SET assignee = ?, version = version + 1, updated_at = ? WHERE id = ?')
+        .run(agent, now(), id);
+      rec({
+        type: 'task.claimed',
+        task_id: id,
+        actor_type: actor,
+        payload: { assignee: agent, ...(stolenFrom ? { stolen_from: stolenFrom } : {}) },
+      });
+      return this.requireTask(id);
+    });
+  }
+
+  /**
+   * Release a claim. Idempotent when already unassigned (safe to call in cleanup
+   * / yield paths). Only the owner may release unless `force` is set.
+   */
+  releaseTask(
+    id: string,
+    agent: string,
+    opts: { force?: boolean; actor?: ActorType } = {},
+  ): Task {
+    const actor = opts.actor ?? 'agent';
+    return this.mutate((rec) => {
+      const t = this.requireTask(id);
+      if (t.assignee === null) return t; // idempotent: nothing to release, no event
+      if (t.assignee !== agent && !opts.force) {
+        throw new ConflictError(`${id} claimed by ${t.assignee}, not you (use --force)`);
+      }
+      this.db
+        .prepare('UPDATE task SET assignee = NULL, version = version + 1, updated_at = ? WHERE id = ?')
+        .run(now(), id);
+      rec({
+        type: 'task.released',
+        task_id: id,
+        actor_type: actor,
+        payload: { released_from: t.assignee },
+      });
+      return this.requireTask(id);
+    });
+  }
+
   archiveTask(id: string, actor: ActorType = 'agent'): void {
     this.mutate((rec) => {
       this.requireTask(id);

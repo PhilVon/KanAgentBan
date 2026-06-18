@@ -110,9 +110,9 @@ server so the contract is single-sourced.
   sub-millisecond reads and reproducible output — exactly what token-efficient,
   regex-parseable agent contracts need.
 - **The trade-off:** no built-in multi-user or remote access. v1 buys
-  **simplicity and deterministic, token-efficient behavior** by deferring
-  multi-agent / remote (assignee field reserved for v2,
-  [02-data-model](02-data-model.md)).
+  **simplicity and deterministic, token-efficient behavior** by deferring remote
+  access. Multiple **local** agents are supported post-v1 via `kanban claim` over
+  the `assignee` field ([09 §9](09-concurrency.md)).
 
 ---
 

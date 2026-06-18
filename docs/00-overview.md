@@ -74,8 +74,9 @@ the one doing data entry.
 - **Subtasks** — model nesting with dependencies + a label, keeping the DAG flat
   ([02-data-model §6](02-data-model.md)).
 - **Mobile app** — desktop browser only.
-- **Multi-agent claiming** — single agent in v1; the `assignee` field is reserved
-  for v2 ([11-roadmap](11-roadmap.md)).
+- **Multi-agent claiming** — single agent in v1; **shipped post-v1** via
+  `kanban claim`/`release` over the `assignee` field ([09 §9](09-concurrency.md),
+  [11-roadmap](11-roadmap.md)).
 
 ---
 

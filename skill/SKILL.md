@@ -37,6 +37,7 @@ Always read the **narrowest** thing that answers your question:
 
 ```
 kanban next --context                  # load only what you need
+kanban claim T-12                       # multi-agent: reserve it so peers skip it
 kanban move T-12 "In Progress"
 kanban criterion add T-12 "handles error responses"
 kanban criterion check AC-32
@@ -44,6 +45,13 @@ kanban comment T-12 "scaffolded the callback route"
 kanban artifact T-12 --kind pr --title "auth PR" --uri https://github.com/acme/app/pull/42
 kanban done T-12
 ```
+
+Claiming is **single-agent: skip it unless several agents share one board.** When
+they do, set a distinct `KANBAN_AGENT` per agent (else they collide on the default
+`agent` identity). A claim records who's working a task and hides it from peers'
+`kanban next`; it does **not** change status. `done` needs no release (Done tasks
+never surface in `next`); `kanban release T-12` returns an **unfinished** task you're
+abandoning to the pool, and `kanban next --mine` lists only what you hold.
 
 ## Asking the human (durable, async — see docs/04)
 
@@ -87,6 +95,6 @@ need a human decision?
 ## Command cheat-sheet
 
 - Read: `next [--context|--n]`, `list`, `show <id>`, `context <id> [--full|--max-tokens]`, `watch <id> --since`, `changes --since`, `inbox`
-- Write: `add`, `update`, `move`, `done`, `archive`, `dep add/rm`, `comment`, `criterion add/check`, `label`, `artifact`, `summarize`
+- Write: `add`, `update`, `move`, `done`, `archive`, `claim [--force]`, `release [--force]`, `dep add/rm`, `comment`, `criterion add/check`, `label`, `artifact`, `summarize`
 - HITL: `ask`, `await`, `answer`
 - Lifecycle: `board init/show`, `serve`, `open`

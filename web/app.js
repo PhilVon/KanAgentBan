@@ -117,6 +117,7 @@ function card(t) {
   if (t.needs_input) flags.append(el('span', 'flag input', '❓'));
   if (t.comments) flags.append(el('span', 'flag', `💬${t.comments}`));
   if (t.criteria_total) flags.append(el('span', 'flag', `✓${t.criteria_done}/${t.criteria_total}`));
+  if (t.assignee) flags.append(el('span', 'flag assignee', `👤${t.assignee}`));
   for (const l of t.labels || []) flags.append(el('span', 'label', l));
   c.append(flags);
   c.onclick = () => openDrawer(t.id);
@@ -175,7 +176,9 @@ async function openDrawer(id) {
   edit.onclick = () => openEdit(d);
   head.append(edit);
   body.append(head);
-  body.append(el('div', 'meta', `${d.task.priority} · ${d.task.status}`));
+  body.append(
+    el('div', 'meta', `${d.task.priority} · ${d.task.status}${d.task.assignee ? ' · 👤 ' + d.task.assignee : ''}`),
+  );
   if (d.task.summary) {
     body.append(el('p', 'summary', d.task.summary));
     if (

@@ -109,6 +109,8 @@ export type EventType =
   | 'task.updated'
   | 'task.moved'
   | 'task.archived'
+  | 'task.claimed'
+  | 'task.released'
   | 'dep.added'
   | 'dep.removed'
   | 'comment.added'
