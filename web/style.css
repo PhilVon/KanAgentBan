@@ -6,6 +6,7 @@
   --text: #d7dee7;
   --muted: #8a97a6;
   --accent: #4c9aff;
+  --board-accent: var(--accent); /* per-board identity hue; set by app.js from the name */
   --warn: #ffb454;
   --danger: #ff6b6b;
   --good: #3fb950;
@@ -43,8 +44,24 @@ header {
   z-index: 5;
   background: var(--bg);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  border-left: 4px solid var(--board-accent);
 }
-header h1 { font-size: 1.1rem; margin: 0; }
+header h1 {
+  font-size: 1.1rem;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+/* per-board colour dot before the project name */
+header h1::before {
+  content: '';
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  background: var(--board-accent);
+  flex: none;
+}
 .conn { color: var(--muted); font-size: 0.85rem; transition: color var(--t-fast); }
 .conn.live { color: var(--good); }
 .conn.reconnecting { color: var(--warn); }

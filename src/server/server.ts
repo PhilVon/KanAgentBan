@@ -59,6 +59,9 @@ function wrap(fn: (req: Request, res: Response) => unknown) {
 /** Build the Express app for a given repo + token. Exported for tests. */
 export function buildApp(repo: Repo, token: string, root: string): express.Express {
   const db: DB = repo.db;
+  // Project identity for the UI: board.json `name` (set at init from the dir
+  // basename, editable) so multiple concurrent boards are distinguishable.
+  const boardName = readBoardMeta(ensureBoard(root)).name || path.basename(root);
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
@@ -122,7 +125,7 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     res.json({ ok: true, format_version: FORMAT_VERSION, seq: repo.maxSeq() }),
   );
   app.get('/api/board', (_req, res) =>
-    res.json({ root, format_version: FORMAT_VERSION, seq: repo.maxSeq() }),
+    res.json({ root, name: boardName, format_version: FORMAT_VERSION, seq: repo.maxSeq() }),
   );
 
   // One board card: task fields + the derived flags/rollups the UI renders. The
@@ -149,6 +152,7 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
   // UI-oriented board view: cards with derived flags + the input inbox.
   app.get('/api/ui/board', (_req, res) => {
     res.json({
+      name: boardName,
       columns: DISPLAY_COLUMNS,
       tasks: repo.listTasks({}).map(cardView),
       inbox: repo.getOpenRequests(),

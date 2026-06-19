@@ -85,9 +85,48 @@ function matchesFilter(t) {
   return hay.includes(q);
 }
 
+// --- project identity -------------------------------------------------------
+// Stamp the board name into the header + tab title, and derive a stable accent
+// colour from the name so several boards open at once are tellable apart at a
+// glance (browser tabs, window switcher, the header itself).
+let appliedBoardName;
+function applyBoardIdentity(name) {
+  if (!name || name === appliedBoardName) return;
+  appliedBoardName = name;
+  document.title = `${name} · KanAgentBan`;
+  const h1 = $('header h1');
+  if (h1) {
+    h1.textContent = name;
+    h1.title = `Board: ${name}`;
+  }
+  // Deterministic hue from the name (djb2 → 0..359); fixed S/L keeps every
+  // board's accent legible on the dark theme.
+  let hash = 5381;
+  for (let i = 0; i < name.length; i++) hash = ((hash << 5) + hash + name.charCodeAt(i)) >>> 0;
+  const hue = hash % 360;
+  document.documentElement.style.setProperty('--board-accent', `hsl(${hue} 65% 60%)`);
+
+  // Color-coded favicon: same hue tile + the project's initial, so the board is
+  // identifiable from the browser tab/bookmark even when the title is truncated.
+  const link = $('#favicon');
+  if (link) {
+    const initial = (name.trim()[0] || '?')
+      .toUpperCase()
+      .replace(/[<>&]/g, (c) => (c === '<' ? '&lt;' : c === '>' ? '&gt;' : '&amp;'));
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">` +
+      `<rect width="32" height="32" rx="7" fill="hsl(${hue} 65% 55%)"/>` +
+      `<text x="16" y="23" text-anchor="middle" font-family="system-ui,Segoe UI,sans-serif" ` +
+      `font-size="21" font-weight="700" fill="#0f1419">${initial}</text>` +
+      `</svg>`;
+    link.href = 'data:image/svg+xml,' + encodeURIComponent(svg);
+  }
+}
+
 // --- full reseed (first load, reset, create, conflict reconcile) ------------
 async function refresh() {
   const data = await api('/api/ui/board');
+  applyBoardIdentity(data.name);
   state.columns = data.columns;
   state.tasksById = new Map(data.tasks.map((t) => [t.id, t]));
   state.inboxByTask = new Map();
