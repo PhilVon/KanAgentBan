@@ -133,13 +133,57 @@ the task back to *ready*. The next time Claude works the board — **even in a b
 session** — `kanban inbox` / `kanban next` surface it and it resumes with your answer.
 So a paused task is normal and healthy, not stuck.
 
-An opt-in [Stop hook](https://docs.claude.com/en/docs/claude-code/hooks) backstops
-this: if a turn ends with a chat-only question while a task is *In Progress*, it nudges
-Claude to use `kanban ask` instead. Wiring lives at `.claude/hooks/board-hitl-stop.js`
-and the `hooks.Stop` block in `.claude/settings.json` (it fails open, never blocks you).
-
 Full behavioural spec: [docs/06-skill.md](docs/06-skill.md). The skill's own
 cheat-sheet is the canonical CLI quick reference (`skill/SKILL.md`).
+
+### Enable the Stop hook (optional backstop)
+
+In practice an agent will sometimes forget and just ask its question in the chat reply
+— which is *not* durable and vanishes when the session ends. This repo ships an opt-in
+[Claude Code Stop hook](https://docs.claude.com/en/docs/claude-code/hooks) that catches
+it: when a turn ends with a question to the human while a task is *In Progress* and no
+input request is open, it nudges Claude to use `kanban ask` instead. It **fails open**
+(never blocks you on error) and stays silent otherwise. Leave it out and the durable
+ask→yield flow still works — the hook only adds a backstop.
+
+Two files in this repo make it work, both committed as a working reference:
+
+- **Script:** [`.claude/hooks/board-hitl-stop.js`](.claude/hooks/board-hitl-stop.js)
+- **Registration:** the `hooks.Stop` block in
+  [`.claude/settings.json`](.claude/settings.json)
+
+Hooks are **per-project**, so to use the backstop in another project copy both into
+that project's `.claude/`:
+
+PowerShell (Windows), run from the other project's root:
+
+```powershell
+New-Item -ItemType Directory -Force .claude\hooks | Out-Null
+Copy-Item <path-to-this-repo>\.claude\hooks\board-hitl-stop.js .claude\hooks\
+Copy-Item <path-to-this-repo>\.claude\settings.json .claude\
+```
+
+bash (macOS/Linux):
+
+```bash
+mkdir -p .claude/hooks
+cp <path-to-this-repo>/.claude/hooks/board-hitl-stop.js .claude/hooks/
+cp <path-to-this-repo>/.claude/settings.json .claude/
+```
+
+If the target project already has a `.claude/settings.json`, **merge** the `hooks.Stop`
+block into it rather than overwriting. The registration uses `$CLAUDE_PROJECT_DIR`, so
+the script path resolves automatically once both files live under that project's
+`.claude/`.
+
+**Requirements** — the hook shells out at turn end, so the project needs:
+
+- **`node` on `PATH`** — the hook is a Node script.
+- **`kanban` on `PATH`** — it calls `kanban list` / `kanban inbox` to decide whether to
+  nudge (this is the `npm link` step above). Without it the hook fails open and simply
+  stays silent.
+
+**Restart Claude Code / start a new session** so the new settings load.
 
 ### Icons (Font Awesome)
 
