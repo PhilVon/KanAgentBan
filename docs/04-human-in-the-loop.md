@@ -4,7 +4,9 @@
 > request and, by default, **yields its turn** rather than holding a connection
 > open. The request persists in SQLite, surfaces in the UI, and is picked back up
 > via `kanban inbox` — even in a later Claude Code session. A short blocking
-> `await` exists for fast gates only.
+> `await` exists for fast gates only. The agent **never** asks in chat only: a
+> chat-only question is invisible to the board and lost at the session boundary, so
+> every human decision is raised with `kanban ask`.
 >
 > **Decisions:** Default = durable-async (ask → yield → inbox → resume). `await`
 > long-poll is opt-in for short waits and returns *pending* (not an error) on

@@ -111,6 +111,30 @@ describe('server: archive-done endpoint', () => {
     }
   });
 
+  it('404s the card-refresh route for an archived task (no resurrection)', async () => {
+    // Regression: /api/ui/tasks/:id/card served archived tasks as live cards, so a
+    // stray realtime event re-summoned them into the Done column. The route must
+    // 404 archived tasks so the client's removeCard (404) path fires instead.
+    const h = await startTestServer();
+    try {
+      const c = client(h);
+      const a = (await c('POST', '/api/tasks', { title: 'a', status: 'Done' })).body;
+
+      // Live: the card route serves it.
+      expect((await c('GET', `/api/ui/tasks/${a.id}/card`)).status).toBe(200);
+
+      await c('POST', '/api/tasks/archive-done');
+
+      // Archived: gone to the board.
+      expect((await c('GET', `/api/ui/tasks/${a.id}/card`)).status).toBe(404);
+      // And it never reappears in the board view either.
+      const board = (await c('GET', '/api/ui/board')).body;
+      expect(board.tasks.map((t: any) => t.id)).not.toContain(a.id);
+    } finally {
+      await stopTestServer(h);
+    }
+  });
+
   it('returns archived:0 on an empty Done column', async () => {
     const h = await startTestServer();
     try {

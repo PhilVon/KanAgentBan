@@ -2,8 +2,9 @@
 name: kanban
 description: >-
   Agent-first kanban board for planning and tracking multi-step work, recording
-  decisions, and requesting human input on a task then resuming later. Use when a
-  task has several steps or dependencies, when you need to track progress across a
+  decisions, and requesting human input via durable on-board requests (never
+  chat-only) then resuming later. Use when a task has several steps or
+  dependencies, when you need to track progress across a
   session, or when you need a decision from the user before continuing. Trigger
   phrases: "track this", "plan this out", "use the board", "ask the user and
   continue", "what should I do next".
@@ -15,11 +16,18 @@ A token-efficient task board you (the agent) own. The human watches a realtime w
 UI and answers your questions. Full design: `docs/`. CLI contract:
 `docs/05-cli-reference.md`.
 
+> **Hard rule — a human decision goes on the board, not in chat.** The moment you
+> need a decision or answer from the human while working a task, raise it with
+> `kanban ask` (then `await`/yield — see below). **Never ask only in your chat
+> reply.** A chat-only question isn't durable: it doesn't park the task as
+> `needs_input`, never shows up in `kanban inbox`, and is gone the instant the
+> session ends — the human never even sees it waiting.
+
 ## When to use it
 
 - Multi-step or dependency-laden work → create tasks, set `dep`s, nest **subtasks**, track status.
 - Need to remember progress across turns/sessions → the board is durable memory.
-- Need a human decision → `ask`, then resume (see below).
+- Need a human decision → **`kanban ask`**, then resume (see below) — **never ask in chat only**.
 - **Skip it** for trivial one-shot requests.
 
 ## Reading efficiently (see docs/03)

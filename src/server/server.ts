@@ -167,8 +167,18 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
   });
 
   // Single card for event-routed refresh — the UI fetches just the affected task
-  // on a WebSocket frame instead of re-pulling the whole board.
-  app.get('/api/ui/tasks/:id/card', wrap((req, res) => res.json(cardView(repo.requireTask(req.params.id)))));
+  // on a WebSocket frame instead of re-pulling the whole board. Archived tasks are
+  // "gone" to the board: 404 them so a stray event (e.g. an input-expiry sweep) on
+  // an already-archived task drives the client's removeCard path instead of
+  // resurrecting the card into its old column.
+  app.get(
+    '/api/ui/tasks/:id/card',
+    wrap((req, res) => {
+      const t = repo.requireTask(req.params.id);
+      if (t.archived_at !== null) throw new NotFoundError(`task ${t.id} is archived`);
+      res.json(cardView(t));
+    }),
+  );
 
   // Per-task detail for the UI drawer.
   app.get('/api/ui/tasks/:id', wrap((req, res) => res.json(taskDetail(req.params.id))));
