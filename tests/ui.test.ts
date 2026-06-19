@@ -61,7 +61,9 @@ const makeDataTransfer = () => ({
 const $ = (sel: string) => document.querySelector(sel) as HTMLElement;
 const column = (name: string) =>
   [...document.querySelectorAll('.column')].find(
-    (c) => c.querySelector('.col-title')?.textContent === name,
+    // Match the name-only span: .col-title also holds the count badge (and, for
+    // Done, the "Archive all" button), so its textContent isn't the bare name.
+    (c) => c.querySelector('.col-name')?.textContent === name,
   ) as HTMLElement | undefined;
 
 beforeEach(async () => {
@@ -168,10 +170,10 @@ describe('web UI (real app.js against a real server)', () => {
     h.repo.createTask({ title: 'Child task', status: 'Ready', parent: parent.id });
     loadApp();
 
-    // The child card carries a ⤷<parent> badge.
+    // The child card carries a parent badge: a code-branch icon + the parent id.
     await until(() => {
       const badges = [...document.querySelectorAll('.flag.parent')];
-      return badges.some((b) => b.textContent === `⤷${parent.id}`);
+      return badges.some((b) => b.querySelector('i.fa-code-branch') && b.textContent === parent.id);
     });
 
     // Open the parent's drawer and confirm the Subtasks section renders the child.
@@ -195,7 +197,7 @@ describe('web UI (real app.js against a real server)', () => {
     const stInput = await until(() => document.querySelector('input.subtask-input') as HTMLInputElement);
     stInput.value = 'Drawer-made child';
     const btn = [...document.querySelectorAll('button.send')].find(
-      (b) => b.textContent === '+ Subtask',
+      (b) => b.textContent?.includes('Subtask'),
     ) as HTMLElement;
     btn.click();
 

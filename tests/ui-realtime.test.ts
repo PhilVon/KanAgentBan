@@ -42,7 +42,9 @@ function loadApp() {
 const $ = (sel: string) => document.querySelector(sel) as HTMLElement;
 const column = (name: string) =>
   [...document.querySelectorAll('.column')].find(
-    (c) => c.querySelector('.col-title')?.textContent === name,
+    // Match the name-only span: .col-title also holds the count badge (and, for
+    // Done, the "Archive all" button), so its textContent isn't the bare name.
+    (c) => c.querySelector('.col-name')?.textContent === name,
   ) as HTMLElement | undefined;
 const cardIn = (col: string, id: string) =>
   column(col)?.querySelector(`.card[data-id="${id}"]`) as HTMLElement | undefined;
@@ -114,7 +116,7 @@ describe('web UI realtime + write surfaces', () => {
 
     const input = (await until(() => document.querySelector('input.crit-input') as HTMLInputElement)) as HTMLInputElement;
     input.value = 'ships green';
-    const btn = [...document.querySelectorAll('button.send')].find((b) => b.textContent === '+ Criterion') as HTMLElement;
+    const btn = [...document.querySelectorAll('button.send')].find((b) => b.textContent?.includes('Criterion')) as HTMLElement;
     btn.click();
 
     const c = await until(() => h.repo.getCriteria(t.id).find((x) => x.text === 'ships green'));

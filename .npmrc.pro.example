@@ -1,0 +1,18 @@
+# Font Awesome Pro opt-in (OPTIONAL — the app works fine on Free without this).
+#
+# The committed project .npmrc deliberately does NOT configure the Pro registry,
+# so a tokenless `npm install` succeeds on Free. To pull the Pro icon set instead,
+# put these lines in your USER-level ~/.npmrc (NOT the project .npmrc — that one is
+# committed and must never carry a token), then set the env var and reinstall:
+#
+#   # PowerShell:  $env:FONTAWESOME_PACKAGE_TOKEN = "<your-token>"
+#   # bash:        export FONTAWESOME_PACKAGE_TOKEN=<your-token>
+#   npm install
+#
+# With this active, npm routes the whole @fortawesome scope to the Pro registry —
+# fontawesome-free also resolves there (the Pro registry mirrors Free), which is
+# fine because your token authenticates it. copy-web-assets.cjs then prefers the
+# Pro package automatically.
+
+@fortawesome:registry=https://npm.fontawesome.com/
+//npm.fontawesome.com/:_authToken=${FONTAWESOME_PACKAGE_TOKEN}
