@@ -33,18 +33,41 @@ a runnable Node + TypeScript implementation of the core is in [`src/`](src/),
 
 ### Run it
 
-```bash
-npm install
-npm run build
+The board's whole point is to run **inside your project directories** — the `kanban`
+CLI walks up from the current folder to find the nearest `.kanban/` board. So the
+command must be on your `PATH`, not invoked by file path. **`npm link` is integral
+to how the board works**, not an optional convenience: it puts the `kanban` command
+globally on `PATH` so Claude can shell out to it from any project.
 
-# initialize a board in the current project, then drive it (server auto-starts)
-node dist/cli/kanban.js board init
-node dist/cli/kanban.js add "Wire up OAuth callback" --prio P1 --status "In Progress"
-node dist/cli/kanban.js next
-node dist/cli/kanban.js open      # prints the web UI URL (with token) for the human
+```bash
+# one-time, from the project root
+npm install
+npm run build      # compiles TypeScript to dist/
+npm link           # puts the `kanban` command globally on PATH
+
+kanban --help      # verify it resolves
 ```
 
-Dev mode without building: `npm run cli -- <args>` and `npm run dev:server`.
+`npm link` is reversible (`npm unlink -g kanagentban`) and ideal while iterating; for
+a one-off global install instead, run `npm install -g .` from the project root. On
+Windows, `npm link` creates a `kanban.cmd` shim on `PATH` that works the same in
+PowerShell.
+
+Then, **in any project where you want a board**:
+
+```bash
+# initialize a board in the current project, then drive it (server auto-starts)
+kanban board init --name "My Project"
+kanban add "Wire up OAuth callback" --prio P1 --status "In Progress"
+kanban next
+kanban open        # prints the web UI URL (with token) for the human
+```
+
+Dev mode without building (from the repo root): `npm run cli -- <args>` and
+`npm run dev:server`.
+
+For the full install/skill/walkthrough guide, see
+**[GETTING-STARTED.md](GETTING-STARTED.md)**.
 
 ### Icons (Font Awesome)
 
@@ -111,7 +134,7 @@ and multi-agent `claim` ship too — see above.)
 
 The human's window into the board: a single-page, dark-themed app served by the
 same sole-writer server at `http://127.0.0.1:<port>/` (open it with
-`node dist/cli/kanban.js open`, which prints the URL with the bearer token). It is
+`kanban open`, which prints the URL with the bearer token). It is
 **read-mostly but write-capable** — all writes go through the REST API; the
 WebSocket event stream is the source of truth and is event-routed to targeted DOM
 updates (one card / inbox row / the open drawer per frame), so the board stays
@@ -159,3 +182,9 @@ Start with **[docs/00-overview.md](docs/00-overview.md)**, then read in order:
 | [11-roadmap](docs/11-roadmap.md) | Phased build plan; v1 vs deferred (v2+) |
 | [12-mcp](docs/12-mcp.md) | The `kanban-mcp` MCP interface for non-skill agents |
 | [adr/](docs/adr/README.md) | Architecture Decision Records |
+
+## License
+
+Licensed under the **Apache License, Version 2.0**. See [LICENSE](LICENSE) for the
+full text. You may use, modify, and distribute this software under its terms,
+including a grant of patent rights from contributors.

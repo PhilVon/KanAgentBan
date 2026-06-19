@@ -2,7 +2,7 @@
   "name": "kanagentban",
   "version": "0.1.0",
   "description": "Agent-first kanban board: a token-efficient task surface for AI agents with a human in the loop.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "commonjs",
   "bin": {
     "kanban": "dist/cli/kanban.js",
