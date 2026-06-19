@@ -63,6 +63,7 @@ const state = {
   filter: '',
 };
 let colListEls = new Map(); // column name -> its .col-list element
+let colCountEls = new Map(); // column name -> its .col-count badge element
 
 // Unread-comment tracking: remember the comment count last seen per task.
 let seenComments = {};
@@ -104,11 +105,19 @@ function renderBoard() {
   const board = $('#board');
   board.innerHTML = '';
   colListEls = new Map();
+  colCountEls = new Map();
   for (const col of state.columns) {
     const column = el('div', 'column');
     const droppable = WORKFLOW_STATUSES.includes(col);
     if (!droppable) column.classList.add('no-drop');
-    column.append(el('h3', 'col-title', col));
+    // Title row: status-colored dot (mirrors the CFD chart palette) · name · live count.
+    const title = el('h3', 'col-title');
+    const dot = el('span', 'col-dot');
+    dot.style.background = CFD_COLORS[col] || C.line;
+    const count = el('span', 'col-count');
+    colCountEls.set(col, count);
+    title.append(dot, el('span', 'col-name', col), count);
+    column.append(title);
     const list = el('div', 'col-list');
     colListEls.set(col, list);
     column.append(list);
@@ -143,6 +152,8 @@ function renderColumn(name) {
   const items = [...state.tasksById.values()]
     .filter((t) => t.column === name && matchesFilter(t))
     .sort(byPosition);
+  const countEl = colCountEls.get(name);
+  if (countEl) countEl.textContent = String(items.length);
   if (!items.length) {
     list.append(el('div', 'col-empty', state.filter ? 'no matches' : '—'));
     return;
@@ -166,7 +177,10 @@ function removeCard(id) {
 }
 
 function card(t) {
-  const c = el('div', `card prio-${t.priority}`);
+  let cls = `card prio-${t.priority}`;
+  if (t.blocked_by_deps) cls += ' blocked';
+  if (t.needs_input) cls += ' needs-input';
+  const c = el('div', cls);
   c.dataset.id = t.id;
   c.draggable = true;
   c.addEventListener('dragstart', (e) => {
@@ -280,7 +294,8 @@ async function openDrawer(id) {
   }
   state.openDrawerId = id;
   renderDrawer(d);
-  $('#drawer').classList.remove('hidden');
+  $('#drawer').classList.add('open');
+  $('#drawer-backdrop').classList.add('open');
   // Mark the thread read and clear the unread badge on the card.
   markSeen(id, d.comments.length);
   const m = state.tasksById.get(id);
@@ -540,12 +555,15 @@ function openEdit(d) {
 }
 
 $('#drawer-close').onclick = () => {
-  $('#drawer').classList.add('hidden');
+  $('#drawer').classList.remove('open');
+  $('#drawer-backdrop').classList.remove('open');
   state.openDrawerId = null;
 };
+// Click the dimmed backdrop to dismiss the drawer.
+$('#drawer-backdrop').addEventListener('click', () => $('#drawer-close').onclick());
 // Esc closes the drawer (focus returns to the board).
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !$('#drawer').classList.contains('hidden')) $('#drawer-close').onclick();
+  if (e.key === 'Escape' && $('#drawer').classList.contains('open')) $('#drawer-close').onclick();
 });
 
 // --- filter -----------------------------------------------------------------
@@ -996,9 +1014,9 @@ function applyEvent(ev) {
 function connectWs() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${proto}://${location.host}/ws?since=${lastSeq}&token=${token}`);
-  ws.onopen = () => ($('#conn').textContent = '● live');
+  ws.onopen = () => setConn('● live', 'live');
   ws.onclose = () => {
-    $('#conn').textContent = '○ reconnecting…';
+    setConn('○ reconnecting…', 'reconnecting');
     setTimeout(connectWs, 1000);
   };
   ws.onmessage = (m) => {
@@ -1013,4 +1031,11 @@ function connectWs() {
   };
 }
 
-refresh().then(connectWs).catch((e) => ($('#conn').textContent = `error: ${e.message} (token?)`));
+// Reflect connection state in both the label text and a color class (live/reconnecting/error).
+function setConn(text, state) {
+  const c = $('#conn');
+  c.textContent = text;
+  c.className = `conn ${state}`;
+}
+
+refresh().then(connectWs).catch((e) => setConn(`error: ${e.message} (token?)`, 'error'));
