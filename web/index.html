@@ -7,27 +7,29 @@
     <!-- href set per-board by app.js (applyBoardIdentity); empty data URI
          suppresses the default /favicon.ico request until then. -->
     <link id="favicon" rel="icon" href="data:," />
+    <!-- Self-hosted Font Awesome Pro (Classic Solid + Regular); vendored on build. -->
+    <link rel="stylesheet" href="vendor/fontawesome/css/all.min.css" />
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <header>
       <h1>KanAgentBan</h1>
-      <button id="add-task" class="add-task">+ Add task</button>
-      <button id="metrics-btn" class="ghost">📊 Metrics</button>
+      <button id="add-task" class="add-task"><i class="fa-solid fa-plus" aria-hidden="true"></i> Add task</button>
+      <button id="metrics-btn" class="ghost"><i class="fa-solid fa-chart-simple" aria-hidden="true"></i> Metrics</button>
       <input id="filter" class="filter" type="search" placeholder="filter… (title, id, @assignee, label)" autocomplete="off" />
-      <button id="notify-btn" class="ghost" title="Enable desktop notifications when the agent needs your input">🔔</button>
+      <button id="notify-btn" class="ghost" aria-label="Enable desktop notifications" title="Enable desktop notifications when the agent needs your input"><i class="fa-solid fa-bell" aria-hidden="true"></i></button>
       <span id="conn" class="conn">connecting…</span>
     </header>
 
     <section id="inbox" class="inbox hidden">
-      <h2>❓ Needs your input</h2>
+      <h2><i class="fa-solid fa-circle-question" aria-hidden="true"></i> Needs your input</h2>
       <div id="inbox-items"></div>
     </section>
 
     <section id="metrics-panel" class="metrics-panel hidden">
       <div class="metrics-head">
-        <h2>📊 Metrics</h2>
-        <button id="metrics-close" class="ghost">×</button>
+        <h2><i class="fa-solid fa-chart-simple" aria-hidden="true"></i> Metrics</h2>
+        <button id="metrics-close" class="ghost" aria-label="Close metrics"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
       </div>
       <div id="metrics-body"></div>
     </section>
@@ -36,7 +38,7 @@
 
     <div id="drawer-backdrop" class="drawer-backdrop"></div>
     <div id="drawer" class="drawer">
-      <button id="drawer-close" class="close">×</button>
+      <button id="drawer-close" class="close" aria-label="Close"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
       <div id="drawer-body"></div>
     </div>
 

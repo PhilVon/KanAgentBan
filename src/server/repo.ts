@@ -569,6 +569,40 @@ export class Repo {
     });
   }
 
+  /**
+   * Bulk-archive every Done task in one transaction. Processed bottom-up
+   * (fixpoint loop): a task is archived only once it has no live children, so a
+   * fully-Done subtree collapses parent-and-all. A Done task still holding a
+   * live child — e.g. a child moved back out of Done — is skipped, not errored
+   * (mirrors `archiveTask`'s guard without throwing). Returns how many were
+   * archived and the ids left behind.
+   */
+  archiveDoneTasks(actor: ActorType = 'agent'): { archived: number; skipped: string[] } {
+    return this.mutate((rec) => {
+      const remaining = new Set(
+        (
+          this.db
+            .prepare(`SELECT id FROM task WHERE status = 'Done' AND archived_at IS NULL`)
+            .all() as { id: string }[]
+        ).map((r) => r.id),
+      );
+      let archived = 0;
+      let progressed = true;
+      while (progressed) {
+        progressed = false;
+        for (const id of [...remaining]) {
+          if (this.childCount(id) > 0) continue; // live children remain — revisit next pass
+          this.db.prepare('UPDATE task SET archived_at = ? WHERE id = ?').run(now(), id);
+          rec({ type: 'task.archived', task_id: id, actor_type: actor, payload: {} });
+          remaining.delete(id);
+          archived++;
+          progressed = true;
+        }
+      }
+      return { archived, skipped: [...remaining] };
+    });
+  }
+
   // dependencies ----------------------------------------------------------
 
   private reachable(start: string, target: string): boolean {

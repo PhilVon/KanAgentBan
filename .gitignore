@@ -7,3 +7,8 @@ dist/
 *.db
 *.db-wal
 *.db-shm
+
+# Font Awesome: the raw kit/package auth token lives in fontawesome.txt — never
+# commit it. Vendored FA assets are generated from the Pro package on build.
+fontawesome.txt
+web/vendor/

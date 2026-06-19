@@ -42,6 +42,25 @@ const el = (tag, cls, text) => {
   if (text !== undefined) n.textContent = text;
   return n;
 };
+// Font Awesome <i> factory. `name` is the icon sans `fa-` prefix; `style` is the
+// family ('solid' default, or 'regular'). Icons color via currentColor, so they
+// inherit the theme. Decorative by default (aria-hidden); pass `label` for an
+// accessible name on a standalone/meaningful icon.
+function icon(name, style = 'solid', label) {
+  const i = el('i', `fa-${style} fa-${name}`);
+  if (label) i.setAttribute('aria-label', label);
+  else i.setAttribute('aria-hidden', 'true');
+  return i;
+}
+// A card flag pill: a leading icon plus optional adjacent text (count/id/name).
+// When there's no text the icon carries the accessible `label`.
+function flag(cls, iconName, text, label) {
+  const s = el('span', cls);
+  const hasText = text != null && text !== '';
+  s.append(icon(iconName, 'solid', hasText ? undefined : label));
+  if (hasText) s.append(el('span', 'flag-text', String(text)));
+  return s;
+}
 const idNum = (id) => Number(String(id).replace(/\D/g, '')) || 0;
 const byPosition = (a, b) => (a.position ?? Infinity) - (b.position ?? Infinity) || idNum(a.id) - idNum(b.id);
 
@@ -64,6 +83,7 @@ const state = {
 };
 let colListEls = new Map(); // column name -> its .col-list element
 let colCountEls = new Map(); // column name -> its .col-count badge element
+let doneArchiveBtn = null; // the Done column's "Archive all" button (null until rendered)
 
 // Unread-comment tracking: remember the comment count last seen per task.
 let seenComments = {};
@@ -156,6 +176,14 @@ function renderBoard() {
     const count = el('span', 'col-count');
     colCountEls.set(col, count);
     title.append(dot, el('span', 'col-name', col), count);
+    // Done gets a bulk "Archive all" action; disabled state synced in renderColumn.
+    if (col === 'Done') {
+      doneArchiveBtn = el('button', 'ghost col-archive');
+      doneArchiveBtn.append(icon('box-archive'), ' Archive all');
+      doneArchiveBtn.title = 'Archive all Done tasks';
+      doneArchiveBtn.onclick = archiveAllDone;
+      title.append(doneArchiveBtn);
+    }
     column.append(title);
     const list = el('div', 'col-list');
     colListEls.set(col, list);
@@ -193,6 +221,8 @@ function renderColumn(name) {
     .sort(byPosition);
   const countEl = colCountEls.get(name);
   if (countEl) countEl.textContent = String(items.length);
+  // Archive-all acts on every Done task, so gate it on the unfiltered count.
+  if (name === 'Done' && doneArchiveBtn) doneArchiveBtn.disabled = doneCount() === 0;
   if (!items.length) {
     list.append(el('div', 'col-empty', state.filter ? 'no matches' : '—'));
     return;
@@ -236,18 +266,18 @@ function card(t) {
   c.append(el('span', `pri pri-${t.priority}`, t.priority));
   c.append(el('div', 'title', t.title));
   const flags = el('div', 'flags');
-  if (t.blocked_by_deps) flags.append(el('span', 'flag dep', '🔒'));
-  if (t.needs_input) flags.append(el('span', 'flag input', '❓'));
-  if (t.child_total) flags.append(el('span', 'flag subtasks', `⊞${t.child_done}/${t.child_total}`));
-  if (t.parent_id) flags.append(el('span', 'flag parent', `⤷${t.parent_id}`));
+  if (t.blocked_by_deps) flags.append(flag('flag dep', 'lock', '', 'blocked by dependencies'));
+  if (t.needs_input) flags.append(flag('flag input', 'circle-question', '', 'needs input'));
+  if (t.child_total) flags.append(flag('flag subtasks', 'list-check', `${t.child_done}/${t.child_total}`));
+  if (t.parent_id) flags.append(flag('flag parent', 'code-branch', t.parent_id));
   if (t.comments) {
     const unread = Math.max(0, t.comments - (seenComments[t.id] || 0));
-    const cf = el('span', unread ? 'flag comments unread' : 'flag comments', `💬${t.comments}`);
+    const cf = flag(unread ? 'flag comments unread' : 'flag comments', 'comment', t.comments);
     if (unread) cf.title = `${unread} new since you last looked`;
     flags.append(cf);
   }
-  if (t.criteria_total) flags.append(el('span', 'flag', `✓${t.criteria_done}/${t.criteria_total}`));
-  if (t.assignee) flags.append(el('span', 'flag assignee', `👤${t.assignee}`));
+  if (t.criteria_total) flags.append(flag('flag', 'circle-check', `${t.criteria_done}/${t.criteria_total}`));
+  if (t.assignee) flags.append(flag('flag assignee', 'user', t.assignee));
   for (const l of t.labels || []) flags.append(el('span', 'label', l));
   c.append(flags);
   c.onclick = () => openDrawer(t.id);
@@ -369,11 +399,12 @@ function renderDrawer(d) {
   edit.onclick = () => openEdit(d);
   head.append(claim, arch, edit);
   body.append(head);
-  body.append(
-    el('div', 'meta', `${d.task.priority} · ${d.task.status}${d.task.assignee ? ' · 👤 ' + d.task.assignee : ''}`),
-  );
+  const meta = el('div', 'meta', `${d.task.priority} · ${d.task.status}`);
+  if (d.task.assignee) meta.append(' · ', icon('user'), ' ' + d.task.assignee);
+  body.append(meta);
   if (d.parent) {
-    const p = el('div', 'parent-link', `⤷ parent: ${d.parent.id} ${d.parent.title} (${d.parent.status})`);
+    const p = el('div', 'parent-link');
+    p.append(icon('code-branch'), ` parent: ${d.parent.id} ${d.parent.title} (${d.parent.status})`);
     p.onclick = () => openDrawer(d.parent.id);
     body.append(p);
   }
@@ -406,7 +437,7 @@ function renderDrawer(d) {
     row.append(cb, el('span', '', ` ${c.text}`));
     body.append(row);
   }
-  appendAdder(body, 'crit-input', 'new criterion…', '+ Criterion', (text) =>
+  appendAdder(body, 'crit-input', 'new criterion…', 'Criterion', (text) =>
     api(`/api/tasks/${d.task.id}/criteria`, { method: 'POST', headers: userJson, body: JSON.stringify({ text }) }),
   );
 
@@ -423,7 +454,8 @@ function renderDrawer(d) {
     }
     const stIn = el('input', 'subtask-input');
     stIn.placeholder = 'new subtask title…';
-    const stBtn = el('button', 'send', '+ Subtask');
+    const stBtn = el('button', 'send');
+    stBtn.append(icon('plus'), ' Subtask');
     stBtn.onclick = () =>
       stIn.value.trim() &&
       api('/api/tasks', {
@@ -442,8 +474,12 @@ function renderDrawer(d) {
   if (!d.blockers.length) depWrap.append(el('span', 'muted', 'no blockers'));
   for (const b of d.blockers) {
     const row = el('div', 'chip-row');
-    row.append(el('span', '', `🔒 ${b.id} (${b.status})`));
-    const x = el('button', 'chip-x', '×');
+    const blbl = el('span', '');
+    blbl.append(icon('lock'), ` ${b.id} (${b.status})`);
+    row.append(blbl);
+    const x = el('button', 'chip-x');
+    x.setAttribute('aria-label', 'remove dependency');
+    x.append(icon('xmark'));
     x.title = 'remove dependency';
     x.onclick = () =>
       api(`/api/tasks/${d.task.id}/deps?on=${encodeURIComponent(b.id)}`, { method: 'DELETE', headers: { 'x-actor': 'user' } })
@@ -453,7 +489,7 @@ function renderDrawer(d) {
     depWrap.append(row);
   }
   body.append(depWrap);
-  appendAdder(body, 'dep-input', 'add blocker (T-n)…', '+ Blocker', (on) =>
+  appendAdder(body, 'dep-input', 'add blocker (T-n)…', 'Blocker', (on) =>
     api(`/api/tasks/${d.task.id}/deps`, { method: 'POST', headers: userJson, body: JSON.stringify({ on }) }),
   );
   if (d.blocked_by.length) body.append(el('div', 'deps', `Blocks: ${d.blocked_by.map((b) => b.id).join(', ')}`));
@@ -464,7 +500,9 @@ function renderDrawer(d) {
   if (!d.labels.length) labelWrap.append(el('span', 'muted', 'none'));
   for (const l of d.labels) {
     const chip = el('span', 'label', l);
-    const x = el('button', 'chip-x', '×');
+    const x = el('button', 'chip-x');
+    x.setAttribute('aria-label', 'remove label');
+    x.append(icon('xmark'));
     x.onclick = () =>
       api(`/api/tasks/${d.task.id}/labels?name=${encodeURIComponent(l)}`, { method: 'DELETE', headers: { 'x-actor': 'user' } })
         .then(() => openDrawer(d.task.id))
@@ -473,7 +511,7 @@ function renderDrawer(d) {
     labelWrap.append(chip);
   }
   body.append(labelWrap);
-  appendAdder(body, 'label-input', 'add label…', '+ Label', (name) =>
+  appendAdder(body, 'label-input', 'add label…', 'Label', (name) =>
     api(`/api/tasks/${d.task.id}/labels`, { method: 'POST', headers: userJson, body: JSON.stringify({ name }) }),
   );
 
@@ -533,7 +571,8 @@ function appendAdder(body, cls, placeholder, btnText, submit) {
       .catch((err) => toast(`${btnText} failed: ${err.message}`));
   };
   input.addEventListener('keydown', (e) => e.key === 'Enter' && go());
-  const btn = el('button', 'send', btnText);
+  const btn = el('button', 'send');
+  btn.append(icon('plus'), ' ' + btnText);
   btn.onclick = go;
   wrap.append(input, btn);
   body.append(wrap);
@@ -898,6 +937,59 @@ $('#metrics-close').addEventListener('click', () => $('#metrics-panel').classLis
   }
 })();
 
+// --- archive all Done -------------------------------------------------------
+const doneCount = () => [...state.tasksById.values()].filter((t) => t.column === 'Done').length;
+
+// Minimal promise-based confirm reusing the modal-overlay styling. Built and torn
+// down on the fly (no markup in index.html); resolves true on confirm/Enter,
+// false on cancel/Escape/backdrop.
+function confirmDialog(title, message, confirmText = 'Confirm') {
+  return new Promise((resolve) => {
+    const overlay = el('div', 'modal-overlay');
+    const box = el('div', 'modal');
+    box.append(el('h2', null, title), el('p', 'confirm-msg', message));
+    const actions = el('div', 'modal-actions');
+    const cancel = el('button', 'ghost', 'Cancel');
+    const ok = el('button', 'send', confirmText);
+    actions.append(cancel, ok);
+    box.append(actions);
+    overlay.append(box);
+    const close = (val) => {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+      resolve(val);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') close(false);
+      else if (e.key === 'Enter') close(true);
+    };
+    cancel.onclick = () => close(false);
+    ok.onclick = () => close(true);
+    overlay.addEventListener('click', (e) => e.target === overlay && close(false));
+    document.addEventListener('keydown', onKey);
+    document.body.append(overlay);
+    ok.focus();
+  });
+}
+
+async function archiveAllDone() {
+  const n = doneCount();
+  if (!n) return; // button is disabled in this state; guard anyway
+  const ok = await confirmDialog(
+    'Archive all Done?',
+    `Archive ${n} done task${n === 1 ? '' : 's'}? They leave the board (still recoverable from the board data file).`,
+    'Archive all',
+  );
+  if (!ok) return;
+  api('/api/tasks/archive-done', { method: 'POST', headers: userJson })
+    .then((res) => {
+      const skipped = res.skipped?.length || 0;
+      toast(`archived ${res.archived}${skipped ? `, skipped ${skipped} (have subtasks)` : ''}`);
+      // Cards leave the board via the realtime task.archived stream (removeCard).
+    })
+    .catch((e) => toast(`archive all failed: ${e.message}`));
+}
+
 const modal = $('#create-modal');
 function openCreate() {
   modal.classList.remove('hidden');
@@ -1053,9 +1145,9 @@ function applyEvent(ev) {
 function connectWs() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${proto}://${location.host}/ws?since=${lastSeq}&token=${token}`);
-  ws.onopen = () => setConn('● live', 'live');
+  ws.onopen = () => setConn('live', 'live', 'circle', 'solid');
   ws.onclose = () => {
-    setConn('○ reconnecting…', 'reconnecting');
+    setConn('reconnecting…', 'reconnecting', 'circle', 'regular');
     setTimeout(connectWs, 1000);
   };
   ws.onmessage = (m) => {
@@ -1071,10 +1163,12 @@ function connectWs() {
 }
 
 // Reflect connection state in both the label text and a color class (live/reconnecting/error).
-function setConn(text, state) {
+function setConn(label, state, iconName = 'circle', style = 'solid') {
   const c = $('#conn');
-  c.textContent = text;
   c.className = `conn ${state}`;
+  c.replaceChildren(icon(iconName, style), ' ' + label);
 }
 
-refresh().then(connectWs).catch((e) => setConn(`error: ${e.message} (token?)`, 'error'));
+refresh()
+  .then(connectWs)
+  .catch((e) => setConn(`error: ${e.message} (token?)`, 'error', 'triangle-exclamation', 'solid'));

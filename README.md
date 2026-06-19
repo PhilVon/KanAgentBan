@@ -46,6 +46,18 @@ node dist/cli/kanban.js open      # prints the web UI URL (with token) for the h
 
 Dev mode without building: `npm run cli -- <args>` and `npm run dev:server`.
 
+### Icons (Font Awesome)
+
+The web UI uses self-hosted Font Awesome, vendored into `web/vendor/` on install/build
+(no CDN — works offline). **No Font Awesome account is required:** `npm install` pulls
+**Font Awesome Free** from public npm by default and the UI uses only Free-available icons.
+
+Have a **Pro** account and want the Pro set? Don't touch the committed `.npmrc` (it must
+stay token-free). Copy [`.npmrc.pro.example`](.npmrc.pro.example) into your user-level
+`~/.npmrc`, set `FONTAWESOME_PACKAGE_TOKEN`, and reinstall — the optional
+`@fortawesome/fontawesome-pro` package is then preferred automatically. If neither resolves,
+the UI degrades gracefully (labels/counts render, just without glyphs).
+
 ### Test
 
 ```bash

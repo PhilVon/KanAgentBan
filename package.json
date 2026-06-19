@@ -9,7 +9,9 @@
     "kanban-mcp": "dist/mcp/server.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && npm run copy:web-assets",
+    "copy:web-assets": "node scripts/copy-web-assets.cjs",
+    "postinstall": "node scripts/copy-web-assets.cjs",
     "dev:server": "tsx src/server/server.ts",
     "cli": "tsx src/cli/kanban.ts",
     "mcp": "tsx src/mcp/server.ts",
@@ -18,11 +20,15 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fortawesome/fontawesome-free": "^7.0.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^11.3.0",
     "commander": "^12.1.0",
     "express": "^4.21.0",
     "ws": "^8.18.0"
+  },
+  "optionalDependencies": {
+    "@fortawesome/fontawesome-pro": "^7.2.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.11",

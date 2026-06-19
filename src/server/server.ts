@@ -25,6 +25,8 @@ import { DISPLAY_COLUMNS, type ActorType, type NudgeConfig } from '../shared/typ
 const WEB_DIR = path.resolve(__dirname, '../../web');
 // Non-sensitive client assets served without a token (see auth middleware).
 const STATIC_PATHS = new Set(['/', '/index.html', '/app.js', '/style.css']);
+// Vendored static assets (e.g. self-hosted Font Awesome) — token-free by prefix.
+const STATIC_PREFIXES = ['/vendor/'];
 
 // Terminal input-request transitions an `await` waiter resolves on.
 const INPUT_RESOLVED = new Set(['input.answered', 'input.cancelled', 'input.expired']);
@@ -85,7 +87,11 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     // Static client assets carry no board data; serve them without a token so the
     // browser can bootstrap (sub-resource GETs can't send a Bearer header). The
     // token still guards every /api and /ws path; Origin/Host checks above apply.
-    if (req.method === 'GET' && STATIC_PATHS.has(req.path)) return next();
+    if (
+      req.method === 'GET' &&
+      (STATIC_PATHS.has(req.path) || STATIC_PREFIXES.some((p) => req.path.startsWith(p)))
+    )
+      return next();
     const auth = req.get('authorization') || '';
     const got = auth.startsWith('Bearer ') ? auth.slice(7) : req.query.token;
     if (got !== token) return res.status(401).json(errBody('unauthorized', 'bad or missing token'));
@@ -273,6 +279,9 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
 
   // --- mutations --------------------------------------------------------
   app.post('/api/tasks', wrap((req, res) => res.json(repo.createTask({ ...req.body, actor: actor(req) }))));
+  // Bulk-archive the Done column. Registered before the `:id` routes so the
+  // literal `archive-done` segment is never captured as a task id.
+  app.post('/api/tasks/archive-done', wrap((req, res) => res.json(repo.archiveDoneTasks(actor(req)))));
   app.patch(
     '/api/tasks/:id',
     wrap((req, res) => {
