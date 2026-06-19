@@ -231,6 +231,10 @@ function renderColumn(name) {
 }
 
 function upsertCard(model) {
+  // An archived task is off the board — never let one land in state (defense in
+  // depth: the server 404s the card route, but guard here too so a stray archived
+  // model can't resurrect a card into its old column).
+  if (model.archived_at) return removeCard(model.id);
   const prev = state.tasksById.get(model.id);
   state.tasksById.set(model.id, model);
   renderColumn(model.column);
