@@ -69,6 +69,78 @@ Dev mode without building (from the repo root): `npm run cli -- <args>` and
 For the full install/skill/walkthrough guide, see
 **[GETTING-STARTED.md](GETTING-STARTED.md)**.
 
+### Install the skill
+
+The CLI is the surface; the **Claude Code skill** (`skill/SKILL.md`) is what makes
+Claude reach for the board on its own — and asks the human through durable on-board
+requests instead of vanishing chat-only questions. **Installing it is part of normal
+setup, not optional.** Claude Code loads skills from a `skills/` directory where each
+skill is a folder containing a `SKILL.md`; copy this repo's `skill/SKILL.md` into a
+`kanban` folder under your Claude config.
+
+**Personal skill** (available in every project):
+
+PowerShell (Windows):
+
+```powershell
+$dest = "$env:USERPROFILE\.claude\skills\kanban"
+New-Item -ItemType Directory -Force $dest | Out-Null
+Copy-Item .\skill\SKILL.md $dest
+```
+
+bash (macOS/Linux):
+
+```bash
+mkdir -p ~/.claude/skills/kanban
+cp skill/SKILL.md ~/.claude/skills/kanban/
+```
+
+**Project-scoped** (one repo only): put it at `.claude/skills/kanban/SKILL.md`
+instead — use this to commit the skill alongside a project. Restart Claude Code (or
+start a new session) so it picks up the skill.
+
+### Driving the board with Claude
+
+The skill triggers itself on **multi-step, dependency-laden, or cross-session** work
+and deliberately **skips** trivial one-shot requests (forcing the board onto atomic
+work is pure token overhead). You can also nudge it with phrases like *"track this"*,
+*"plan this out"*, *"use the board"*, *"break this into tasks"*, or *"ask me and
+continue."* If Claude isn't using it when you want, just say "plan this on the board
+first."
+
+Once it's running, Claude works the board itself — you mostly watch the realtime
+[Web UI](#web-ui) (`kanban open`) and answer questions. A healthy session looks like:
+
+```bash
+kanban next --context              # load one task + its full working set in one call
+kanban move T-12 "In Progress"     # status goes current on pickup
+kanban criterion add T-12 "handles error responses"
+kanban comment T-12 "chose Auth0 — Cognito needs a custom UI"   # records the decision
+kanban done T-12                   # completion recomputes what's now unblocked
+```
+
+**The key behaviour to understand — Claude never freezes a turn waiting on you.**
+When it needs a decision it raises a *durable* question and yields:
+
+1. `kanban ask T-12 "Which auth provider?" --options Auth0,Cognito` → returns `Q-7`
+   immediately and parks the task as *needs input*.
+2. `kanban await Q-7 --timeout 60` → tries a short wait.
+3. If you haven't answered, Claude **yields the turn** — picks up other ready work or
+   ends cleanly ("Paused T-12 on Q-7, awaiting your input").
+
+You answer at your leisure in the Web UI (or `kanban answer Q-7 "Auth0"`), which flips
+the task back to *ready*. The next time Claude works the board — **even in a brand-new
+session** — `kanban inbox` / `kanban next` surface it and it resumes with your answer.
+So a paused task is normal and healthy, not stuck.
+
+An opt-in [Stop hook](https://docs.claude.com/en/docs/claude-code/hooks) backstops
+this: if a turn ends with a chat-only question while a task is *In Progress*, it nudges
+Claude to use `kanban ask` instead. Wiring lives at `.claude/hooks/board-hitl-stop.js`
+and the `hooks.Stop` block in `.claude/settings.json` (it fails open, never blocks you).
+
+Full behavioural spec: [docs/06-skill.md](docs/06-skill.md). The skill's own
+cheat-sheet is the canonical CLI quick reference (`skill/SKILL.md`).
+
 ### Icons (Font Awesome)
 
 The web UI uses self-hosted Font Awesome, vendored into `web/vendor/` on install/build
