@@ -125,27 +125,40 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     res.json({ root, format_version: FORMAT_VERSION, seq: repo.maxSeq() }),
   );
 
+  // One board card: task fields + the derived flags/rollups the UI renders. The
+  // sole source of card shape — shared by the board view and the per-card refresh
+  // route so an event-routed single-card update is byte-identical to a full load.
+  const cardView = (t: ReturnType<typeof repo.requireTask>) => {
+    const d = deriveState(db, t);
+    const crit = repo.getCriteria(t.id);
+    const kids = childProgress(db, t.id);
+    return {
+      ...t,
+      ...d,
+      column: d.blocked_by_deps || d.needs_input || d.blocked_by_children ? 'Blocked' : t.status,
+      comments: repo.countComments(t.id),
+      open_input: repo.getOpenRequests(t.id).length,
+      criteria_done: crit.filter((c) => c.checked).length,
+      criteria_total: crit.length,
+      child_done: kids.done,
+      child_total: kids.total,
+      labels: repo.getLabels(t.id),
+    };
+  };
+
   // UI-oriented board view: cards with derived flags + the input inbox.
   app.get('/api/ui/board', (_req, res) => {
-    const tasks = repo.listTasks({}).map((t) => {
-      const d = deriveState(db, t);
-      const crit = repo.getCriteria(t.id);
-      const kids = childProgress(db, t.id);
-      return {
-        ...t,
-        ...d,
-        column: d.blocked_by_deps || d.needs_input || d.blocked_by_children ? 'Blocked' : t.status,
-        comments: repo.countComments(t.id),
-        open_input: repo.getOpenRequests(t.id).length,
-        criteria_done: crit.filter((c) => c.checked).length,
-        criteria_total: crit.length,
-        child_done: kids.done,
-        child_total: kids.total,
-        labels: repo.getLabels(t.id),
-      };
+    res.json({
+      columns: DISPLAY_COLUMNS,
+      tasks: repo.listTasks({}).map(cardView),
+      inbox: repo.getOpenRequests(),
+      seq: repo.maxSeq(),
     });
-    res.json({ columns: DISPLAY_COLUMNS, tasks, inbox: repo.getOpenRequests(), seq: repo.maxSeq() });
   });
+
+  // Single card for event-routed refresh — the UI fetches just the affected task
+  // on a WebSocket frame instead of re-pulling the whole board.
+  app.get('/api/ui/tasks/:id/card', wrap((req, res) => res.json(cardView(repo.requireTask(req.params.id)))));
 
   // Per-task detail for the UI drawer.
   app.get('/api/ui/tasks/:id', wrap((req, res) => res.json(taskDetail(req.params.id))));

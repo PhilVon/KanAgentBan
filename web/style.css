@@ -24,9 +24,17 @@ header {
   border-bottom: 1px solid var(--line);
 }
 header h1 { font-size: 1.1rem; margin: 0; }
-.conn { color: var(--muted); font-size: 0.85rem; margin-left: auto; }
+.conn { color: var(--muted); font-size: 0.85rem; }
 .hidden { display: none !important; }
 .add-task { font-size: 0.85rem; }
+.filter {
+  margin-left: auto;
+  min-width: 220px;
+  font: inherit;
+}
+#notify-btn { padding: 0.25rem 0.5rem; }
+#notify-btn.on { color: var(--accent); border-color: var(--accent); }
+.muted { color: var(--muted); }
 .ghost {
   background: transparent;
   color: var(--muted);
@@ -252,6 +260,39 @@ textarea.edit-field { font: inherit; resize: vertical; }
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
   z-index: 20;
 }
+
+/* --- empty column placeholder --- */
+.col-empty { color: var(--muted); font-size: 0.8rem; text-align: center; padding: 0.4rem 0; opacity: 0.6; }
+
+/* --- unread comments badge --- */
+.flag.comments.unread { background: var(--accent); color: #06101f; border-radius: 10px; padding: 0 0.45rem; font-weight: 600; }
+
+/* --- inbox cancel + drawer chips/adders --- */
+.q-cancel { font-size: 0.78rem; }
+.chip-row { display: flex; align-items: center; gap: 0.4rem; padding: 0.15rem 0; font-size: 0.85rem; }
+.chip-x, .label .chip-x {
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  padding: 0 0.2rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.chip-x:hover { color: var(--danger); }
+.label-row { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; margin: 0.2rem 0; }
+.label .chip-x { margin-left: 0.2rem; }
+.adder { display: flex; gap: 0.4rem; margin: 0.4rem 0; }
+.adder input { flex: 1; }
+
+/* --- comment author emphasis --- */
+.comment.author-user { border-left: 2px solid var(--accent); padding-left: 0.4rem; }
+.comment.author-user .author { color: #c8b6ff; }
+.comment .body { white-space: pre-wrap; }
+
+/* --- burndown legend --- */
+.legend { display: flex; gap: 0.8rem; margin: 0.2rem 0 0.4rem; font-size: 0.75rem; color: var(--muted); }
+.legend-item { display: flex; align-items: center; gap: 0.3rem; }
+.legend-swatch { width: 0.7rem; height: 0.7rem; border-radius: 2px; display: inline-block; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }

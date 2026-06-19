@@ -205,7 +205,12 @@ when the matching event arrives.
   reconciles from the stream.
 - **Add comment** → `POST /api/tasks/:id/comments` (`author_type = user`).
 - **Answer input** → `POST /api/input-requests/:qid/answer` (inbox or drawer).
-- **Check / uncheck acceptance criteria** → `PATCH /api/criteria/:acid`.
+- **Cancel input** → `POST /api/input-requests/:qid/cancel` (inbox or drawer).
+- **Check / uncheck acceptance criteria** → `PATCH /api/criteria/:acid`;
+  **add criterion** → `POST /api/tasks/:id/criteria`.
+- **Add / remove label** → `POST` / `DELETE /api/tasks/:id/labels`.
+- **Add / remove blocker dependency** → `POST` / `DELETE /api/tasks/:id/deps`.
+- **Claim / release / archive** → `POST /api/tasks/:id/{claim,release,archive}`.
 
 No write path bypasses REST; the UI never writes SQLite directly (the server is
 the sole writer — [02-data-model §7](02-data-model.md),

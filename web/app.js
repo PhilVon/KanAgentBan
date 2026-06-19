@@ -1,11 +1,21 @@
-// Minimal realtime board UI. See docs/08-web-ui.md.
+// Realtime board UI. See docs/08-web-ui.md.
+// Writes go through REST; the WebSocket event stream is the source of truth and
+// is event-routed to targeted DOM updates (one card / inbox row / the open
+// drawer per frame) — full re-fetch is reserved for first load and `reset`.
 'use strict';
 
 const params = new URLSearchParams(location.search);
 const token = params.get('token') || localStorage.getItem('kanban_token') || '';
-if (params.get('token')) localStorage.setItem('kanban_token', token);
+if (params.get('token')) {
+  localStorage.setItem('kanban_token', token);
+  // Don't leave the token in the address bar / history (docs/08 §8).
+  history.replaceState(null, '', location.pathname + location.hash);
+}
 
 const headers = { authorization: `Bearer ${token}` };
+// Human-originated writes are attributed to the user (x-actor); claim/release
+// also need an agent identity (x-agent).
+const userJson = { 'content-type': 'application/json', 'x-actor': 'user' };
 const api = (p, opts = {}) =>
   fetch(p, { ...opts, headers: { ...headers, ...(opts.headers || {}) } }).then(async (r) => {
     if (!r.ok) {
@@ -32,6 +42,8 @@ const el = (tag, cls, text) => {
   if (text !== undefined) n.textContent = text;
   return n;
 };
+const idNum = (id) => Number(String(id).replace(/\D/g, '')) || 0;
+const byPosition = (a, b) => (a.position ?? Infinity) - (b.position ?? Infinity) || idNum(a.id) - idNum(b.id);
 
 let toastTimer;
 function toast(msg) {
@@ -42,23 +54,63 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.add('hidden'), 4000);
 }
 
+// --- client state -----------------------------------------------------------
+const state = {
+  columns: [],
+  tasksById: new Map(),
+  inboxByTask: new Map(), // task_id -> open InputRequest[]
+  openDrawerId: null,
+  filter: '',
+};
+let colListEls = new Map(); // column name -> its .col-list element
+
+// Unread-comment tracking: remember the comment count last seen per task.
+let seenComments = {};
+try {
+  seenComments = JSON.parse(localStorage.getItem('kanban_seen') || '{}');
+} catch {}
+function markSeen(id, count) {
+  seenComments[id] = count;
+  try {
+    localStorage.setItem('kanban_seen', JSON.stringify(seenComments));
+  } catch {}
+}
+
+function matchesFilter(t) {
+  const q = state.filter;
+  if (!q) return true;
+  const hay =
+    `${t.id} ${t.title} ${t.assignee ? '@' + t.assignee : ''} ${(t.labels || []).join(' ')} ${t.priority}`.toLowerCase();
+  return hay.includes(q);
+}
+
+// --- full reseed (first load, reset, create, conflict reconcile) ------------
 async function refresh() {
   const data = await api('/api/ui/board');
-  renderBoard(data);
-  renderInbox(data.inbox);
+  state.columns = data.columns;
+  state.tasksById = new Map(data.tasks.map((t) => [t.id, t]));
+  state.inboxByTask = new Map();
+  for (const q of data.inbox) {
+    const arr = state.inboxByTask.get(q.task_id) || [];
+    arr.push(q);
+    state.inboxByTask.set(q.task_id, arr);
+  }
+  renderBoard();
+  renderInbox();
   if (!$('#metrics-panel').classList.contains('hidden')) loadStats();
 }
 
-function renderBoard({ columns, tasks }) {
+function renderBoard() {
   const board = $('#board');
   board.innerHTML = '';
-  for (const col of columns) {
+  colListEls = new Map();
+  for (const col of state.columns) {
     const column = el('div', 'column');
     const droppable = WORKFLOW_STATUSES.includes(col);
     if (!droppable) column.classList.add('no-drop');
     column.append(el('h3', 'col-title', col));
     const list = el('div', 'col-list');
-    for (const t of tasks.filter((t) => t.column === col)) list.append(card(t));
+    colListEls.set(col, list);
     column.append(list);
     if (droppable) {
       column.addEventListener('dragover', (e) => {
@@ -79,26 +131,43 @@ function renderBoard({ columns, tasks }) {
     }
     board.append(column);
   }
+  for (const col of state.columns) renderColumn(col);
 }
 
-// Stash the dragged task id (dataTransfer.getData is empty during dragover on
-// some browsers, so we also keep it module-scoped).
-let dragId = null;
+// Rebuild a single column's card list from state (filtered + position-ordered).
+// Other columns keep their scroll position — only the touched column re-renders.
+function renderColumn(name) {
+  const list = colListEls.get(name);
+  if (!list) return;
+  list.innerHTML = '';
+  const items = [...state.tasksById.values()]
+    .filter((t) => t.column === name && matchesFilter(t))
+    .sort(byPosition);
+  if (!items.length) {
+    list.append(el('div', 'col-empty', state.filter ? 'no matches' : '—'));
+    return;
+  }
+  for (const t of items) list.append(card(t));
+}
 
-function moveTask(id, status) {
-  api(`/api/tasks/${id}/move`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ status }),
-  }).catch((e) => {
-    toast(e.status === 409 ? `${id}: changed elsewhere — reloaded` : `move failed: ${e.message}`);
-    refresh();
-  });
-  // The task.moved event drives the visible relocation (refresh on WS frame).
+function upsertCard(model) {
+  const prev = state.tasksById.get(model.id);
+  state.tasksById.set(model.id, model);
+  renderColumn(model.column);
+  if (prev && prev.column !== model.column) renderColumn(prev.column);
+}
+
+function removeCard(id) {
+  const prev = state.tasksById.get(id);
+  state.tasksById.delete(id);
+  if (state.inboxByTask.delete(id)) renderInbox();
+  if (prev) renderColumn(prev.column);
+  if (state.openDrawerId === id) $('#drawer-close').onclick();
 }
 
 function card(t) {
   const c = el('div', `card prio-${t.priority}`);
+  c.dataset.id = t.id;
   c.draggable = true;
   c.addEventListener('dragstart', (e) => {
     dragId = t.id;
@@ -118,7 +187,12 @@ function card(t) {
   if (t.needs_input) flags.append(el('span', 'flag input', '❓'));
   if (t.child_total) flags.append(el('span', 'flag subtasks', `⊞${t.child_done}/${t.child_total}`));
   if (t.parent_id) flags.append(el('span', 'flag parent', `⤷${t.parent_id}`));
-  if (t.comments) flags.append(el('span', 'flag', `💬${t.comments}`));
+  if (t.comments) {
+    const unread = Math.max(0, t.comments - (seenComments[t.id] || 0));
+    const cf = el('span', unread ? 'flag comments unread' : 'flag comments', `💬${t.comments}`);
+    if (unread) cf.title = `${unread} new since you last looked`;
+    flags.append(cf);
+  }
   if (t.criteria_total) flags.append(el('span', 'flag', `✓${t.criteria_done}/${t.criteria_total}`));
   if (t.assignee) flags.append(el('span', 'flag assignee', `👤${t.assignee}`));
   for (const l of t.labels || []) flags.append(el('span', 'label', l));
@@ -127,16 +201,18 @@ function card(t) {
   return c;
 }
 
-function renderInbox(inbox) {
+// --- inbox ------------------------------------------------------------------
+function renderInbox() {
   const box = $('#inbox');
   const items = $('#inbox-items');
   items.innerHTML = '';
-  if (!inbox.length) {
+  const all = [...state.inboxByTask.values()].flat().sort((a, b) => idNum(a.id) - idNum(b.id));
+  if (!all.length) {
     box.classList.add('hidden');
     return;
   }
   box.classList.remove('hidden');
-  for (const q of inbox) items.append(inboxItem(q));
+  for (const q of all) items.append(inboxItem(q));
 }
 
 function inboxItem(q) {
@@ -154,10 +230,14 @@ function inboxItem(q) {
   if (!q.options || q.answer_freeform) {
     const input = el('input', 'q-input');
     input.placeholder = 'type an answer…';
+    input.addEventListener('keydown', (e) => e.key === 'Enter' && input.value && answer(q.id, input.value));
     const send = el('button', 'send', 'Answer');
     send.onclick = () => input.value && answer(q.id, input.value);
     form.append(input, send);
   }
+  const cancel = el('button', 'ghost q-cancel', 'Cancel');
+  cancel.onclick = () => cancelInput(q.id);
+  form.append(cancel);
   wrap.append(form);
   return wrap;
 }
@@ -165,19 +245,75 @@ function inboxItem(q) {
 const answer = (qid, text) =>
   api(`/api/input-requests/${qid}/answer`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: userJson,
     body: JSON.stringify({ answer: text, answered_by: 'user' }),
   }).catch((err) => toast(`answer failed: ${err.message}`));
 
+const cancelInput = (qid) =>
+  api(`/api/input-requests/${qid}/cancel`, { method: 'POST', headers: { 'x-actor': 'user' } }).catch((err) =>
+    toast(`cancel failed: ${err.message}`),
+  );
+
+function moveTask(id, status) {
+  api(`/api/tasks/${id}/move`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ status }),
+  }).catch((e) => {
+    toast(e.status === 409 ? `${id}: changed elsewhere — reloaded` : `move failed: ${e.message}`);
+    refresh();
+  });
+  // The task.moved event drives the visible relocation (event-routed below).
+}
+
+// Stash the dragged task id (dataTransfer.getData is empty during dragover on
+// some browsers, so we also keep it module-scoped).
+let dragId = null;
+
+// --- card detail drawer -----------------------------------------------------
 async function openDrawer(id) {
-  const d = await api(`/api/ui/tasks/${id}`);
+  let d;
+  try {
+    d = await api(`/api/ui/tasks/${id}`);
+  } catch (e) {
+    return toast(`open failed: ${e.message}`);
+  }
+  state.openDrawerId = id;
+  renderDrawer(d);
+  $('#drawer').classList.remove('hidden');
+  // Mark the thread read and clear the unread badge on the card.
+  markSeen(id, d.comments.length);
+  const m = state.tasksById.get(id);
+  if (m) renderColumn(m.column);
+}
+
+function renderDrawer(d) {
   const body = $('#drawer-body');
   body.innerHTML = '';
   const head = el('div', 'drawer-head');
   head.append(el('h2', '', `${d.task.id} ${d.task.title}`));
+  const claim = el('button', 'ghost', d.task.assignee ? 'Release' : 'Claim');
+  claim.onclick = () => {
+    const path = d.task.assignee ? 'release' : 'claim';
+    api(`/api/tasks/${d.task.id}/${path}`, {
+      method: 'POST',
+      headers: { ...userJson, 'x-agent': 'user' },
+      body: JSON.stringify({ force: true }),
+    })
+      .then(() => openDrawer(d.task.id))
+      .catch((err) => toast(`${path} failed: ${err.message}`));
+  };
+  const arch = el('button', 'ghost', 'Archive');
+  arch.onclick = () =>
+    api(`/api/tasks/${d.task.id}/archive`, { method: 'POST', headers: { 'x-actor': 'user' } })
+      .then(() => {
+        $('#drawer-close').onclick();
+        toast(`${d.task.id} archived`);
+      })
+      .catch((err) => toast(`archive failed: ${err.message}`));
   const edit = el('button', 'ghost edit-btn', 'Edit');
   edit.onclick = () => openEdit(d);
-  head.append(edit);
+  head.append(claim, arch, edit);
   body.append(head);
   body.append(
     el('div', 'meta', `${d.task.priority} · ${d.task.status}${d.task.assignee ? ' · 👤 ' + d.task.assignee : ''}`),
@@ -198,26 +334,27 @@ async function openDrawer(id) {
   }
   if (d.task.description) body.append(el('p', 'desc', d.task.description));
 
-  if (d.criteria.length) {
-    body.append(el('h4', '', 'Acceptance criteria'));
-    for (const c of d.criteria) {
-      const row = el('label', 'crit');
-      const cb = el('input');
-      cb.type = 'checkbox';
-      cb.checked = !!c.checked;
-      cb.onchange = () =>
-        api(`/api/criteria/${c.id}`, {
-          method: 'PATCH',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ checked: cb.checked }),
-        }).catch((err) => {
-          toast(`update failed: ${err.message}`);
-          cb.checked = !cb.checked;
-        });
-      row.append(cb, el('span', '', ` ${c.text}`));
-      body.append(row);
-    }
+  body.append(el('h4', '', `Acceptance criteria ${d.criteria.filter((c) => c.checked).length}/${d.criteria.length}`));
+  for (const c of d.criteria) {
+    const row = el('label', 'crit');
+    const cb = el('input');
+    cb.type = 'checkbox';
+    cb.checked = !!c.checked;
+    cb.onchange = () =>
+      api(`/api/criteria/${c.id}`, {
+        method: 'PATCH',
+        headers: userJson,
+        body: JSON.stringify({ checked: cb.checked }),
+      }).catch((err) => {
+        toast(`update failed: ${err.message}`);
+        cb.checked = !cb.checked;
+      });
+    row.append(cb, el('span', '', ` ${c.text}`));
+    body.append(row);
   }
+  appendAdder(body, 'crit-input', 'new criterion…', '+ Criterion', (text) =>
+    api(`/api/tasks/${d.task.id}/criteria`, { method: 'POST', headers: userJson, body: JSON.stringify({ text }) }),
+  );
 
   {
     const done = d.children.filter((c) => c.status === 'Done').length;
@@ -245,8 +382,46 @@ async function openDrawer(id) {
     body.append(stIn, stBtn);
   }
 
-  if (d.blockers.length) body.append(el('div', 'deps', `Blocked by: ${d.blockers.map((b) => `${b.id} (${b.status})`).join(', ')}`));
+  // Dependencies — blockers are removable; add by id. "Blocks" is read-only.
+  body.append(el('h4', '', 'Dependencies'));
+  const depWrap = el('div', 'deps');
+  if (!d.blockers.length) depWrap.append(el('span', 'muted', 'no blockers'));
+  for (const b of d.blockers) {
+    const row = el('div', 'chip-row');
+    row.append(el('span', '', `🔒 ${b.id} (${b.status})`));
+    const x = el('button', 'chip-x', '×');
+    x.title = 'remove dependency';
+    x.onclick = () =>
+      api(`/api/tasks/${d.task.id}/deps?on=${encodeURIComponent(b.id)}`, { method: 'DELETE', headers: { 'x-actor': 'user' } })
+        .then(() => openDrawer(d.task.id))
+        .catch((err) => toast(`dep remove failed: ${err.message}`));
+    row.append(x);
+    depWrap.append(row);
+  }
+  body.append(depWrap);
+  appendAdder(body, 'dep-input', 'add blocker (T-n)…', '+ Blocker', (on) =>
+    api(`/api/tasks/${d.task.id}/deps`, { method: 'POST', headers: userJson, body: JSON.stringify({ on }) }),
+  );
   if (d.blocked_by.length) body.append(el('div', 'deps', `Blocks: ${d.blocked_by.map((b) => b.id).join(', ')}`));
+
+  // Labels — removable chips + add.
+  body.append(el('h4', '', 'Labels'));
+  const labelWrap = el('div', 'label-row');
+  if (!d.labels.length) labelWrap.append(el('span', 'muted', 'none'));
+  for (const l of d.labels) {
+    const chip = el('span', 'label', l);
+    const x = el('button', 'chip-x', '×');
+    x.onclick = () =>
+      api(`/api/tasks/${d.task.id}/labels?name=${encodeURIComponent(l)}`, { method: 'DELETE', headers: { 'x-actor': 'user' } })
+        .then(() => openDrawer(d.task.id))
+        .catch((err) => toast(`label remove failed: ${err.message}`));
+    chip.append(x);
+    labelWrap.append(chip);
+  }
+  body.append(labelWrap);
+  appendAdder(body, 'label-input', 'add label…', '+ Label', (name) =>
+    api(`/api/tasks/${d.task.id}/labels`, { method: 'POST', headers: userJson, body: JSON.stringify({ name }) }),
+  );
 
   if (d.open_input.length) {
     body.append(el('h4', '', 'Open questions'));
@@ -255,7 +430,7 @@ async function openDrawer(id) {
 
   body.append(el('h4', '', 'Comments'));
   for (const c of d.comments) {
-    const row = el('div', 'comment');
+    const row = el('div', `comment author-${c.author_type}`);
     row.append(el('span', 'author', `${c.author_type}/${c.author_name}`));
     row.append(el('span', 'body', ` ${c.body}`));
     body.append(row);
@@ -263,15 +438,17 @@ async function openDrawer(id) {
   const ci = el('input', 'comment-input');
   ci.placeholder = 'add a comment…';
   const cb = el('button', 'send', 'Comment');
-  cb.onclick = () =>
+  const postComment = () =>
     ci.value &&
-    api(`/api/tasks/${id}/comments`, {
+    api(`/api/tasks/${d.task.id}/comments`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-actor': 'user' },
+      headers: { ...userJson, 'x-actor': 'user' },
       body: JSON.stringify({ body: ci.value, author_name: 'user' }),
     })
-      .then(() => openDrawer(id))
+      .then(() => openDrawer(d.task.id))
       .catch((err) => toast(`comment failed: ${err.message}`));
+  ci.addEventListener('keydown', (e) => e.key === 'Enter' && postComment());
+  cb.onclick = postComment;
   body.append(ci, cb);
 
   if (d.artifacts.length) {
@@ -286,8 +463,26 @@ async function openDrawer(id) {
       body.append(row);
     }
   }
+}
 
-  $('#drawer').classList.remove('hidden');
+// A labelled "[input] [+ button]" row that submits `value` via `submit(value)`,
+// then re-opens the drawer to reflect the change.
+function appendAdder(body, cls, placeholder, btnText, submit) {
+  const wrap = el('div', 'adder');
+  const input = el('input', cls);
+  input.placeholder = placeholder;
+  const go = () => {
+    const v = input.value.trim();
+    if (!v) return;
+    submit(v)
+      .then(() => openDrawer(state.openDrawerId))
+      .catch((err) => toast(`${btnText} failed: ${err.message}`));
+  };
+  input.addEventListener('keydown', (e) => e.key === 'Enter' && go());
+  const btn = el('button', 'send', btnText);
+  btn.onclick = go;
+  wrap.append(input, btn);
+  body.append(wrap);
 }
 
 // Inline edit form for the task's core fields (title/summary/desc/priority).
@@ -330,7 +525,7 @@ function openEdit(d) {
     if (!Object.keys(fields).length) return openDrawer(d.task.id);
     api(`/api/tasks/${d.task.id}`, {
       method: 'PATCH',
-      headers: { 'content-type': 'application/json', 'if-match': String(d.task.version) },
+      headers: { ...userJson, 'if-match': String(d.task.version) },
       body: JSON.stringify(fields),
     })
       .then(() => openDrawer(d.task.id)) // task.updated event also refreshes the board
@@ -344,7 +539,20 @@ function openEdit(d) {
   body.append(actions);
 }
 
-$('#drawer-close').onclick = () => $('#drawer').classList.add('hidden');
+$('#drawer-close').onclick = () => {
+  $('#drawer').classList.add('hidden');
+  state.openDrawerId = null;
+};
+// Esc closes the drawer (focus returns to the board).
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('#drawer').classList.contains('hidden')) $('#drawer-close').onclick();
+});
+
+// --- filter -----------------------------------------------------------------
+$('#filter').addEventListener('input', (e) => {
+  state.filter = e.target.value.trim().toLowerCase();
+  renderBoard();
+});
 
 // --- metrics / burndown panel ----------------------------------------------
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -375,6 +583,11 @@ function tile(label, value, sub) {
 
 // Palette mirrors style.css vars (SVG presentation attrs don't resolve CSS var()).
 const C = { line: '#2e3a48', accent: '#4c9aff', warn: '#ffb454', muted: '#8a97a6' };
+const SERIES = [
+  ['created_cum', C.line, 'created'],
+  ['done', C.accent, 'done'],
+  ['remaining', C.warn, 'remaining'],
+];
 // Three-line burndown: remaining (warn) vs done (accent) vs created (line).
 function burndownChart(burndown) {
   const W = 560, H = 160, padL = 28, padB = 18, padT = 8, padR = 8;
@@ -393,16 +606,15 @@ function burndownChart(burndown) {
   const y = (v) => padT + (1 - v / max) * (H - padT - padB);
   // axis baseline
   svg.append(svgEl('line', { x1: padL, y1: H - padB, x2: W - padR, y2: H - padB, stroke: C.line }));
-  const series = (key, color) =>
-    svgEl('polyline', {
-      points: burndown.map((p, i) => `${x(i)},${y(p[key])}`).join(' '),
-      fill: 'none',
-      stroke: color,
-      'stroke-width': '2',
-    });
-  svg.append(series('created_cum', C.line));
-  svg.append(series('done', C.accent));
-  svg.append(series('remaining', C.warn));
+  for (const [key, color] of SERIES)
+    svg.append(
+      svgEl('polyline', {
+        points: burndown.map((p, i) => `${x(i)},${y(p[key])}`).join(' '),
+        fill: 'none',
+        stroke: color,
+        'stroke-width': '2',
+      }),
+    );
   // y-axis max label + date ends
   const tx = (s, ax, ay, anchor) => {
     const t = svgEl('text', { x: ax, y: ay, fill: C.muted, 'font-size': '10', 'text-anchor': anchor || 'start' });
@@ -414,6 +626,18 @@ function burndownChart(burndown) {
   svg.append(tx(burndown[0].date.slice(5), padL, H - 4));
   svg.append(tx(burndown[n - 1].date.slice(5), W - padR, H - 4, 'end'));
   return svg;
+}
+
+function burndownLegend() {
+  const wrap = el('div', 'legend');
+  for (const [, color, label] of SERIES) {
+    const item = el('span', 'legend-item');
+    const sw = el('span', 'legend-swatch');
+    sw.style.background = color;
+    item.append(sw, el('span', '', label));
+    wrap.append(item);
+  }
+  return wrap;
 }
 
 async function loadStats() {
@@ -446,7 +670,17 @@ async function loadStats() {
   body.append(tiles);
 
   body.append(el('h3', 'metrics-sub', `Burndown · window ${s.window.days}d`));
+  body.append(burndownLegend());
   body.append(burndownChart(s.burndown));
+}
+
+let statsTimer = null;
+function scheduleStats() {
+  if (statsTimer || $('#metrics-panel').classList.contains('hidden')) return;
+  statsTimer = setTimeout(() => {
+    statsTimer = null;
+    loadStats();
+  }, 300);
 }
 
 function toggleMetrics() {
@@ -512,8 +746,114 @@ $('#create-form').addEventListener('submit', (e) => {
   submitCreate();
 });
 
-// --- realtime: reconnecting WebSocket; re-fetch board on any event ---------
+// --- notifications ----------------------------------------------------------
+function reflectNotifyBtn() {
+  const b = $('#notify-btn');
+  if (!('Notification' in window)) {
+    b.classList.add('hidden');
+    return;
+  }
+  b.classList.toggle('on', Notification.permission === 'granted');
+}
+$('#notify-btn').addEventListener('click', () => {
+  if (!('Notification' in window)) return toast('notifications unsupported');
+  Notification.requestPermission().then((p) => {
+    reflectNotifyBtn();
+    toast(p === 'granted' ? 'notifications on' : 'notifications blocked');
+  });
+});
+reflectNotifyBtn();
+
+function notify(ev) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const n = new Notification('KanAgentBan: agent needs your input', {
+    body: (ev.payload && ev.payload.question) || ev.task_id || '',
+  });
+  n.onclick = () => {
+    window.focus();
+    if (ev.task_id) openDrawer(ev.task_id);
+  };
+}
+
+// --- realtime: event-routed targeted updates --------------------------------
 let lastSeq = 0;
+let pending = new Map(); // id -> { drawer, inbox }
+let flushTimer = null;
+const drawerFor = (id) => state.openDrawerId === id;
+
+// Coalesce a burst of frames into one fetch per affected task.
+function queueSync(id, opts = {}) {
+  if (!id) return;
+  const cur = pending.get(id) || {};
+  if (opts.drawer) cur.drawer = true;
+  if (opts.inbox) cur.inbox = true;
+  pending.set(id, cur);
+  if (!flushTimer) flushTimer = setTimeout(flushSync, 40);
+}
+
+async function flushSync() {
+  flushTimer = null;
+  const batch = pending;
+  pending = new Map();
+  for (const [id, opts] of batch) await syncTask(id, opts);
+}
+
+async function syncTask(id, opts) {
+  try {
+    const c = await api(`/api/ui/tasks/${id}/card`);
+    upsertCard(c);
+    // A child's change can shift the parent's subtask rollup — refresh it too.
+    if (c.parent_id) {
+      try {
+        upsertCard(await api(`/api/ui/tasks/${c.parent_id}/card`));
+      } catch {}
+    }
+  } catch (e) {
+    if (e.status === 404) {
+      removeCard(id); // archived / gone
+      return;
+    }
+  }
+  if (opts.inbox || opts.drawer) {
+    try {
+      const d = await api(`/api/ui/tasks/${id}`);
+      if (opts.inbox) {
+        if (d.open_input.length) state.inboxByTask.set(id, d.open_input);
+        else state.inboxByTask.delete(id);
+        renderInbox();
+      }
+      if (opts.drawer && state.openDrawerId === id) {
+        renderDrawer(d);
+        markSeen(id, d.comments.length);
+      }
+    } catch {}
+  }
+}
+
+function applyEvent(ev) {
+  // Log compacted below our cursor: jump past the floor so reconnects don't
+  // reset-loop, then reseed from full state.
+  if (ev.type === 'reset') {
+    lastSeq = Math.max(lastSeq, ev.cursor || ev.floor || 0);
+    return void refresh();
+  }
+  if (ev.seq) lastSeq = Math.max(lastSeq, ev.seq);
+  if (ev.type === 'input.requested') notify(ev);
+
+  const id = ev.task_id;
+  if (ev.type === 'task.archived') return removeCard(id);
+
+  const isInput = ev.type.startsWith('input.');
+  queueSync(id, { inbox: isInput, drawer: drawerFor(id) });
+  // Structural events touch a second task's derived state.
+  if ((ev.type === 'dep.added' || ev.type === 'dep.removed') && ev.payload?.to)
+    queueSync(ev.payload.to, { drawer: drawerFor(ev.payload.to) });
+  if (ev.type === 'task.reparented') {
+    if (ev.payload?.from) queueSync(ev.payload.from, { drawer: drawerFor(ev.payload.from) });
+    if (ev.payload?.to) queueSync(ev.payload.to, { drawer: drawerFor(ev.payload.to) });
+  }
+}
+
 function connectWs() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${proto}://${location.host}/ws?since=${lastSeq}&token=${token}`);
@@ -523,20 +863,15 @@ function connectWs() {
     setTimeout(connectWs, 1000);
   };
   ws.onmessage = (m) => {
-    const ev = JSON.parse(m.data);
-    // Log compacted below our cursor: jump past the floor so reconnects don't
-    // reset-loop, then reseed from full state (refresh already refetches /api/board).
-    if (ev.type === 'reset') {
-      lastSeq = Math.max(lastSeq, ev.cursor || ev.floor || 0);
-      return refresh();
+    let ev;
+    try {
+      ev = JSON.parse(m.data);
+    } catch {
+      return;
     }
-    if (ev.seq) lastSeq = Math.max(lastSeq, ev.seq);
-    if (ev.type === 'input.requested' && 'Notification' in window && Notification.permission === 'granted') {
-      new Notification('KanAgentBan: agent needs your input', { body: ev.payload.question || ev.task_id });
-    }
-    refresh();
+    applyEvent(ev);
+    scheduleStats(); // keep the metrics panel current while it's open
   };
 }
 
-if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
 refresh().then(connectWs).catch((e) => ($('#conn').textContent = `error: ${e.message} (token?)`));
