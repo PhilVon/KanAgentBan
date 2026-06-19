@@ -87,7 +87,37 @@ header h1 { font-size: 1.1rem; margin: 0; }
 .tile-val { font-size: 1.3rem; font-weight: 700; color: var(--text); }
 .tile-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
 .tile-sub { font-size: 0.72rem; color: var(--muted); margin-top: 0.15rem; }
-.burndown { width: 100%; max-width: 640px; height: auto; display: block; }
+.tile-warn { border-color: var(--warn, #ffb454); }
+.tile-warn .tile-val { color: var(--warn, #ffb454); }
+.tile-good { border-color: #3fb950; }
+.tile-good .tile-val { color: #3fb950; }
+.burndown { width: 100%; height: auto; display: block; }
+/* Responsive dashboard grids — cards flow to fill the panel width instead of
+   stacking in one narrow column. Tables are compact (smaller track); charts get
+   wider tracks so the two time-series sit side by side on a wide panel. */
+.metric-grid,
+.metric-charts {
+  display: grid;
+  gap: 0.8rem;
+  align-items: start;
+  margin-top: 0.8rem;
+}
+.metric-grid { grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); }
+.metric-charts { grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr)); }
+.metric-card {
+  padding: 0.55rem 0.75rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  min-width: 0; /* let grid tracks shrink; SVGs/tables scale within */
+}
+.metric-card .metrics-sub { margin: 0 0 0.4rem; }
+.metric-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+.metric-table th { color: var(--muted); font-weight: 600; padding: 0.15rem 0 0.25rem; }
+.metric-table td { padding: 0.14rem 0; color: var(--text); border-top: 1px solid var(--line); }
+/* Label column left, numeric columns right — standard for metric tables. */
+.metric-table th:first-child, .metric-table td:first-child { text-align: left; }
+.metric-table th:not(:first-child), .metric-table td:not(:first-child) { text-align: right; }
 
 button, .opt, .send {
   background: var(--accent);

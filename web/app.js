@@ -643,7 +643,7 @@ function burndownLegend() {
 async function loadStats() {
   let s;
   try {
-    s = await api('/api/stats?json');
+    s = await api('/api/stats?json&cfd=1');
   } catch (e) {
     $('#metrics-body').innerHTML = '';
     $('#metrics-body').append(el('div', 'metrics-banner', `stats failed: ${e.message}`));
@@ -666,12 +666,151 @@ async function loadStats() {
   tiles.append(tile('done / window', String(s.throughput.total), `${s.throughput.rolling_avg_per_day}/day · ${s.throughput.per_week}/wk`));
   tiles.append(tile('lead p50', fmtDur(s.timing_summary.lead_ms.p50), `p90 ${fmtDur(s.timing_summary.lead_ms.p90)} · n=${s.timing_summary.lead_ms.n}`));
   tiles.append(tile('cycle p50', fmtDur(s.timing_summary.cycle_ms.p50), `p90 ${fmtDur(s.timing_summary.cycle_ms.p90)} · n=${s.timing_summary.cycle_ms.n}`));
-  for (const c of s.wip) tiles.append(tile(`WIP ${c.status}`, String(c.count), c.oldest ? `oldest ${c.oldest.id} ${fmtDur(c.oldest.age_ms)}` : ''));
+  tiles.append(tile('flow efficiency', pctVal(s.timing_summary.flow_efficiency.p50), `avg ${pctVal(s.timing_summary.flow_efficiency.avg)} · n=${s.timing_summary.flow_efficiency.n}`));
+  // Net flow: arrival vs departure, coloured by whether the board is growing.
+  const f = s.flow;
+  const netTile = tile('net flow / day', `${f.net_per_day > 0 ? '+' : ''}${f.net_per_day}`, `${f.arrival_per_day} in · ${f.departure_per_day} out · ${f.trend}`);
+  if (f.trend === 'growing') netTile.classList.add('tile-warn');
+  else if (f.trend === 'shrinking') netTile.classList.add('tile-good');
+  tiles.append(netTile);
+  // Forecast: days to drain the backlog at current velocity.
+  const fc = s.forecast;
+  const drainTile = tile('drain forecast', fc.days_to_drain !== null ? `${fc.days_to_drain}d` : '∞', fc.days_to_drain !== null ? `${fc.remaining} open · eta ${fc.eta}` : `${fc.remaining} open · velocity 0`);
+  if (fc.diverging) drainTile.classList.add('tile-warn');
+  tiles.append(drainTile);
+  // Input-wait: human response latency.
+  const iw = s.input_wait;
+  tiles.append(tile('input wait', iw.resolved.n ? fmtDur(iw.resolved.p50) : '—', `${iw.open} open${iw.oldest_open_ms !== null ? ` · oldest ${fmtDur(iw.oldest_open_ms)}` : ''} · ${iw.answered}a/${iw.expired}x/${iw.cancelled}c`));
+  // Rework: reopen + kickback rates.
+  const q = s.quality;
+  const reworkTile = tile('rework', `${pctVal(q.kickback_rate)}`, `reopened ${q.reopened} · kickbacks ${q.kickbacks}`);
+  if (q.kickbacks || q.reopened) reworkTile.classList.add('tile-warn');
+  tiles.append(reworkTile);
+  // WIP tiles fold in the aging breakdown (fresh / aging / stale).
+  for (const c of s.wip) {
+    const a = c.aging;
+    const sub = `${a.fresh}f · ${a.aging}a · ${a.stale}s${c.oldest ? ` · oldest ${fmtDur(c.oldest.age_ms)}` : ''}`;
+    const t = tile(`WIP ${c.status}`, String(c.count), sub);
+    if (a.stale) t.classList.add('tile-warn');
+    tiles.append(t);
+  }
   body.append(tiles);
 
-  body.append(el('h3', 'metrics-sub', `Burndown · window ${s.window.days}d`));
-  body.append(burndownLegend());
-  body.append(burndownChart(s.burndown));
+  // --- breakdown tables — a responsive grid of cards so they flow across the
+  //     panel width instead of stacking in one narrow left column. ---
+  const grid = el('div', 'metric-grid');
+
+  // Aging flags — non-Done tasks past the stale threshold.
+  if (s.aging_flags.length) {
+    const rows = s.aging_flags.slice(0, 12).map((a) => [a.id, a.status, fmtDur(a.age_ms)]);
+    grid.append(metricCard(`Aging > 7d (${s.aging_flags.length})`, metricTable(['task', 'status', 'age'], rows)));
+  }
+
+  // Per-priority cycle/lead.
+  const prioRows = s.by_priority.filter((p) => p.n || p.wip)
+    .map((p) => [p.priority, String(p.n), fmtDur(p.lead.p50), fmtDur(p.cycle.p50), String(p.wip)]);
+  if (prioRows.length)
+    grid.append(metricCard('By priority', metricTable(['prio', 'done', 'lead p50', 'cycle p50', 'wip'], prioRows)));
+
+  // Per-label throughput.
+  if (s.by_label.length) {
+    const rows = s.by_label.map((l) => [l.name, String(l.n), fmtDur(l.cycle.p50), String(l.wip)]);
+    grid.append(metricCard('By label', metricTable(['label', 'done', 'cycle p50', 'wip'], rows)));
+  }
+
+  // Per-agent throughput.
+  if (s.by_agent.length) {
+    const rows = s.by_agent.map((a) => [a.agent_id, String(a.completed), fmtDur(a.cycle.p50), String(a.active_wip)]);
+    grid.append(metricCard('By agent', metricTable(['agent', 'done', 'cycle p50', 'wip'], rows)));
+  }
+
+  if (grid.children.length) body.append(grid);
+
+  // --- charts — wider grid tracks so the two time-series sit side by side on a
+  //     wide panel and the SVGs fill their cards (no fixed max-width gap). ---
+  const charts = el('div', 'metric-charts');
+  charts.append(metricCard(`Burndown · window ${s.window.days}d`, burndownLegend(), burndownChart(s.burndown)));
+  if (s.cfd && s.cfd.length)
+    charts.append(metricCard('Cumulative flow', cfdLegend(), cfdChart(s.cfd)));
+  body.append(charts);
+}
+
+/** A [0,1] ratio rendered as a whole percent. */
+function pctVal(r) {
+  return r === null || r === undefined ? '—' : `${Math.round(r * 100)}%`;
+}
+
+/** A titled card wrapping one breakdown/chart, for the responsive metrics grid. */
+function metricCard(title, ...children) {
+  const card = el('div', 'metric-card');
+  card.append(el('h3', 'metrics-sub', title));
+  for (const c of children) if (c) card.append(c);
+  return card;
+}
+
+/** A simple metrics table from a header row + string cells. */
+function metricTable(headers, rows) {
+  const t = el('table', 'metric-table');
+  const thead = el('tr');
+  for (const h of headers) thead.append(el('th', '', h));
+  t.append(thead);
+  for (const r of rows) {
+    const tr = el('tr');
+    for (const cell of r) tr.append(el('td', '', cell));
+    t.append(tr);
+  }
+  return t;
+}
+
+// CFD stacked-area: one column per status, oldest→newest left→right. Stacked in
+// workflow order so the band heights read as the board's WIP composition over time.
+const CFD_COLORS = { Backlog: '#5a6573', Ready: '#4c9aff', 'In Progress': '#ffb454', Review: '#b083ff', Done: '#3fb950' };
+function cfdChart(cfd) {
+  const W = 560, H = 160, padL = 28, padB = 18, padT = 8, padR = 8;
+  const svg = svgEl('svg', { class: 'burndown', viewBox: `0 0 ${W} ${H}` });
+  if (cfd.length < 2) {
+    const t = svgEl('text', { x: padL, y: H / 2, fill: C.muted, 'font-size': '11' });
+    t.textContent = 'not enough data yet';
+    svg.append(t);
+    return svg;
+  }
+  const totals = cfd.map((p) => WORKFLOW_STATUSES.reduce((a, st) => a + (p.counts[st] || 0), 0));
+  const max = Math.max(1, ...totals);
+  const n = cfd.length;
+  const x = (i) => padL + (i / (n - 1)) * (W - padL - padR);
+  const y = (v) => padT + (1 - v / max) * (H - padT - padB);
+  // Build each band as a filled polygon between the running cumulative baselines.
+  const below = cfd.map(() => 0);
+  for (const st of WORKFLOW_STATUSES) {
+    const top = cfd.map((p, i) => below[i] + (p.counts[st] || 0));
+    const pts = [];
+    for (let i = 0; i < n; i++) pts.push(`${x(i)},${y(top[i])}`);
+    for (let i = n - 1; i >= 0; i--) pts.push(`${x(i)},${y(below[i])}`);
+    svg.append(svgEl('polygon', { points: pts.join(' '), fill: CFD_COLORS[st] || C.line, 'fill-opacity': '0.85' }));
+    for (let i = 0; i < n; i++) below[i] = top[i];
+  }
+  const tx = (str, ax, ay, anchor) => {
+    const t = svgEl('text', { x: ax, y: ay, fill: C.muted, 'font-size': '10', 'text-anchor': anchor || 'start' });
+    t.textContent = str;
+    return t;
+  };
+  svg.append(tx(String(max), 2, y(max) + 4));
+  svg.append(tx('0', 2, H - padB + 4));
+  svg.append(tx(cfd[0].date.slice(5), padL, H - 4));
+  svg.append(tx(cfd[n - 1].date.slice(5), W - padR, H - 4, 'end'));
+  return svg;
+}
+
+function cfdLegend() {
+  const wrap = el('div', 'legend');
+  for (const st of WORKFLOW_STATUSES) {
+    const item = el('span', 'legend-item');
+    const sw = el('span', 'legend-swatch');
+    sw.style.background = CFD_COLORS[st] || C.line;
+    item.append(sw, el('span', '', st));
+    wrap.append(item);
+  }
+  return wrap;
 }
 
 let statsTimer = null;

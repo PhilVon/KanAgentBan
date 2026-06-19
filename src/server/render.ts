@@ -1,7 +1,7 @@
 import type { Repo } from './repo';
 import { childProgress, deriveState, remainingBlockerCount } from './derive';
 import { recommend, type BlockedSummary } from './recommend';
-import type { BoardStats, TaskTiming } from './stats';
+import { LABEL_TOP_N, type BoardStats, type MetricSummary, type TaskTiming } from './stats';
 import { WORKFLOW_STATUSES, type Comment, type Task, type WorkflowStatus } from '../shared/types';
 
 // Output format contract — see docs/03-token-efficiency.md §5. Bump on change.
@@ -15,7 +15,11 @@ import { WORKFLOW_STATUSES, type Comment, type Task, type WorkflowStatus } from 
 // v6: user comments (the human's directives) render in their own protected block,
 //     shed last under budget; agent notes shed first. `next` flags a waiting user
 //     comment; `list` marks tasks with user comments (`💬n*`).
-export const FORMAT_VERSION = 6;
+// v7: analytics expansion — `stats` gains flow-efficiency, input-wait latency, net
+//     flow, aging buckets/flags, rework, per-priority/label/agent tables, drain
+//     forecast, and a CFD series. New lines render after the core block (shed first
+//     under budget); `stats <id>` gains a flow-efficiency line.
+export const FORMAT_VERSION = 7;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;
@@ -482,6 +486,17 @@ export function renderStats(stats: BoardStats, opts: { full?: boolean; maxTokens
     `burndown (remaining): ${sparkline(stats.burndown.map((p) => p.remaining))}  ${burndownEnds(stats)}`,
     `velocity: ${sparkline(tp.series.map((p) => p.completed))}`,
     agingLine(stats),
+    // --- expansion lines (FORMAT_VERSION 7) — appended after the core block so
+    //     never-silent budgeting sheds them first. ---
+    flowEfficiencyLine(stats),
+    netFlowLine(stats),
+    inputWaitLine(stats),
+    agingFlagsLine(stats),
+    qualityLine(stats),
+    byPriorityLine(stats),
+    byLabelLine(stats),
+    byAgentLine(stats),
+    forecastLine(stats),
   ].filter(Boolean);
 
   if (stats.partial_history)
@@ -511,6 +526,74 @@ function agingLine(stats: BoardStats): string {
   return aged.length ? `oldest: ${aged.join('  ·  ')}` : '';
 }
 
+/** A [0,1] ratio as a whole percent; `—` for an empty (n=0) summary. */
+const pct = (r: number): string => `${Math.round(r * 100)}%`;
+const summaryPct = (m: MetricSummary): string =>
+  m.n ? `p50 ${pct(m.p50)} · avg ${pct(m.avg)} (n=${m.n})` : '—';
+
+function flowEfficiencyLine(stats: BoardStats): string {
+  return `flow efficiency: ${summaryPct(stats.timing_summary.flow_efficiency)}`;
+}
+
+function netFlowLine(stats: BoardStats): string {
+  const f = stats.flow;
+  const sign = f.net_per_day > 0 ? '+' : '';
+  return `net flow: +${f.arrival_per_day}/d in · −${f.departure_per_day}/d out · net ${sign}${f.net_per_day}/d (${f.trend})`;
+}
+
+function inputWaitLine(stats: BoardStats): string {
+  const w = stats.input_wait;
+  if (!w.open && !w.answered && !w.expired && !w.cancelled) return '';
+  const resolved = w.resolved.n ? `resolved p50 ${fmtDur(w.resolved.p50)} · p90 ${fmtDur(w.resolved.p90)} (n=${w.resolved.n})` : 'none resolved';
+  const oldest = w.oldest_open_ms !== null ? ` (oldest ${fmtDur(w.oldest_open_ms)})` : '';
+  return `input-wait: ${w.open} open${oldest} · ${resolved} · ${w.answered}a/${w.expired}x/${w.cancelled}c`;
+}
+
+function agingFlagsLine(stats: BoardStats): string {
+  const f = stats.aging_flags;
+  if (!f.length) return '';
+  const head = f.slice(0, 5).map((a) => `${a.id} ${fmtDur(a.age_ms)}`).join(' · ');
+  const more = f.length > 5 ? ` (+${f.length - 5} more)` : '';
+  return `aging >7d (${f.length}): ${head}${more}`;
+}
+
+function qualityLine(stats: BoardStats): string {
+  const q = stats.quality;
+  if (!q.reopened && !q.kickbacks) return '';
+  return `rework: reopened ${q.reopened} (${pct(q.reopen_rate)}) · kickbacks ${q.kickbacks} (${pct(q.kickback_rate)})`;
+}
+
+function byPriorityLine(stats: BoardStats): string {
+  const rows = stats.by_priority.filter((p) => p.n || p.wip);
+  if (!rows.length) return '';
+  const cells = rows.map(
+    (p) => `${p.priority} n${p.n} lead ${fmtDur(p.lead.p50)} cyc ${fmtDur(p.cycle.p50)} wip ${p.wip}`,
+  );
+  return `by priority: ${cells.join('  ·  ')}`;
+}
+
+function byLabelLine(stats: BoardStats): string {
+  if (!stats.by_label.length) return '';
+  const shown = stats.by_label.slice(0, LABEL_TOP_N);
+  const cells = shown.map((l) => `${l.name} n${l.n} cyc ${fmtDur(l.cycle.p50)} wip ${l.wip}`);
+  const hidden = stats.by_label.length - shown.length;
+  return `by label: ${cells.join('  ·  ')}${hidden ? `  [+${hidden} label(s) hidden — stats --full --json]` : ''}`;
+}
+
+function byAgentLine(stats: BoardStats): string {
+  if (!stats.by_agent.length) return '';
+  const cells = stats.by_agent.map(
+    (a) => `${a.agent_id} done ${a.completed} cyc ${fmtDur(a.cycle.p50)} wip ${a.active_wip}`,
+  );
+  return `by agent: ${cells.join('  ·  ')}`;
+}
+
+function forecastLine(stats: BoardStats): string {
+  const f = stats.forecast;
+  const drain = f.days_to_drain !== null ? `~${f.days_to_drain}d (eta ${f.eta})` : 'stalled (velocity 0)';
+  return `forecast: ${f.remaining} open · ${f.velocity_per_day}/day → drain ${drain}${f.diverging ? ' · ⚠ diverging' : ''}`;
+}
+
 /** `kanban stats <id>` — per-task timing. */
 export function renderTaskStats(t: TaskTiming, opts: { full?: boolean; maxTokens?: number } = {}): string {
   const flagBits: string[] = [];
@@ -521,6 +604,7 @@ export function renderTaskStats(t: TaskTiming, opts: { full?: boolean; maxTokens
 
   const blocks: string[] = [
     `${t.id} [${t.status}]  lead ${fmtDur(t.lead_ms)} · cycle ${fmtDur(t.cycle_ms)} · in-status ${fmtDur(t.time_in_current_status_ms)}`,
+    `flow efficiency: ${t.flow_efficiency !== null ? pct(t.flow_efficiency) : '—'}  ·  active ${fmtDur(t.active_in_progress_ms)}`,
     perStatusLine('time', t.time_per_status, fmtDur),
   ];
   if (t.active_in_progress_ms && t.reopened) blocks.push(`active In Progress (all stints): ${fmtDur(t.active_in_progress_ms)}`);

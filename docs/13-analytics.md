@@ -30,10 +30,12 @@ Related: [02-data-model](02-data-model.md) · [03-token-efficiency](03-token-eff
 
 | Group | Metrics |
 |---|---|
-| **Per-task timing** | lead time (created → terminal Done), cycle time (first In Progress → terminal Done), time in current status, total time per status, active In-Progress time (summed stints) |
+| **Per-task timing** | lead time (created → terminal Done), cycle time (first In Progress → terminal Done), **flow efficiency** (active / lead), time in current status, total time per status, active In-Progress time (summed stints) |
 | **Throughput / velocity** | tasks completed per day over a window; rolling average per day; per-week |
-| **WIP & aging** | current count per workflow column; oldest task per column (age) |
+| **WIP & aging** | current count per workflow column; oldest task per column (age); **aging buckets** (fresh / aging / stale); **aging flags** (non-Done tasks >7d) |
 | **Burndown** | per-day series of `remaining` vs `done` vs `created_cum` over a window |
+| **Flow health** | **net flow** (arrival vs departure); **input-wait latency** (human response time); **rework** (reopen + kickback rates); **completion forecast** (days-to-drain) |
+| **Breakdowns** | **per-priority** lead/cycle/WIP; **per-label** throughput; **per-agent** throughput; **CFD** (cumulative-flow series) |
 
 ## 2. Derivation — the status timeline
 
@@ -62,6 +64,9 @@ From the timeline:
 - **active_in_progress_ms** / **time_per_status** — summed segment durations, so
   multiple In-Progress stints accumulate.
 - **time_in_current_status_ms** = `(archived_at ?? now) − last segment enter`.
+- **flow_efficiency** = `active_in_progress_ms / lead_ms`, clamped to `[0,1]`; null
+  when `lead_ms` is null/0 (no meaningful denominator). The fraction of a task's
+  lead time actually spent in active work — the rest is queue/wait time.
 
 ## 3. Burndown & throughput definitions
 
@@ -77,8 +82,53 @@ From the timeline:
   `remaining ≥ 0`.
 - **throughput** — a task is completed on day *D* when its terminal Done segment was
   entered on *D*; `rolling_avg_per_day = total / windowDays`, `per_week = avg × 7`.
-- **timing_summary** — p50 / p90 / avg of lead and cycle over **non-partial,
-  currently-completed** tasks.
+- **timing_summary** — p50 / p90 / avg of lead, cycle, and **flow_efficiency** over
+  **non-partial, currently-completed** tasks. Duration summaries round to integer
+  ms; the flow-efficiency summary rounds to 2 decimals (it is a `[0,1]` ratio).
+
+## 3.5 Expanded metrics (FORMAT_VERSION 7)
+
+All derived in the same single pass over the event log + live rows; no new events.
+Each is also surfaced as a render line **after** the core block, so token budgeting
+sheds it first ([03-token-efficiency §4](03-token-efficiency.md)).
+
+- **WIP aging buckets** (`wip[].aging`) — each column's live tasks partitioned by
+  age-since-creation into `fresh ≤1d`, `aging 1–7d`, `stale >7d`. The three buckets
+  **sum to `count`**.
+- **aging_flags** — non-archived, **non-Done** tasks older than the stale threshold
+  (`>7d`), as `{id, status, age_ms}` sorted oldest-first. A board-level "these have
+  been sitting" list, distinct from per-column oldest.
+- **input_wait** — human response latency on `ask`/`await`, derived from
+  `repo.getAllRequests()`: `wait = answered_at − created_at`. Fields: `open`,
+  `oldest_open_ms` (max age of open requests, null when none), `resolved`
+  (MetricSummary over **answered** waits), and the `answered` / `expired` /
+  `cancelled` counts.
+- **flow** (net flow rate) — `arrival_per_day = (tasks created in-window) / days`;
+  `departure_per_day = throughput.rolling_avg_per_day`; `net_per_day = arrival −
+  departure`; `trend` = `growing` (net>0) / `shrinking` (net<0) / `flat`. Positive
+  net ⇒ the backlog is growing faster than it drains.
+- **quality** (rework) — `reopened` = count of `Done → (left Done)` transitions
+  (summed `reopen_count`); `reopen_rate = reopened / tasks-that-ever-reached-Done`.
+  `kickbacks` = count of backward `Review → In Progress` moves across the event log;
+  `kickback_rate = kickbacks / moves-into-Review`. Rates are 0 when the denominator
+  is 0.
+- **by_priority** — for each `P0..P3`: `n` (completed, non-partial), `lead` & `cycle`
+  MetricSummaries over that group, and `wip` (current non-archived, non-Done count).
+- **forecast** — `remaining` = current non-archived non-Done; `velocity_per_day =
+  rolling_avg_per_day`; `days_to_drain = ceil(remaining / velocity)` (**null** when
+  velocity is 0); `eta` = that many days from today (`YYYY-MM-DD`, null when no
+  drain date); `diverging = net_per_day ≥ 0` (backlog not shrinking).
+- **by_label** — grouped by a task's **current** labels: `n` (completed), `cycle`
+  MetricSummary, `wip`. The full set is returned sorted by volume; renderers cap to
+  the top `LABEL_TOP_N` (8) with a never-silent footer for the remainder.
+- **by_agent** — each completed task is credited to the **last `task.claimed`
+  assignee before its terminal Done**: `completed`, `cycle` MetricSummary,
+  `active_wip` (currently-claimed non-Done). The section is **empty when no claims
+  exist** on the board.
+- **cfd** (cumulative-flow diagram) — extends the burndown day loop: for each window
+  day, count `created ≤ EOD AND not archived-as-of-EOD` tasks bucketed by
+  status-as-of-EOD. Invariant: **each day's column sum == created-not-archived as of
+  EOD**. Gated behind `?cfd=1` on the REST envelope to keep the default payload lean.
 
 ## 4. The compaction floor (never-silent)
 
@@ -111,28 +161,32 @@ kanban stats --max-tokens N  # token-budgeted; never-silent footer
 
 ### REST ([07-api-reference](07-api-reference.md))
 
-- `GET /api/stats?window=&json&full&max_tokens` → `{ text }` (token-budgeted) or,
-  with `json`, the full `BoardStats` (`window`, `compaction_floor`,
-  `partial_history`, `excluded_partial`, `throughput`, `wip`, `burndown`,
-  `timing_summary`) plus `est_tokens`.
+- `GET /api/stats?window=&json&full&max_tokens&cfd` → `{ text }` (token-budgeted)
+  or, with `json`, the full `BoardStats` (`window`, `compaction_floor`,
+  `partial_history`, `excluded_partial`, `throughput`, `wip` (+`aging`),
+  `aging_flags`, `burndown`, `timing_summary` (+`flow_efficiency`), `input_wait`,
+  `flow`, `quality`, `by_priority`, `forecast`, `by_label`, `by_agent`, `cfd`) plus
+  `est_tokens`. `cfd` is `[]` unless `?cfd=1` is passed.
 - `GET /api/tasks/:id/stats?json&full&max_tokens` → `{ text }` or the `TaskTiming`
-  object (`lead_ms`, `cycle_ms`, `time_per_status`, `reopened`, `partial_history`,
-  …). Unknown id → 404.
+  object (`lead_ms`, `cycle_ms`, `flow_efficiency`, `time_per_status`, `reopened`,
+  `partial_history`, …). Unknown id → 404.
 
 ### Web ([08-web-ui](08-web-ui.md))
 
 A **📊 Metrics** toggle in the header opens a panel: metric tiles (throughput,
-lead/cycle p50·p90, WIP-per-column with aging) and an inline-SVG burndown chart
-(remaining vs done vs created), no external chart dependency. It refetches
-`/api/stats?json` on each WebSocket frame while open, and shows the bounded-history
-banner when `partial_history`.
+lead/cycle p50·p90, flow efficiency, net flow, drain forecast, input wait, rework,
+and WIP-per-column folding in the fresh/aging/stale breakdown), per-priority /
+per-label / per-agent tables, an aging-flags table, an inline-SVG burndown chart
+(remaining vs done vs created), and a stacked-area **cumulative-flow** chart — no
+external chart dependency. It refetches `/api/stats?json&cfd=1` on each WebSocket
+frame while open, and shows the bounded-history banner when `partial_history`.
 
 ## 6. Files
 
 - `src/server/stats.ts` — pure derivation: `taskTiming`, `boardStats`,
   `buildSegments`, internal burndown/throughput/WIP helpers.
-- `src/server/render.ts` — `renderStats`, `renderTaskStats`, `fmtDur`, sparkline
-  (`FORMAT_VERSION 5`).
+- `src/server/render.ts` — `renderStats`, `renderTaskStats`, `fmtDur`, sparkline,
+  expansion lines (`FORMAT_VERSION 7`).
 - `src/server/server.ts` — `GET /api/stats`, `GET /api/tasks/:id/stats`.
 - `src/cli/kanban.ts` — `stats [id]`.
 - `web/app.js` / `web/index.html` / `web/style.css` — the metrics panel.

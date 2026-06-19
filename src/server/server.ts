@@ -225,7 +225,10 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
   app.get('/api/stats', (req, res) => {
     const stats = boardStats(repo, { windowDays: num(req.query.window) });
     const text = renderStats(stats, { full: req.query.full !== undefined, maxTokens: num(req.query.max_tokens) });
-    if (req.query.json !== undefined) return res.json({ ...stats, text, est_tokens: estimateTokens(text) });
+    // The CFD series is per-day × per-status; gate it behind ?cfd=1 so the default
+    // json envelope stays lean (the web panel opts in explicitly).
+    const cfd = req.query.cfd !== undefined ? stats.cfd : [];
+    if (req.query.json !== undefined) return res.json({ ...stats, cfd, text, est_tokens: estimateTokens(text) });
     res.json({ text });
   });
   app.get(
