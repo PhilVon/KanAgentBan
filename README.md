@@ -78,7 +78,8 @@ npm test          # vitest: 153 tests across 12 suites
   identity via `KANBAN_AGENT` / `--as`. See [docs/09 §9](docs/09-concurrency.md).
 - **Token-efficiency renderers** (`src/server/render.ts`): `next`, `list`, `show`,
   `context` with deterministic, never-silent truncation; recommendation engine.
-- **Web UI** (`web/`): realtime board, "Needs your input" inbox, card drawer.
+- **Web UI** (`web/`): realtime board, "Needs your input" inbox, card drawer,
+  analytics panel, and per-board project identity (see [Web UI](#web-ui) below).
 - **Skill** (`skill/SKILL.md`): the Claude Code skill wrapping the CLI.
 - **MCP server** (`src/mcp/`, post-v1): `kanban-mcp` exposes a curated ~21-tool
   subset over the Model Context Protocol (stdio) for non-skill agents — a thin
@@ -93,6 +94,38 @@ Cloud sync / multi-machine, per-task time tracking and burndown/analytics.
 (The MCP interface, external-nudge auto-resume, event-log compaction, first-class
 subtasks, and input cancel/expiry have all shipped post-v1; basic `kanban export`
 and multi-agent `claim` ship too — see above.)
+
+## Web UI
+
+The human's window into the board: a single-page, dark-themed app served by the
+same sole-writer server at `http://127.0.0.1:<port>/` (open it with
+`node dist/cli/kanban.js open`, which prints the URL with the bearer token). It is
+**read-mostly but write-capable** — all writes go through the REST API; the
+WebSocket event stream is the source of truth and is event-routed to targeted DOM
+updates (one card / inbox row / the open drawer per frame), so the board stays
+live without polling.
+
+- **Realtime board** — columns (`Backlog → Ready → In Progress → Review → Done`)
+  plus a derived **Blocked** projection; drag-and-drop to move tasks between
+  columns.
+- **Card drawer** — full task detail with write surfaces: comments (agent + user),
+  acceptance criteria, labels, artifacts, priority/assignee.
+- **"Needs your input" inbox** — surfaces the agent's open input requests and lets
+  the human answer them inline, resuming the paused task. Optional desktop
+  notifications when the agent needs you.
+- **Analytics panel** — throughput, WIP, flow efficiency, burndown, CFD and more
+  (toggle with the 📊 button).
+- **Create / filter** — add tasks from a modal; live filter by title, id,
+  `@assignee`, or label.
+- **Per-board project identity** — the board's name (from `.kanban/board.json`) is
+  shown in the header and browser tab title, with a stable accent colour and a
+  colour-coded favicon derived from the name, so several boards open at once are
+  tellable apart at a glance.
+- **Local + token-gated** — bound to `127.0.0.1` with a per-board bearer token
+  (passed once via `?token=…`, then stashed in `localStorage` and stripped from
+  the URL); Origin/Host checks block DNS-rebinding.
+
+See [docs/08-web-ui.md](docs/08-web-ui.md) for the full spec.
 
 ## Documentation
 
