@@ -200,6 +200,24 @@ resumes with your answer. Nothing is lost across sessions.
 So: **a paused task is normal and healthy, not stuck.** Just answer the question
 when you see it pop up in the UI.
 
+#### Optional: enforce it with a Stop hook
+
+In practice an agent will sometimes forget and just ask its question in the chat
+reply — which is *not* durable and vanishes when the session ends. This repo ships
+an opt-in [Claude Code Stop hook](https://docs.claude.com/en/docs/claude-code/hooks)
+that catches it: when a turn ends with a question to you while a task is *In
+Progress* and no input request is open, it nudges the agent to use `kanban ask`
+instead. It fails open (never blocks you on error) and stays silent otherwise.
+
+To enable it, copy the bundled hook into your project's Claude Code settings:
+
+- Script: `.claude/hooks/board-hitl-stop.js`
+- Registration: the `hooks.Stop` block in `.claude/settings.json`
+
+Both live in this repo as a working reference — drop them into the project where you
+run Claude Code (it needs `node` on `PATH`). Leave it out and the durable-async flow
+still works; the hook only adds a backstop.
+
 ---
 
 ## 7. A first end-to-end walkthrough
