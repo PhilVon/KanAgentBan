@@ -24,9 +24,17 @@ header {
   border-bottom: 1px solid var(--line);
 }
 header h1 { font-size: 1.1rem; margin: 0; }
-.conn { color: var(--muted); font-size: 0.85rem; margin-left: auto; }
+.conn { color: var(--muted); font-size: 0.85rem; }
 .hidden { display: none !important; }
 .add-task { font-size: 0.85rem; }
+.filter {
+  margin-left: auto;
+  min-width: 220px;
+  font: inherit;
+}
+#notify-btn { padding: 0.25rem 0.5rem; }
+#notify-btn.on { color: var(--accent); border-color: var(--accent); }
+.muted { color: var(--muted); }
 .ghost {
   background: transparent;
   color: var(--muted);
@@ -47,6 +55,69 @@ header h1 { font-size: 1.1rem; margin: 0; }
 .q-task { color: var(--muted); font-size: 0.8rem; }
 .q-text { margin: 0.2rem 0 0.4rem; }
 .q-form { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+
+.metrics-panel {
+  margin: 0.8rem 1rem;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.metrics-head { display: flex; align-items: center; gap: 1rem; }
+.metrics-head h2 { margin: 0; font-size: 0.95rem; color: var(--accent); }
+.metrics-head .ghost { margin-left: auto; }
+.metrics-sub { margin: 0.8rem 0 0.4rem; font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+.metrics-banner {
+  margin-bottom: 0.6rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  color: var(--warn);
+  font-size: 0.82rem;
+}
+.tiles { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.tile {
+  flex: 1 1 120px;
+  min-width: 110px;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+}
+.tile-val { font-size: 1.3rem; font-weight: 700; color: var(--text); }
+.tile-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.tile-sub { font-size: 0.72rem; color: var(--muted); margin-top: 0.15rem; }
+.tile-warn { border-color: var(--warn, #ffb454); }
+.tile-warn .tile-val { color: var(--warn, #ffb454); }
+.tile-good { border-color: #3fb950; }
+.tile-good .tile-val { color: #3fb950; }
+.burndown { width: 100%; height: auto; display: block; }
+/* Responsive dashboard grids — cards flow to fill the panel width instead of
+   stacking in one narrow column. Tables are compact (smaller track); charts get
+   wider tracks so the two time-series sit side by side on a wide panel. */
+.metric-grid,
+.metric-charts {
+  display: grid;
+  gap: 0.8rem;
+  align-items: start;
+  margin-top: 0.8rem;
+}
+.metric-grid { grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); }
+.metric-charts { grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr)); }
+.metric-card {
+  padding: 0.55rem 0.75rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  min-width: 0; /* let grid tracks shrink; SVGs/tables scale within */
+}
+.metric-card .metrics-sub { margin: 0 0 0.4rem; }
+.metric-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+.metric-table th { color: var(--muted); font-weight: 600; padding: 0.15rem 0 0.25rem; }
+.metric-table td { padding: 0.14rem 0; color: var(--text); border-top: 1px solid var(--line); }
+/* Label column left, numeric columns right — standard for metric tables. */
+.metric-table th:first-child, .metric-table td:first-child { text-align: left; }
+.metric-table th:not(:first-child), .metric-table td:not(:first-child) { text-align: right; }
 
 button, .opt, .send {
   background: var(--accent);
@@ -219,6 +290,39 @@ textarea.edit-field { font: inherit; resize: vertical; }
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
   z-index: 20;
 }
+
+/* --- empty column placeholder --- */
+.col-empty { color: var(--muted); font-size: 0.8rem; text-align: center; padding: 0.4rem 0; opacity: 0.6; }
+
+/* --- unread comments badge --- */
+.flag.comments.unread { background: var(--accent); color: #06101f; border-radius: 10px; padding: 0 0.45rem; font-weight: 600; }
+
+/* --- inbox cancel + drawer chips/adders --- */
+.q-cancel { font-size: 0.78rem; }
+.chip-row { display: flex; align-items: center; gap: 0.4rem; padding: 0.15rem 0; font-size: 0.85rem; }
+.chip-x, .label .chip-x {
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  padding: 0 0.2rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.chip-x:hover { color: var(--danger); }
+.label-row { display: flex; flex-wrap: wrap; gap: 0.3rem; align-items: center; margin: 0.2rem 0; }
+.label .chip-x { margin-left: 0.2rem; }
+.adder { display: flex; gap: 0.4rem; margin: 0.4rem 0; }
+.adder input { flex: 1; }
+
+/* --- comment author emphasis --- */
+.comment.author-user { border-left: 2px solid var(--accent); padding-left: 0.4rem; }
+.comment.author-user .author { color: #c8b6ff; }
+.comment .body { white-space: pre-wrap; }
+
+/* --- burndown legend --- */
+.legend { display: flex; gap: 0.8rem; margin: 0.2rem 0 0.4rem; font-size: 0.75rem; color: var(--muted); }
+.legend-item { display: flex; align-items: center; gap: 0.3rem; }
+.legend-swatch { width: 0.7rem; height: 0.7rem; border-radius: 2px; display: inline-block; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }

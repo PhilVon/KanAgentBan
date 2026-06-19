@@ -45,7 +45,7 @@ describe('render: context working set', () => {
   it('renders all sections in fixed order', () => {
     const { repo, id } = richTask();
     const out = renderContext(repo, id);
-    const order = ['criteria', 'blockers (', 'blocks (', 'open input (', 'comments (', 'artifacts (', 'labels:'];
+    const order = ['criteria', 'blockers (', 'blocks (', 'open input (', 'agent notes (', 'artifacts (', 'labels:'];
     const positions = order.map((h) => out.indexOf(h));
     expect(positions.every((p) => p >= 0)).toBe(true);
     for (let i = 1; i < positions.length; i++) expect(positions[i]).toBeGreaterThan(positions[i - 1]);
@@ -65,10 +65,10 @@ describe('render: context working set', () => {
   it('truncates comments with an explicit, never-silent footer', () => {
     const { repo, id } = richTask();
     const out = renderContext(repo, id);
-    expect(out).toContain('older comments'); // footer present (6 comments, default 4)
+    expect(out).toContain('older agent notes'); // footer present (6 notes, default 4)
     expect(out).toContain(`context ${id} --full`);
     const full = renderContext(repo, id, { full: true });
-    expect(full).not.toContain('older comments');
+    expect(full).not.toContain('older agent notes');
   });
 
   it('drops sections under a token budget, with a footer', () => {
@@ -99,7 +99,7 @@ describe('render: context working set', () => {
     const { repo, id } = ladderTask();
     const baseline = estimateTokens(renderContext(repo, id)); // default fidelity (4 comments)
     const out = renderContext(repo, id, { maxTokens: baseline - 30 });
-    expect(out).toContain('older comments'); // comments shed further than default
+    expect(out).toContain('older agent notes'); // agent notes shed further than default
     expect(out).toContain('criteria 0/2:'); // checklist intact (colon == full form)
     expect(out).toContain('artifacts ('); // trailing sections survive
     expect(out).toContain('labels:');
@@ -178,6 +178,31 @@ describe('render: context working set', () => {
     expect(renderContext(repo, t.id)).toContain('[summary may be stale]');
     expect(renderShow(repo, t.id)).toContain('[summary may be stale]');
   });
+
+  it('renders the description when there is no summary (no longer stripped)', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 't', description: 'the actual body of work' });
+    expect(renderShow(repo, t.id)).toContain('description: the actual body of work');
+    expect(renderContext(repo, t.id)).toContain('description: the actual body of work');
+  });
+
+  it('prefers the summary over the description when both exist', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 't', summary: 'the gist', description: 'the long body' });
+    const out = renderContext(repo, t.id);
+    expect(out).toContain('summary: the gist');
+    expect(out).not.toContain('description:');
+  });
+
+  it('trims the description to a never-silent footer under a tight budget', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 'big', description: 'D'.repeat(9000) }); // > default ceiling
+    const ctx = renderContext(repo, t.id);
+    expect(ctx).toContain('description trimmed');
+    expect(ctx).not.toContain('D'.repeat(50)); // body actually dropped, not silent
+    const show = renderShow(repo, t.id, { maxTokens: 30 });
+    expect(show).toContain('description trimmed');
+  });
 });
 
 describe('render: next', () => {
@@ -250,9 +275,9 @@ describe('render: cross-tier --max-tokens budgeting (docs/03 §4)', () => {
     expect(base).not.toContain('trimmed');
 
     const out = renderShow(repo, t.id, { maxTokens: estimateTokens(base) - 30 });
-    expect(out).toContain('recent comments hidden');
+    expect(out).toContain('agent note(s) hidden');
     expect(out).toContain(`show ${t.id} --full`);
-    expect(out).not.toContain('summary trimmed'); // shedding comments was enough
+    expect(out).not.toContain('summary trimmed'); // shedding agent notes was enough
     expect(out).toContain('show me'); // header always survives
   });
 
@@ -262,9 +287,71 @@ describe('render: cross-tier --max-tokens budgeting (docs/03 §4)', () => {
     repo.ask(t.id, 'Q'.repeat(80));
     repo.addComment(t.id, 'c', 'agent', 'claude');
     const out = renderShow(repo, t.id, { maxTokens: 1 });
-    expect(out).toContain('recent comments hidden');
+    expect(out).toContain('agent note(s) hidden');
     expect(out).toContain('open input hidden');
     expect(out).toContain('summary trimmed');
     expect(out).toContain('criteria 0/0'); // counts line is never dropped
+  });
+});
+
+describe('render: user comments are protected directives', () => {
+  // A task mixing a user directive with several agent self-notes.
+  function mixedTask() {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 'main', status: 'In Progress', priority: 'P1', summary: 'do it' });
+    for (let i = 0; i < 6; i++) repo.addComment(t.id, `agent note ${'A'.repeat(60)}`, 'agent', 'claude');
+    repo.addComment(t.id, 'PLEASE use Postgres not MySQL', 'user', 'phil');
+    return { repo, id: t.id };
+  }
+
+  it('labels user comments distinctly so the agent reads them as directives', () => {
+    const { repo, id } = mixedTask();
+    const out = renderContext(repo, id, { full: true });
+    expect(out).toContain('user comments — the human is talking to you');
+    expect(out).toContain('PLEASE use Postgres not MySQL');
+    expect(out).toContain('agent notes (');
+    // user block precedes agent notes
+    expect(out.indexOf('user comments —')).toBeLessThan(out.indexOf('agent notes ('));
+  });
+
+  it('keeps the user comment while shedding agent notes under a tight budget', () => {
+    const { repo, id } = mixedTask();
+    const baseline = estimateTokens(renderContext(repo, id));
+    const out = renderContext(repo, id, { maxTokens: Math.floor(baseline / 2) });
+    expect(out).toContain('PLEASE use Postgres not MySQL'); // directive survives
+    expect(out).toContain('agent note(s) hidden'); // notes shed first
+  });
+
+  it('show keeps the user comment and sheds agent notes first', () => {
+    const { repo, id } = mixedTask();
+    const base = renderShow(repo, id);
+    const out = renderShow(repo, id, { maxTokens: estimateTokens(base) - 20 });
+    expect(out).toContain('PLEASE use Postgres not MySQL');
+    expect(out).toContain('agent note(s) hidden');
+  });
+
+  it('next flags a waiting user comment on the recommended task', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 'do me', status: 'Ready', priority: 'P0' });
+    expect(renderNext(repo, {})).not.toContain('↳ user comment'); // none yet
+    repo.addComment(t.id, 'switch to OAuth', 'user', 'phil');
+    const out = renderNext(repo, {});
+    expect(out).toContain('↳ user comment');
+    expect(out).toContain('switch to OAuth');
+    expect(out).toContain(`kanban context ${t.id}`);
+  });
+
+  it('list marks tasks carrying a user comment', () => {
+    const repo = makeRepo();
+    const a = repo.createTask({ title: 'a', status: 'Ready' });
+    const b = repo.createTask({ title: 'b', status: 'Ready' });
+    repo.addComment(a.id, 'agent only', 'agent', 'claude');
+    repo.addComment(b.id, 'human here', 'user', 'phil');
+    const out = renderList(repo, {});
+    const lineA = out.split('\n').find((l) => l.startsWith(a.id))!;
+    const lineB = out.split('\n').find((l) => l.startsWith(b.id))!;
+    expect(lineA).toContain('💬1');
+    expect(lineA).not.toContain('💬1*');
+    expect(lineB).toContain('💬1*');
   });
 });

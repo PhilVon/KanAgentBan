@@ -3,11 +3,12 @@
 > **Summary:** A phased build plan from design → v1 → v2+. Phase 0 is this doc
 > set; v1 (phases 1–5) ships the sole-writer server, the `kanban` CLI + skill, the
 > realtime web UI, the token-efficiency contract, and hardening. Everything that
-> would broaden the model — an MCP interface, log compaction, real subtasks, cloud
-> sync, analytics — is deferred to v2+ so v1 stays small and correct.
+> would broaden the model — an MCP interface, log compaction, real subtasks,
+> analytics, cloud sync — is deferred to v2+ so v1 stays small and correct.
 > Multi-agent claiming, external-nudge auto-resume, first-class subtasks,
-> event-log compaction, input-request cancel/expiry, and the **MCP server
-> interface** have since shipped post-v1.
+> event-log compaction, input-request cancel/expiry, the **MCP server
+> interface**, and **per-task time-tracking / burndown analytics** have since
+> shipped post-v1.
 >
 > **Decisions:** v1 = single agent, single local board, CLI-driven, sole writer.
 > Model subtasks as deps + labels in v1. Build phases land in dependency order:
@@ -102,8 +103,8 @@ Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficie
 | Event-log compaction (retained floor `seq` + reset signal) | ✅ (post-v1) | |
 | First-class subtasks (`parent_id` + rollup) | ✅ (post-v1) | |
 | Input-request cancel + expiry (`input.cancelled` / `input.expired` fired) | ✅ (post-v1) | |
+| Per-task time tracking, burndown / analytics | ✅ (post-v1) | |
 | Cloud sync / multi-machine | | ✅ |
-| Per-task time tracking, burndown / analytics | | ✅ |
 
 ### Deferred to v2+ (detail)
 
@@ -139,9 +140,16 @@ Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficie
   flag); archiving a parent with live children is refused. v1 had faked nesting
   with deps + a label ([00-overview §3](00-overview.md),
   [02-data-model §6](02-data-model.md)).
+- **Per-task time tracking, burndown / analytics** — ✅ **shipped post-v1.** A
+  read-only reporting layer derived entirely from the event log: per-task
+  lead/cycle time and time-per-status (multiple In-Progress stints summed;
+  reopen-from-Done handled), board throughput/velocity, WIP & aging, and a
+  burndown series. Surfaced via `kanban stats [id]`, `GET /api/stats` +
+  `/api/tasks/:id/stats`, and a web metrics/burndown panel. No new events and no
+  schema change — and **never-silent about the compaction floor**: tasks whose
+  `task.created` predates the floor are flagged `partial_history` and excluded
+  from timing aggregates ([13-analytics](13-analytics.md)).
 - **Cloud sync / multi-machine** — v1 is one local process on one machine.
-- **Per-task time tracking, burndown / analytics** — reporting layer over the
-  event log, out of v1.
 
 ---
 

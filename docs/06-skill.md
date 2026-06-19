@@ -45,7 +45,8 @@ skill doesn't do it.
 
 **Use it when** the work is stateful or multi-step:
 
-- The request decomposes into more than one task → create tasks with deps.
+- The request decomposes into more than one task → create tasks with deps, and
+  nest fine-grained pieces as **subtasks** (`add --parent` / `parent --to`).
 - Progress spans tool calls/turns and must survive a cold start.
 - Decisions or artifacts (PRs, files, outputs) are worth recording as references.
 - A decision needs the human → surface it as a durable `Q-n`.
@@ -75,9 +76,9 @@ Rules the skill enforces:
 
 - **Never dump the whole board.** `kanban list --json --limit 0` is a token bomb;
   use `next`/`context` instead.
-- **Trust the truncation footers.** Counts (`comments (last 3 of 9)`,
+- **Trust the truncation footers.** Counts (`agent notes (last 2 of 8)`,
   `blockers (1)`, `criteria 1/3`) are nearly free; only expand with `--full` when
-  a specific hidden item is actually needed.
+  a specific hidden item is actually needed. (User comments are kept, not counted.)
 - **Refresh with the scoped delta.** Prefer `watch <id> --since <seq>` over the
   board-wide `changes --since <seq>`; carry the returned high-water `seq`.
 
@@ -96,12 +97,23 @@ When the agent picks up a task, the skill steers it through:
    `kanban criterion add T-12 "token exchange handles errors"`, then
    `kanban criterion check AC-32` as each lands. Criteria are the agent's own
    definition-of-done contract.
-4. **Comment meaningfully, not chattily.** `kanban comment T-12 "..."` for
-   decisions and non-obvious choices — not a play-by-play. Comment threads are
-   default-truncated, so signal beats volume.
+4. **Read user comments as directives; comment back meaningfully.** Comments are a
+   two-way channel. The human leaves `user` comments to steer the agent — read them
+   before starting/resuming and treat them as instructions (`next` flags a waiting
+   one, `show`/`context` print a protected **user comments** block, `list` marks the
+   task `💬n*`). Then `kanban comment T-12 "..."` for the agent's own decisions and
+   non-obvious choices — not a play-by-play. Agent notes are shed first under
+   budget; **user comments are protected** (shed last), so a directive won't vanish.
 5. **Record artifacts as references, never contents.**
    `kanban artifact T-12 --kind pr --title "auth callback PR" --uri <url>`.
    The board stores the pointer; the contents live where they live.
+
+**Subtasks (decomposition).** When a task splits into pieces, nest children under
+it — a single-parent tree, distinct from `blocks` deps: `kanban add "step"
+--parent T-8`, or re-nest/detach an existing task with `kanban parent T-12 --to
+T-8` / `--clear`. The one behaviour the agent must carry: **a parent with open
+subtasks is hidden from `next` and cannot `move`/`done` to Done until its children
+finish** (rejection = exit `1`); self-parenting and cycles are rejected.
 
 ---
 
@@ -119,7 +131,8 @@ need a human decision?
         ▼
  kanban await Q-7 --timeout 60      (fast gate ONLY — short, bounded)
         │
-   exit 0 ─────────────▶ answered: use the answer, continue T-12
+   exit 0 ─────────────▶ resolved: answered → use the answer, continue T-12;
+        │                            cancelled/expired → request is gone, drop or re-ask
         │
    exit 2 (pending) ───▶ YIELD THE TURN:
         │                  • pick up other work:  kanban next
@@ -133,13 +146,21 @@ need a human decision?
 Key points the skill carries:
 
 - **`await` is for short gates only.** Its exit `2` is *pending*, **not an
-  error** — that's the signal to fall back to yield-and-resume.
+  error** — that's the signal to fall back to yield-and-resume. Exit `0` means
+  *resolved*: answered, **or** cancelled/expired (it prints `Q-n answered: …` /
+  `Q-n cancelled` / `Q-n expired`) — a resolved-without-answer request is gone, so
+  drop it or re-`ask`.
+- **Withdraw and expiry.** `kanban cancel Q-7` retracts an open request the agent
+  no longer needs (clears the task's needs-input); `kanban ask … --expires-at <ISO>`
+  sets a TTL after which the request auto-expires. Both surface in `inbox` under
+  **resolved**.
 - **Yielding is the optimal path**, not a fallback compromise: no held
   connection, survives session boundaries, keeps the agent productive on other
   ready tasks.
-- **`inbox` is the resume entry point.** An answered request also flips its task
-  back to `ready`, so plain `next` surfaces it implicitly; `inbox` is the
-  explicit check.
+- **`inbox` is the resume entry point.** It buckets requests into **open /
+  answered / resolved** (resolved = cancelled/expired), resolutions first as the
+  resume signal. An answered request also flips its task back to `ready`, so plain
+  `next` surfaces it implicitly; `inbox` is the explicit check.
 - **Multiple open questions** are fine. Wait on one (`await Q-7`), any on a task
   (`await --task T-12`), or anything (`await --any`).
 
@@ -152,7 +173,7 @@ The skill branches on **semantic exit codes**, never on parsed prose
 
 | Code | Meaning | Skill's response |
 |------|---------|------------------|
-| `0` | success / answered | proceed |
+| `0` | success / resolved (answered, or cancelled/expired) | proceed; if `await` resolved without an answer, drop or re-`ask` |
 | `1` | generic error | report; do not retry blindly |
 | `2` | `await` timed out, request still **pending** | yield + resume from `inbox` (§5) |
 | `3` | not found | the `T-n`/`Q-n` is wrong — re-`list`/`inbox` to re-derive |
@@ -210,19 +231,22 @@ Grouped to match [05-cli-reference](05-cli-reference.md). The skill steers to th
 | | `kanban list [--status S] [--label L] [--limit N]` | compact board scan |
 | | `kanban watch <id> --since <seq>` | scoped mid-task refresh |
 | | `kanban changes --since <seq>` | board-wide delta (reserve) |
-| **Write / workflow** | `kanban add "<title>" [--depends T-3,T-4] [--ac "..."]` | create a task |
+| **Write / workflow** | `kanban add "<title>" [--parent T-1] [--depends T-3,T-4] [--ac "..."]` | create a task (or subtask with `--parent`) |
 | | `kanban update <id> [...] [--expect-version N]` | edit fields (concurrency-safe) |
 | | `kanban move <id> <column>` | set workflow status |
 | | `kanban dep add\|rm <id> --on <id>` | manage blocking edges |
+| | `kanban parent <id> --to <pid>\|--clear` | nest as subtask / detach (single-parent tree) |
 | | `kanban comment <id> "<body>"` | record a decision/note |
 | | `kanban criterion add\|check <id\|AC-id> [--off]` | manage acceptance criteria |
 | | `kanban label <id> --add\|--rm L` | labels |
 | | `kanban artifact <id> --kind ... --title T --uri U` | record a reference |
 | | `kanban summarize <id> "<summary>"` | manual summary refresh |
-| **HITL** | `kanban ask <id> "<q>" [--options a,b]` | create durable `Q-n` (non-blocking) |
-| | `kanban await <Q-id\|--task <id>\|--any> [--timeout S]` | short gate only (exit `2` = pending) |
+| **HITL** | `kanban ask <id> "<q>" [--options a,b] [--expires-at ISO]` | create durable `Q-n` (non-blocking) |
+| | `kanban await <Q-id\|--task <id>\|--any> [--timeout S]` | short gate only (exit `2` = pending, `0` = resolved) |
 | | `kanban answer <Q-id> "<text>"` | CLI answer (testing/automation) |
-| | `kanban inbox` | resume entry point |
+| | `kanban cancel <Q-id>` | withdraw an open request (clears needs-input) |
+| | `kanban inbox` | resume entry point (open / answered / resolved) |
+| **Reporting** | `kanban stats [id]` | board analytics / per-task timing (read-only, off the work loop) |
 | **Lifecycle** | `kanban board init [--name N]` | provision `.kanban/` |
 | | `kanban open` | show the human the UI |
 | | `kanban done <id>` / `kanban archive <id>` | complete / soft-delete |
@@ -239,6 +263,8 @@ kanban add "Refactor token store" --prio P2
 kanban add "Wire up OAuth callback" --prio P1 --depends T-08 \
   --ac "redirect URL registered" --ac "token exchange handles errors"
 # → T-12  (blocked by T-08 until it's done)
+kanban add "register redirect URL" --parent T-12     # → T-15, a subtask of T-12
+# T-12 now can't reach Done until T-15 does
 ```
 
 **(b) Cold-start a session — one call.**

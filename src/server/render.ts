@@ -1,7 +1,8 @@
 import type { Repo } from './repo';
 import { childProgress, deriveState, remainingBlockerCount } from './derive';
 import { recommend, type BlockedSummary } from './recommend';
-import type { Task } from '../shared/types';
+import { LABEL_TOP_N, type BoardStats, type MetricSummary, type TaskTiming } from './stats';
+import { WORKFLOW_STATUSES, type Comment, type Task, type WorkflowStatus } from '../shared/types';
 
 // Output format contract — see docs/03-token-efficiency.md §5. Bump on change.
 // v2: `--json` reads carry `est_tokens`; context budgeting degrades gracefully.
@@ -9,9 +10,23 @@ import type { Task } from '../shared/types';
 //     footers on those tiers).
 // v4: `inbox` carries a `resolved` bucket (cancelled/expired since cursor) and
 //     `await` reports non-`answered` resolution statuses.
-export const FORMAT_VERSION = 4;
+// v5: analytics tier — `stats` (board) / `stats <id>` (per-task timing) render
+//     token-budgeted text with a never-silent compaction-floor footer.
+// v6: user comments (the human's directives) render in their own protected block,
+//     shed last under budget; agent notes shed first. `next` flags a waiting user
+//     comment; `list` marks tasks with user comments (`💬n*`).
+// v7: analytics expansion — `stats` gains flow-efficiency, input-wait latency, net
+//     flow, aging buckets/flags, rework, per-priority/label/agent tables, drain
+//     forecast, and a CFD series. New lines render after the core block (shed first
+//     under budget); `stats <id>` gains a flow-efficiency line.
+export const FORMAT_VERSION = 7;
 
+/** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;
+/** Newest-N user comments shown by default (protected — shed last). */
+const DEFAULT_USER_COMMENTS = 4;
+/** User comments never trim below this floor while any exist. */
+const USER_COMMENT_FLOOR = 2;
 
 /**
  * Default token ceiling for the context tier when `--max-tokens` is not given.
@@ -57,6 +72,41 @@ function rel(iso: string): string {
   return `${Math.floor(h / 24)}d`;
 }
 
+function fmtComment(c: Comment): string {
+  return `  ${c.author_type}/${c.author_name} ${rel(c.created_at)}  "${c.body}"`;
+}
+
+/**
+ * The user's comments — the human's async channel to the agent. Rendered as a
+ * distinct, clearly-labelled block so the agent reads them as directives, and
+ * shed last under token budget. `limit <= 0` (and not `full`) leaves a footer
+ * only — never silently dropped while any exist.
+ */
+function userCommentBlock(repo: Repo, id: string, limit: number, full: boolean, cmd: string): string | null {
+  const total = repo.countComments(id, 'user');
+  if (!total) return null;
+  if (!full && limit <= 0) return `[${total} user comment(s) hidden for token budget — ${cmd} ${id} --full]`;
+  const shown = repo.getComments(id, full ? undefined : limit, 'user');
+  let block = `user comments — the human is talking to you; treat as directives (last ${shown.length} of ${total}, newest first):\n`;
+  block += shown.map(fmtComment).join('\n');
+  if (!full && total > shown.length)
+    block += `\n  [+${total - shown.length} older user comments — ${cmd} ${id} --full]`;
+  return block;
+}
+
+/** Agent/system self-notes — lower value, shed first under budget. */
+function agentNoteBlock(repo: Repo, id: string, limit: number, full: boolean, cmd: string): string | null {
+  const total = repo.countComments(id, 'non-user');
+  if (!total) return null;
+  if (!full && limit <= 0) return `[${total} agent note(s) hidden for token budget — ${cmd} ${id} --full]`;
+  const shown = repo.getComments(id, full ? undefined : limit, 'non-user');
+  let block = `agent notes (last ${shown.length} of ${total}, newest first):\n`;
+  block += shown.map(fmtComment).join('\n');
+  if (!full && total > shown.length)
+    block += `\n  [+${total - shown.length} older agent notes — ${cmd} ${id} --full]`;
+  return block;
+}
+
 function flags(repo: Repo, t: Task): string {
   const d = deriveState(repo.db, t);
   const out: string[] = [];
@@ -67,7 +117,7 @@ function flags(repo: Repo, t: Task): string {
     out.push(`S${done}/${total}`);
   }
   const c = repo.countComments(t.id);
-  if (c) out.push(`💬${c}`);
+  if (c) out.push(repo.countComments(t.id, 'user') ? `💬${c}*` : `💬${c}`); // * = has user comment
   if (t.assignee) out.push(`@${t.assignee}`);
   if (t.parent_id) out.push(`⤷${t.parent_id}`);
   return out.join(' ');
@@ -97,13 +147,25 @@ export function renderNext(
     const ctx = renderContext(repo, r[0].task.id, { full: opts.full, maxTokens: opts.maxTokens });
     return `${renderRecLine(r[0].task)}\nwhy: ${r[0].why}\n\n${ctx}`;
   }
-  const blocks = r.map((rec) => `${renderRecLine(rec.task)}\nwhy: ${rec.why}`);
+  const blocks = r.map((rec) => {
+    const callout = userCommentCallout(repo, rec.task.id);
+    return `${renderRecLine(rec.task)}\nwhy: ${rec.why}${callout ? `\n${callout}` : ''}`;
+  });
   const body = budgetBlocks(blocks, opts, '\n\n', (n) => `[+${n} candidates hidden for token budget — kanban next --full]`);
   return body.concat('\n(use: kanban context <id>  ·  kanban next --context)');
 }
 
 function renderRecLine(t: Task): string {
   return `${t.id}  [${t.priority}] ${t.status}  ${t.title}`;
+}
+
+/** One-line flag for a waiting user comment, so a human directive isn't missed. */
+function userCommentCallout(repo: Repo, taskId: string): string | null {
+  const latest = repo.getComments(taskId, 1, 'user');
+  if (!latest.length) return null;
+  const total = repo.countComments(taskId, 'user');
+  const more = total > 1 ? ` (+${total - 1} more)` : '';
+  return `  ↳ user comment ${rel(latest[0].created_at)}: "${latest[0].body}"${more} — read it: kanban context ${taskId}`;
 }
 
 function renderBlocked(b: BlockedSummary): string {
@@ -113,9 +175,11 @@ function renderBlocked(b: BlockedSummary): string {
 }
 
 interface ShowFidelity {
-  dropComments: boolean; // recent-comments group -> footer
+  dropAgentNotes: boolean; // agent-notes group -> footer (shed first)
   dropOpen: boolean; // open-input detail -> footer
   dropSummary: boolean; // summary line -> footer
+  dropDescription: boolean; // description line (summary fallback) -> footer
+  dropUserComments: boolean; // user-comments group -> footer (shed last)
 }
 
 /** Build the `show` detail at a given fidelity. Re-invoked by the budget ladder. */
@@ -123,7 +187,6 @@ function buildShow(repo: Repo, id: string, t: Task, fid: ShowFidelity): string {
   const crit = repo.getCriteria(id);
   const done = crit.filter((c) => c.checked).length;
   const open = repo.getOpenRequests(id);
-  const comments = repo.getComments(id, 3);
   const kids = childProgress(repo.db, id);
   const lines: string[] = [`${t.id} [${t.priority}] ${t.status}  "${t.title}"`];
   if (t.parent_id) lines.push(`parent: ${t.parent_id}`);
@@ -132,6 +195,10 @@ function buildShow(repo: Repo, id: string, t: Task, fid: ShowFidelity): string {
       fid.dropSummary
         ? `[summary trimmed — show ${id} --full]`
         : `summary: ${t.summary}${summaryStale(t) ? '  [summary may be stale]' : ''}`,
+    );
+  else if (t.description)
+    lines.push(
+      fid.dropDescription ? `[description trimmed — show ${id} --full]` : `description: ${t.description}`,
     );
   lines.push(
     `criteria ${done}/${crit.length}  ·  blockers ${remainingBlockerCount(repo.db, id)}` +
@@ -142,28 +209,41 @@ function buildShow(repo: Repo, id: string, t: Task, fid: ShowFidelity): string {
     lines.push(
       fid.dropOpen ? `  [open input hidden — show ${id} --full]` : open.map((q) => `  ${q.id} "${q.question}"`).join('\n'),
     );
-  if (comments.length)
-    lines.push(
-      fid.dropComments
-        ? `[recent comments hidden — show ${id} --full]`
-        : ['recent comments:', ...comments.map((c) => `  ${c.author_type}/${c.author_name} ${rel(c.created_at)}  "${c.body}"`)].join('\n'),
-    );
+  const userBlock = userCommentBlock(repo, id, fid.dropUserComments ? 0 : 3, false, 'show');
+  if (userBlock) lines.push(userBlock);
+  const agentBlock = agentNoteBlock(repo, id, fid.dropAgentNotes ? 0 : 3, false, 'show');
+  if (agentBlock) lines.push(agentBlock);
   return lines.join('\n');
 }
 
 /**
  * `kanban show <id>` — medium detail. Unbudgeted by default; with `--max-tokens`
- * (and not `--full` / `0`) it sheds in a fixed order — recent comments, then
- * open-input detail, then trims the summary — each with a never-silent footer.
+ * (and not `--full` / `0`) it sheds in a fixed order — agent notes, then
+ * open-input detail, then trims the summary (or the description, when that's
+ * what's shown), then user comments (last) — each with a never-silent footer.
  */
 export function renderShow(repo: Repo, id: string, opts: { full?: boolean; maxTokens?: number } = {}): string {
   const t = repo.requireTask(id);
-  const fid: ShowFidelity = { dropComments: false, dropOpen: false, dropSummary: false };
+  const fid: ShowFidelity = {
+    dropAgentNotes: false,
+    dropOpen: false,
+    dropSummary: false,
+    dropDescription: false,
+    dropUserComments: false,
+  };
   const max = opts.full ? 0 : opts.maxTokens;
   let out = buildShow(repo, id, t, fid);
   if (!max) return out;
   const over = () => estimateTokens(out) > max;
-  const rungs: Array<keyof ShowFidelity> = ['dropComments', 'dropOpen', 'dropSummary'];
+  // Shed agent notes first, then open-input detail, then summary; user comments
+  // (the human's directives) drop last, only under the tightest budgets.
+  const rungs: Array<keyof ShowFidelity> = [
+    'dropAgentNotes',
+    'dropOpen',
+    'dropSummary',
+    'dropDescription',
+    'dropUserComments',
+  ];
   for (const rung of rungs) {
     if (!over()) break;
     fid[rung] = true;
@@ -182,10 +262,12 @@ function summaryStale(t: Task): boolean {
 
 interface Fidelity {
   full: boolean;
-  commentLimit: number; // newest-N comments to show
+  userCommentLimit: number; // newest-N user comments (protected — shed last)
+  agentCommentLimit: number; // newest-N agent notes (shed first)
   collapseCriteria: boolean; // checklist -> count line + footer
   collapseSubtasks: boolean; // children list -> count line + footer
   dropSummary: boolean; // summary line -> trimmed footer
+  dropDescription: boolean; // description line (summary fallback) -> trimmed footer
 }
 
 /**
@@ -204,6 +286,10 @@ function buildContextSections(repo: Repo, id: string, t: Task, fid: Fidelity): s
       fid.dropSummary
         ? `[summary trimmed — context ${id} --full]`
         : `summary: ${t.summary}${summaryStale(t) ? '  [summary may be stale]' : ''}`,
+    );
+  } else if (t.description) {
+    sections.push(
+      fid.dropDescription ? `[description trimmed — context ${id} --full]` : `description: ${t.description}`,
     );
   }
 
@@ -252,18 +338,12 @@ function buildContextSections(repo: Repo, id: string, t: Task, fid: Fidelity): s
           .join('\n'),
     );
 
-  // 5. comments (newest N, newest first) with a never-silent truncation footer
-  const total = repo.countComments(id);
-  const comments = repo.getComments(id, fid.full ? undefined : fid.commentLimit);
-  if (comments.length) {
-    let block = `comments (last ${comments.length} of ${total}, newest first):\n`;
-    block += comments
-      .map((c) => `  ${c.author_type}/${c.author_name} ${rel(c.created_at)}  "${c.body}"`)
-      .join('\n');
-    if (!fid.full && total > comments.length)
-      block += `\n  [+${total - comments.length} older comments — context ${id} --full]`;
-    sections.push(block);
-  }
+  // 5. comments — the user's directives (protected) first, then agent notes
+  //    (shed first). Each block carries its own never-silent truncation footer.
+  const userBlock = userCommentBlock(repo, id, fid.userCommentLimit, fid.full, 'context');
+  if (userBlock) sections.push(userBlock);
+  const agentBlock = agentNoteBlock(repo, id, fid.agentCommentLimit, fid.full, 'context');
+  if (agentBlock) sections.push(agentBlock);
 
   // 6. artifacts (refs only)
   const arts = repo.getArtifacts(id);
@@ -286,10 +366,12 @@ function buildContextSections(repo: Repo, id: string, t: Task, fid: Fidelity): s
  *
  * Budgeting applies by default (`DEFAULT_CONTEXT_MAX_TOKENS`); pass an explicit
  * `--max-tokens N`, or opt out entirely with `--full` / `--max-tokens 0`.
- * Over budget, degrade gracefully in a fixed precedence — shed oldest comments,
- * collapse criteria to a count, collapse the subtasks list to a count, then trim
- * the summary — before falling back to dropping whole trailing sections. Every
- * step leaves a footer.
+ * Over budget, degrade gracefully in a fixed precedence — shed agent notes,
+ * collapse criteria to a count, collapse the subtasks list to a count, trim the
+ * summary (or the description, when that's the fallback shown), then (last
+ * resort) trim user comments to a floor — before falling
+ * back to dropping whole trailing sections. User comments (the human's
+ * directives) are protected; every step leaves a footer.
  */
 export function renderContext(
   repo: Repo,
@@ -297,13 +379,16 @@ export function renderContext(
   opts: { full?: boolean; maxTokens?: number } = {},
 ): string {
   const t = repo.requireTask(id);
-  const total = repo.countComments(id);
+  const userTotal = repo.countComments(id, 'user');
+  const agentTotal = repo.countComments(id, 'non-user');
   const fid: Fidelity = {
     full: !!opts.full,
-    commentLimit: opts.full ? total : DEFAULT_COMMENTS,
+    userCommentLimit: opts.full ? userTotal : DEFAULT_USER_COMMENTS,
+    agentCommentLimit: opts.full ? agentTotal : DEFAULT_COMMENTS,
     collapseCriteria: false,
     collapseSubtasks: false,
     dropSummary: false,
+    dropDescription: false,
   };
 
   // Resolve the effective budget: explicit value wins; `0` and `--full` opt out;
@@ -316,8 +401,10 @@ export function renderContext(
   if (!max) return sections.join('\n\n');
 
   // Ladder: each rung re-renders, re-estimates, and stops once under budget.
-  while (over(sections) && fid.commentLimit > 1) {
-    fid.commentLimit--; // 1. shed oldest comments (floor: newest 1)
+  // User comments (the human's directives) are protected — they shed last, and
+  // never below USER_COMMENT_FLOOR while any exist.
+  while (over(sections) && fid.agentCommentLimit > 0) {
+    fid.agentCommentLimit--; // 1. shed agent notes first (floor: footer only)
     sections = render();
   }
   if (over(sections) && !fid.collapseCriteria) {
@@ -329,10 +416,18 @@ export function renderContext(
     sections = render();
   }
   if (over(sections) && !fid.dropSummary) {
-    fid.dropSummary = true; // 3. trim the summary
+    fid.dropSummary = true; // 4. trim the summary
     sections = render();
   }
-  return budget(sections, max, id); // 4. drop whole trailing sections
+  if (over(sections) && !fid.dropDescription) {
+    fid.dropDescription = true; // 4.5 trim the description (summary fallback)
+    sections = render();
+  }
+  while (over(sections) && fid.userCommentLimit > USER_COMMENT_FLOOR) {
+    fid.userCommentLimit--; // 5. trim user comments last (floor: newest 2)
+    sections = render();
+  }
+  return budget(sections, max, id); // 6. drop whole trailing sections
 }
 
 /**
@@ -346,4 +441,176 @@ function budget(sections: string[], maxTokens: number, id: string): string {
     '\n\n',
     (n) => `[${n} section(s) hidden for token budget — context ${id} --full]`,
   );
+}
+
+// ---- analytics tier (FORMAT_VERSION 5) -----------------------------------
+
+/** Human-friendly duration: `0m` / `45m` / `3h 10m` / `2d 4h`. */
+export function fmtDur(msv: number | null): string {
+  if (msv === null) return '—';
+  if (msv < 60000) return '0m';
+  const m = Math.floor(msv / 60000);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h' + (m % 60 ? ` ${m % 60}m` : '');
+  const d = Math.floor(h / 24);
+  return d + 'd' + (h % 24 ? ` ${h % 24}h` : '');
+}
+
+const SPARK = '▁▂▃▄▅▆▇█';
+/** Unicode sparkline over a numeric series (flat bar when all-equal/empty). */
+function sparkline(values: number[]): string {
+  if (!values.length) return '';
+  const max = Math.max(...values);
+  const min = Math.min(...values);
+  if (max === min) return SPARK[0].repeat(values.length);
+  return values.map((v) => SPARK[Math.round(((v - min) / (max - min)) * (SPARK.length - 1))]).join('');
+}
+
+function perStatusLine(label: string, m: Record<WorkflowStatus, number>, fmt: (n: number) => string): string {
+  return `${label}: ` + WORKFLOW_STATUSES.map((s) => `${s} ${fmt(m[s])}`).join('  ·  ');
+}
+
+/** `kanban stats` — board analytics. Token-budgeted, never-silent on compaction. */
+export function renderStats(stats: BoardStats, opts: { full?: boolean; maxTokens?: number } = {}): string {
+  const w = stats.window;
+  const tp = stats.throughput;
+  const lead = stats.timing_summary.lead_ms;
+  const cycle = stats.timing_summary.cycle_ms;
+
+  const blocks: string[] = [
+    `board stats · window ${w.days}d (${w.from} … ${w.to})`,
+    `throughput: ${tp.total} done / ${w.days}d  ·  ${tp.rolling_avg_per_day}/day  ·  ${tp.per_week}/week`,
+    perStatusLine('WIP', wipCounts(stats), (n) => String(n)),
+    `lead p50 ${fmtDur(lead.p50)} · p90 ${fmtDur(lead.p90)} (n=${lead.n})   cycle p50 ${fmtDur(cycle.p50)} · p90 ${fmtDur(cycle.p90)} (n=${cycle.n})`,
+    `burndown (remaining): ${sparkline(stats.burndown.map((p) => p.remaining))}  ${burndownEnds(stats)}`,
+    `velocity: ${sparkline(tp.series.map((p) => p.completed))}`,
+    agingLine(stats),
+    // --- expansion lines (FORMAT_VERSION 7) — appended after the core block so
+    //     never-silent budgeting sheds them first. ---
+    flowEfficiencyLine(stats),
+    netFlowLine(stats),
+    inputWaitLine(stats),
+    agingFlagsLine(stats),
+    qualityLine(stats),
+    byPriorityLine(stats),
+    byLabelLine(stats),
+    byAgentLine(stats),
+    forecastLine(stats),
+  ].filter(Boolean);
+
+  if (stats.partial_history)
+    blocks.push(
+      `[history bounded: metrics cover events since seq ${stats.compaction_floor}; ${stats.excluded_partial.length} task(s) excluded from timing — older history compacted]`,
+    );
+
+  return budgetBlocks(blocks, opts, '\n', (n) => `[+${n} line(s) hidden for token budget — stats --full]`);
+}
+
+function wipCounts(stats: BoardStats): Record<WorkflowStatus, number> {
+  const m = {} as Record<WorkflowStatus, number>;
+  for (const c of stats.wip) m[c.status] = c.count;
+  return m;
+}
+
+function burndownEnds(stats: BoardStats): string {
+  const b = stats.burndown;
+  if (!b.length) return '';
+  return `(${b[0].remaining} → ${b[b.length - 1].remaining})`;
+}
+
+function agingLine(stats: BoardStats): string {
+  const aged = stats.wip
+    .filter((c) => c.oldest && c.status !== 'Done' && c.status !== 'Backlog')
+    .map((c) => `${c.status} ${c.oldest!.id} ${fmtDur(c.oldest!.age_ms)}`);
+  return aged.length ? `oldest: ${aged.join('  ·  ')}` : '';
+}
+
+/** A [0,1] ratio as a whole percent; `—` for an empty (n=0) summary. */
+const pct = (r: number): string => `${Math.round(r * 100)}%`;
+const summaryPct = (m: MetricSummary): string =>
+  m.n ? `p50 ${pct(m.p50)} · avg ${pct(m.avg)} (n=${m.n})` : '—';
+
+function flowEfficiencyLine(stats: BoardStats): string {
+  return `flow efficiency: ${summaryPct(stats.timing_summary.flow_efficiency)}`;
+}
+
+function netFlowLine(stats: BoardStats): string {
+  const f = stats.flow;
+  const sign = f.net_per_day > 0 ? '+' : '';
+  return `net flow: +${f.arrival_per_day}/d in · −${f.departure_per_day}/d out · net ${sign}${f.net_per_day}/d (${f.trend})`;
+}
+
+function inputWaitLine(stats: BoardStats): string {
+  const w = stats.input_wait;
+  if (!w.open && !w.answered && !w.expired && !w.cancelled) return '';
+  const resolved = w.resolved.n ? `resolved p50 ${fmtDur(w.resolved.p50)} · p90 ${fmtDur(w.resolved.p90)} (n=${w.resolved.n})` : 'none resolved';
+  const oldest = w.oldest_open_ms !== null ? ` (oldest ${fmtDur(w.oldest_open_ms)})` : '';
+  return `input-wait: ${w.open} open${oldest} · ${resolved} · ${w.answered}a/${w.expired}x/${w.cancelled}c`;
+}
+
+function agingFlagsLine(stats: BoardStats): string {
+  const f = stats.aging_flags;
+  if (!f.length) return '';
+  const head = f.slice(0, 5).map((a) => `${a.id} ${fmtDur(a.age_ms)}`).join(' · ');
+  const more = f.length > 5 ? ` (+${f.length - 5} more)` : '';
+  return `aging >7d (${f.length}): ${head}${more}`;
+}
+
+function qualityLine(stats: BoardStats): string {
+  const q = stats.quality;
+  if (!q.reopened && !q.kickbacks) return '';
+  return `rework: reopened ${q.reopened} (${pct(q.reopen_rate)}) · kickbacks ${q.kickbacks} (${pct(q.kickback_rate)})`;
+}
+
+function byPriorityLine(stats: BoardStats): string {
+  const rows = stats.by_priority.filter((p) => p.n || p.wip);
+  if (!rows.length) return '';
+  const cells = rows.map(
+    (p) => `${p.priority} n${p.n} lead ${fmtDur(p.lead.p50)} cyc ${fmtDur(p.cycle.p50)} wip ${p.wip}`,
+  );
+  return `by priority: ${cells.join('  ·  ')}`;
+}
+
+function byLabelLine(stats: BoardStats): string {
+  if (!stats.by_label.length) return '';
+  const shown = stats.by_label.slice(0, LABEL_TOP_N);
+  const cells = shown.map((l) => `${l.name} n${l.n} cyc ${fmtDur(l.cycle.p50)} wip ${l.wip}`);
+  const hidden = stats.by_label.length - shown.length;
+  return `by label: ${cells.join('  ·  ')}${hidden ? `  [+${hidden} label(s) hidden — stats --full --json]` : ''}`;
+}
+
+function byAgentLine(stats: BoardStats): string {
+  if (!stats.by_agent.length) return '';
+  const cells = stats.by_agent.map(
+    (a) => `${a.agent_id} done ${a.completed} cyc ${fmtDur(a.cycle.p50)} wip ${a.active_wip}`,
+  );
+  return `by agent: ${cells.join('  ·  ')}`;
+}
+
+function forecastLine(stats: BoardStats): string {
+  const f = stats.forecast;
+  const drain = f.days_to_drain !== null ? `~${f.days_to_drain}d (eta ${f.eta})` : 'stalled (velocity 0)';
+  return `forecast: ${f.remaining} open · ${f.velocity_per_day}/day → drain ${drain}${f.diverging ? ' · ⚠ diverging' : ''}`;
+}
+
+/** `kanban stats <id>` — per-task timing. */
+export function renderTaskStats(t: TaskTiming, opts: { full?: boolean; maxTokens?: number } = {}): string {
+  const flagBits: string[] = [];
+  if (t.reopened) flagBits.push(`reopened ×${t.reopen_count}`);
+  if (t.never_in_progress) flagBits.push('never In Progress');
+  if (t.archived) flagBits.push('archived');
+  if (t.partial_history) flagBits.push('partial history');
+
+  const blocks: string[] = [
+    `${t.id} [${t.status}]  lead ${fmtDur(t.lead_ms)} · cycle ${fmtDur(t.cycle_ms)} · in-status ${fmtDur(t.time_in_current_status_ms)}`,
+    `flow efficiency: ${t.flow_efficiency !== null ? pct(t.flow_efficiency) : '—'}  ·  active ${fmtDur(t.active_in_progress_ms)}`,
+    perStatusLine('time', t.time_per_status, fmtDur),
+  ];
+  if (t.active_in_progress_ms && t.reopened) blocks.push(`active In Progress (all stints): ${fmtDur(t.active_in_progress_ms)}`);
+  if (flagBits.length) blocks.push(`flags: ${flagBits.join(' · ')}`);
+  if (t.partial_history)
+    blocks.push('[history bounded: this task predates the compaction floor — timing is best-effort]');
+
+  return budgetBlocks(blocks, opts, '\n', (n) => `[+${n} line(s) hidden for token budget — stats ${t.id} --full]`);
 }

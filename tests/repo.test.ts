@@ -166,6 +166,12 @@ describe('repo: comments / criteria / artifacts / labels', () => {
     expect(repo.countComments(t.id)).toBe(2);
     expect(repo.getComments(t.id, 1)).toHaveLength(1);
 
+    // author-filtered access (renderer keeps user comments while shedding notes)
+    expect(repo.countComments(t.id, 'user')).toBe(1);
+    expect(repo.countComments(t.id, 'non-user')).toBe(1);
+    expect(repo.getComments(t.id, undefined, 'user').map((c) => c.body)).toEqual(['two']);
+    expect(repo.getComments(t.id, undefined, 'non-user').map((c) => c.body)).toEqual(['one']);
+
     const ac = repo.addCriterion(t.id, 'must work');
     repo.checkCriterion(ac, true);
     expect(repo.getCriteria(t.id)[0].checked).toBe(true);

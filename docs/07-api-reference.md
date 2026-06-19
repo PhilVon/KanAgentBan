@@ -48,6 +48,8 @@ Related: [02-data-model](02-data-model.md) · [05-cli-reference](05-cli-referenc
 | `GET` | `/api/tasks?status=&label=&limit=` | `list` |
 | `GET` | `/api/tasks/:id?view=show\|context&max_tokens=` | `show` / `context` |
 | `GET` | `/api/next?context=&n=&mine=` | `next` |
+| `GET` | `/api/stats?window=&json&full&max_tokens=` | `stats` (board analytics) |
+| `GET` | `/api/tasks/:id/stats?json&full&max_tokens=` | `stats <id>` (per-task timing) |
 | `POST` | `/api/tasks` (body may include `parent`) | `add` |
 | `PATCH` | `/api/tasks/:id` (header `If-Match: <version>`) | `update` |
 | `POST` | `/api/tasks/:id/move` | `move` / `done` |
@@ -59,6 +61,13 @@ Related: [02-data-model](02-data-model.md) · [05-cli-reference](05-cli-referenc
 `view=context` returns the curated working-set object (sections + truncation
 footers) defined in [03-token-efficiency](03-token-efficiency.md). `PATCH` with a
 stale `If-Match` returns `409` → exit `4`.
+
+**Analytics** (read-only, derived from the event log — [13-analytics](13-analytics.md)).
+`GET /api/stats` returns `{text}` (token-budgeted) or, with `json`, the full
+`BoardStats` (`window`, `compaction_floor`, `partial_history`, `excluded_partial`,
+`throughput`, `wip`, `burndown`, `timing_summary`) plus `est_tokens`.
+`GET /api/tasks/:id/stats` returns the per-task `TaskTiming` (unknown id → `404`).
+Both stamp the compaction floor so bounded history is never silent.
 
 **Agent identity** for `claim`/`release` and `next`'s claim filtering travels in the
 `X-Agent: <id>` header (distinct from `X-Actor`, the writer *kind*). `claim` returns

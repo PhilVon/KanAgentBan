@@ -109,8 +109,11 @@ Six CLI verb-pairs collapse into one tool each via an `op`/flag argument:
 
 Operational / lifecycle commands that aren't part of an agent's task loop are left
 to the CLI: `board init`, `board show`, `board nudge`, `compact`, `export`,
-`serve`, `open`, and `answer` (answering is the **human's** job, done via the web
-UI or CLI — the agent asks and resumes, it does not answer its own questions).
+`stats`, `serve`, `open`, and `answer` (answering is the **human's** job, done via
+the web UI or CLI — the agent asks and resumes, it does not answer its own
+questions). `stats` is analytics — a human/reporting concern, surfaced via the CLI
+and the web metrics panel ([13-analytics](13-analytics.md)) rather than the curated
+agent tool set.
 
 ## 5. The durable-async `await` contract
 

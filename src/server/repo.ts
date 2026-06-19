@@ -24,6 +24,14 @@ import type {
 
 const now = () => new Date().toISOString();
 
+/** Append a comment-author filter to a WHERE clause, pushing any bound param. */
+function commentAuthorClause(author: ActorType | 'non-user' | undefined, params: any[]): string {
+  if (!author) return '';
+  if (author === 'non-user') return " AND author_type != 'user'";
+  params.push(author);
+  return ' AND author_type = ?';
+}
+
 export class ConflictError extends Error {}
 export class NotFoundError extends Error {}
 export class ValidationError extends Error {}
@@ -86,18 +94,33 @@ export class Repo {
     return (this.db.prepare(sql).all(...params) as any[]).map(this.mapTask) as Task[];
   }
 
-  getComments(taskId: string, limit?: number): Comment[] {
-    let sql = 'SELECT * FROM comment WHERE task_id = ? ORDER BY created_at DESC';
-    if (limit && limit > 0) sql += ` LIMIT ${limit | 0}`;
-    return this.db.prepare(sql).all(taskId) as Comment[];
+  /** Every task incl. archived, oldest first — for analytics/export derivations. */
+  allTasks(): Task[] {
+    return (
+      this.db.prepare('SELECT * FROM task ORDER BY created_at ASC').all() as any[]
+    ).map(this.mapTask) as Task[];
   }
 
-  countComments(taskId: string): number {
-    return (
-      this.db.prepare('SELECT COUNT(*) n FROM comment WHERE task_id = ?').get(taskId) as {
-        n: number;
-      }
-    ).n;
+  /**
+   * Comments, newest first. `author` filters by source: a specific `ActorType`
+   * (e.g. `'user'` for the human's directives), or `'non-user'` for agent/system
+   * self-notes. The renderer uses this to keep user comments visible while
+   * shedding agent notes under token budget (see render.ts).
+   */
+  getComments(taskId: string, limit?: number, author?: ActorType | 'non-user'): Comment[] {
+    const params: any[] = [taskId];
+    let sql = 'SELECT * FROM comment WHERE task_id = ?';
+    sql += commentAuthorClause(author, params);
+    sql += ' ORDER BY created_at DESC';
+    if (limit && limit > 0) sql += ` LIMIT ${limit | 0}`;
+    return this.db.prepare(sql).all(...params) as Comment[];
+  }
+
+  countComments(taskId: string, author?: ActorType | 'non-user'): number {
+    const params: any[] = [taskId];
+    let sql = 'SELECT COUNT(*) n FROM comment WHERE task_id = ?';
+    sql += commentAuthorClause(author, params);
+    return (this.db.prepare(sql).get(...params) as { n: number }).n;
   }
 
   getCriteria(taskId: string): AcceptanceCriterion[] {

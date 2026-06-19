@@ -224,4 +224,47 @@ describe('web UI (real app.js against a real server)', () => {
     expect(t.title).toBe('Edited title');
     expect(t.version).toBeGreaterThan(created.version);
   });
+
+  it('opening the Metrics panel renders the expanded analytics surfaces (FORMAT_VERSION 7)', async () => {
+    // Seed a board with completions, a claim, a label, and an aging task so every
+    // expansion surface has data to render.
+    const done = h.repo.createTask({ title: 'shipped', priority: 'P1', labels: ['api'] });
+    h.repo.claimTask(done.id, 'alice');
+    h.repo.moveTask(done.id, 'In Progress');
+    h.repo.moveTask(done.id, 'Done');
+    const aging = h.repo.createTask({ title: 'old', status: 'In Progress', priority: 'P2' });
+    h.repo.db
+      .prepare('UPDATE task SET created_at = ? WHERE id = ?')
+      .run(new Date(Date.now() - 10 * 86400000).toISOString(), aging.id);
+
+    loadApp();
+    await until(() => document.querySelectorAll('.column').length > 0);
+
+    $('#metrics-btn').click();
+    expect($('#metrics-panel').classList.contains('hidden')).toBe(false);
+
+    // Tiles (incl. the new flow-efficiency / net-flow / forecast / input / rework),
+    // the per-priority/label/agent tables, the burndown and the CFD chart all
+    // render without throwing.
+    await until(() => document.querySelector('#metrics-body .tiles'));
+    const subs = [...document.querySelectorAll('#metrics-body .metrics-sub')].map((e) => e.textContent);
+    expect(subs.some((s) => s?.startsWith('By priority'))).toBe(true);
+    expect(subs.some((s) => s?.startsWith('By label'))).toBe(true);
+    expect(subs.some((s) => s?.startsWith('By agent'))).toBe(true);
+    expect(subs.some((s) => s?.startsWith('Aging'))).toBe(true);
+    expect(subs.some((s) => s?.startsWith('Cumulative flow'))).toBe(true);
+    expect(document.querySelectorAll('#metrics-body .metric-table').length).toBeGreaterThanOrEqual(3);
+    // Two SVG charts: burndown + CFD.
+    expect(document.querySelectorAll('#metrics-body svg.burndown').length).toBe(2);
+  });
+
+  it('renders the Metrics panel when net flow is flat (no empty classList token)', async () => {
+    // A balanced/idle board yields trend "flat" — the net-flow tile must not call
+    // classList.add('') (a DOMException that would blank the whole panel).
+    loadApp();
+    await until(() => document.querySelectorAll('.column').length > 0);
+    $('#metrics-btn').click();
+    const tiles = await until(() => document.querySelector('#metrics-body .tiles'));
+    expect(tiles.querySelectorAll('.tile').length).toBeGreaterThan(0);
+  });
 });

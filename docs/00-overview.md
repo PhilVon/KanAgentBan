@@ -161,7 +161,7 @@ Key properties (detailed in [01-architecture](01-architecture.md) and
 - **event / seq** — an append-only record of one mutation; `seq` is the per-board,
   gap-free, monotonic cursor that orders the whole system.
 - **working set** — the curated slice of a task an agent needs to act on it
-  (criteria, direct deps, open questions, recent comments, artifacts, labels).
+  (criteria, direct deps, open questions, user comments + agent notes, artifacts, labels).
 - **context tier** — a read level from cheap to rich (`next` → `list` → `show` →
   `context`); the agent climbs only as far as it needs.
 - **tier / progressive disclosure** — the principle that each tier is a strict
