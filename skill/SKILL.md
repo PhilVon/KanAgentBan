@@ -50,7 +50,7 @@ would do:
 ```
 kanban next --context                  # load only what you need (incl. user comments)
 kanban claim T-12                       # multi-agent: reserve it so peers skip it
-kanban move T-12 "In Progress"
+kanban move T-12 "In Progress"        # Backlog→Ready→In Progress→Review→Done (see Columns below)
 kanban criterion add T-12 "handles error responses"
 kanban criterion check AC-32
 kanban comment T-12 "scaffolded the callback route"   # your own progress note
@@ -64,6 +64,25 @@ they do, set a distinct `KANBAN_AGENT` per agent (else they collide on the defau
 `kanban next`; it does **not** change status. `done` needs no release (Done tasks
 never surface in `next`); `kanban release T-12` returns an **unfinished** task you're
 abandoning to the pool, and `kanban next --mine` lists only what you hold.
+
+## Columns & the workflow lifecycle
+
+Five workflow columns, in order. **`kanban next` only ever recommends tasks in
+`Ready` or `In Progress`** — a `Backlog` task is parked and invisible to the work
+loop until you promote it, so moving a task to `Ready` is what actually *queues* it.
+
+- **Backlog** — captured but not yet startable; the default for a new task. Parked: `next` skips it.
+- **Ready** — refined and unblocked; the actionable queue `next` pulls from. Promote here the moment a task is ready to be picked up.
+- **In Progress** — actively being worked. Move here on pickup.
+- **Review** — work finished, awaiting a human/peer sign-off (not more agent work). The natural pairing with a sign-off `ask` (below): move to `Review`, then `ask`.
+- **Done** — accepted and complete (`kanban done`).
+
+**`Blocked` is not a column you set** — it's a *derived* projection the UI shows
+when a task is `needs_input`, waiting on a `dep`, or has open subtasks. Never `move`
+to it; clear the underlying cause and the task leaves Blocked on its own.
+
+> Only these five names are valid `move`/`--status` targets. Anything else (e.g.
+> `"To Do"`) is rejected with exit `1` — use the column names above verbatim.
 
 ## User comments = the human talking to you
 
@@ -109,6 +128,26 @@ kanban await Q-7 --timeout 60                                     # try a short 
 `ask` also takes `--expires-at <ISO>` to auto-expire a stale request, and
 `kanban cancel Q-7` withdraws an open request you no longer need (clears the task's
 needs-input).
+
+**Write the question so the human can answer it cold.** They see only the board —
+not your chat or your reasoning. So make each `ask` count:
+
+- **Self-contained + the tradeoff.** State the decision *and* why it matters in one
+  line, not just `"Which one?"`. The human shouldn't need to reconstruct context.
+- **One decision per `ask`.** Don't bundle several questions into one request —
+  raise separate `Q-n`s so each can be answered independently.
+- **Shape the answer.** `--options a,b,c` for a closed, mutually-exclusive set (keep
+  each option short and distinct); `--freeform` for an open answer (a value, a path,
+  prose) when the set isn't enumerable.
+
+```
+kanban ask T-12 "Token store — Redis (fast, +infra to run) or Postgres (simpler, already deployed)?" --options Redis,Postgres
+kanban ask T-12 "What callback URL should I register with the provider?" --freeform
+```
+
+If the `ask` is a **sign-off gate** (work is finished and you need approval before
+proceeding), move the task to `Review` first so the board shows *why* it's parked,
+then `ask`.
 
 Branch on the exit code:
 

@@ -8,6 +8,7 @@ import {
   nextSeq,
   nextTaskId,
 } from './ids';
+import { WORKFLOW_STATUSES } from '../shared/types';
 import type {
   AcceptanceCriterion,
   Artifact,
@@ -35,6 +36,21 @@ function commentAuthorClause(author: ActorType | 'non-user' | undefined, params:
 export class ConflictError extends Error {}
 export class NotFoundError extends Error {}
 export class ValidationError extends Error {}
+
+/**
+ * Guard against phantom columns. Only the five workflow statuses are settable;
+ * "Blocked" is a *derived projection* (adr/0004, docs/04) and is intentionally
+ * absent, so moving to it is rejected too. Without this, an arbitrary string
+ * (e.g. "To Do") would be written verbatim and the card would vanish from the
+ * web UI, which renders a fixed column set ([DISPLAY_COLUMNS]).
+ */
+function assertWritableStatus(status: string): asserts status is WorkflowStatus {
+  if (!(WORKFLOW_STATUSES as readonly string[]).includes(status))
+    throw new ValidationError(
+      `invalid status "${status}"; valid columns are: ${WORKFLOW_STATUSES.join(', ')} ` +
+        `(Blocked is derived, not settable)`,
+    );
+}
 
 interface NewTaskInput {
   title: string;
@@ -395,6 +411,7 @@ export class Repo {
 
   createTask(input: NewTaskInput): Task {
     const actor = input.actor ?? 'agent';
+    if (input.status !== undefined) assertWritableStatus(input.status);
     return this.mutate((rec) => {
       const parentId = input.parent ?? null;
       if (parentId !== null) {
@@ -473,6 +490,7 @@ export class Repo {
 
   /** Set the workflow status (the UI "Blocked" column is derived, never set here). */
   moveTask(id: string, status: WorkflowStatus, actor: ActorType = 'agent'): Task {
+    assertWritableStatus(status);
     return this.mutate((rec) => {
       const t = this.requireTask(id);
       if (status === 'Done') {

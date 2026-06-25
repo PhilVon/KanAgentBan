@@ -90,9 +90,17 @@ When the agent picks up a task, the skill steers it through:
 
 1. **Load context once.** Cold start → `kanban next --context`. Already chose a
    task → `kanban context T-12`. Don't run `next` then `context` separately.
-2. **Keep status current.** `kanban move T-12 "In Progress"` on pickup;
-   `kanban done T-12` on completion (which recomputes dependents' readiness).
-   Being *blocked* is derived — never moved to.
+2. **Move through the columns.** The five workflow statuses, in order, are
+   **Backlog → Ready → In Progress → Review → Done** (plus a *derived* **Blocked**
+   the UI shows for `needs_input` / dep-blocked / open-subtask tasks — never a
+   `move` target). The keystone the skill carries: **`kanban next` only recommends
+   `Ready` and `In Progress`** ([recommend.ts]/[derive.ts] `ready`), so a `Backlog`
+   task is parked and invisible to the work loop until promoted — moving it to
+   `Ready` is what *queues* it. On pickup move to `In Progress`; when work is done
+   but needs a human/peer sign-off move to `Review` (the natural pairing with a
+   sign-off `ask`, §5); `kanban done T-12` on acceptance (recomputes dependents'
+   readiness). Only these five names are valid `move`/`--status` targets — an
+   unknown column (e.g. `"To Do"`) is rejected with exit `1`.
 3. **Make acceptance criteria explicit and tick them.**
    `kanban criterion add T-12 "token exchange handles errors"`, then
    `kanban criterion check AC-32` as each lands. Criteria are the agent's own
@@ -163,6 +171,13 @@ Key points the skill carries:
   `next` surfaces it implicitly; `inbox` is the explicit check.
 - **Multiple open questions** are fine. Wait on one (`await Q-7`), any on a task
   (`await --task T-12`), or anything (`await --any`).
+- **Write a well-formed `ask`.** The human answers from the board alone — they
+  don't see the agent's chat or reasoning. So the question must be **self-contained
+  and carry the tradeoff** (not `"Which one?"`), each `ask` raises **one** decision
+  (separate `Q-n`s answer independently), and the answer is shaped with `--options
+  a,b` (closed, mutually-exclusive set; short distinct labels) or `--freeform` (open
+  answer — a value, path, or prose). If the `ask` is a **sign-off gate**, move the
+  task to `Review` first so the board shows *why* it's parked.
 
 ---
 
@@ -275,7 +290,7 @@ kanban next --context
 
 **(c) Hit a decision — ask, yield, resume from inbox.**
 ```
-kanban ask T-12 "Which auth provider?" --options Auth0,Cognito   # → Q-7
+kanban ask T-12 "Auth provider — Auth0 (managed, $) or Cognito (in our AWS, more wiring)?" --options Auth0,Cognito   # → Q-7
 kanban await Q-7 --timeout 60                                    # exit 2: pending
 # yield: "Paused T-12 on Q-7 (auth provider). Picking up T-08."
 kanban next

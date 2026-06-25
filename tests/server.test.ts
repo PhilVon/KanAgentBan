@@ -125,6 +125,34 @@ describe('server: --json structured reads', () => {
   });
 });
 
+describe('server: workflow status validation (400 → CLI exit 1)', () => {
+  it('POST /api/tasks rejects an unknown status with 400', async () => {
+    const r = await api('POST', '/api/tasks', { title: 'x', status: 'To Do' });
+    expect(r.status).toBe(400);
+    expect(r.body.error.message).toContain('Backlog, Ready, In Progress, Review, Done');
+  });
+
+  it('POST /api/tasks/:id/move rejects an unknown status with 400', async () => {
+    await api('POST', '/api/tasks', { title: 'x' });
+    const r = await api('POST', '/api/tasks/T-1/move', { status: 'To Do' });
+    expect(r.status).toBe(400);
+    expect(r.body.error.message).toContain('To Do');
+  });
+
+  it('move rejects "Blocked" — a derived projection, not a settable column', async () => {
+    await api('POST', '/api/tasks', { title: 'x' });
+    const r = await api('POST', '/api/tasks/T-1/move', { status: 'Blocked' });
+    expect(r.status).toBe(400);
+  });
+
+  it('a valid move still succeeds', async () => {
+    await api('POST', '/api/tasks', { title: 'x' });
+    const r = await api('POST', '/api/tasks/T-1/move', { status: 'Review' });
+    expect(r.status).toBe(200);
+    expect(r.body.status).toBe('Review');
+  });
+});
+
 describe('server: --max-tokens budgeting across tiers (docs/03 §4)', () => {
   it('list / next / show honor --max-tokens and shrink est_tokens', async () => {
     for (let i = 0; i < 8; i++)
