@@ -37,6 +37,41 @@ describe('repo: tasks & ids', () => {
   });
 });
 
+describe('repo: workflow status validation', () => {
+  it('moveTask rejects an unknown status and names the valid columns', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 'a' });
+    expect(() => repo.moveTask(t.id, 'To Do' as any)).toThrow(ValidationError);
+    try {
+      repo.moveTask(t.id, 'To Do' as any);
+    } catch (e) {
+      expect((e as Error).message).toContain('To Do');
+      expect((e as Error).message).toContain('Backlog, Ready, In Progress, Review, Done');
+    }
+    // rejected move leaves the status untouched
+    expect(repo.getTask(t.id)!.status).toBe('Backlog');
+  });
+
+  it('moveTask rejects "Blocked" — it is a derived projection, not settable', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 'a' });
+    expect(() => repo.moveTask(t.id, 'Blocked' as any)).toThrow(ValidationError);
+  });
+
+  it('moveTask accepts every real workflow status', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 'a' });
+    for (const s of ['Ready', 'In Progress', 'Review', 'Backlog'] as const) {
+      expect(repo.moveTask(t.id, s).status).toBe(s);
+    }
+  });
+
+  it('createTask rejects an unknown --status', () => {
+    const repo = makeRepo();
+    expect(() => repo.createTask({ title: 'a', status: 'todo' as any })).toThrow(ValidationError);
+  });
+});
+
 describe('repo: dependencies & DAG', () => {
   it('adds an edge', () => {
     const repo = makeRepo();
