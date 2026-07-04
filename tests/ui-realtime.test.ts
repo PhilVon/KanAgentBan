@@ -153,6 +153,29 @@ describe('web UI realtime + write surfaces', () => {
     await until(() => $('#drawer').classList.contains('open'));
   });
 
+  it('the Activity panel lists events and live-prepends WS frames', async () => {
+    const t = h.repo.createTask({ title: 'Logged', status: 'Ready', priority: 'P2' });
+    loadApp();
+    await until(() => document.querySelector('.card'));
+
+    $('#activity-btn').click();
+    await until(() => document.querySelectorAll('#activity-panel .activity-row').length > 0);
+    const texts = () => [...document.querySelectorAll('#activity-panel .activity-text')].map((e) => e.textContent);
+    expect(texts().some((s) => s?.includes('created'))).toBe(true);
+
+    // A live frame prepends without a refetch (the frame IS the event).
+    h.repo.moveTask(t.id, 'In Progress', 'user');
+    emit({
+      type: 'task.moved',
+      seq: 999,
+      ts: new Date().toISOString(),
+      task_id: t.id,
+      actor_type: 'user',
+      payload: { from: 'Ready', to: 'In Progress' },
+    });
+    await until(() => texts()[0]?.includes('moved Ready → In Progress'));
+  });
+
   it('the filter box hides non-matching cards', async () => {
     h.repo.createTask({ title: 'alpha widget', status: 'Ready', priority: 'P2' });
     h.repo.createTask({ title: 'beta gadget', status: 'Ready', priority: 'P2' });

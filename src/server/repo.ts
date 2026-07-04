@@ -306,6 +306,26 @@ export class Repo {
     return { floor: newFloor, removed: tx() };
   }
 
+  /** Newest-first page of retained events for the activity log, optionally
+   *  scoped to one task and/or to events older than a `before` seq (paging). */
+  listEventsDesc(opts: { task?: string; before?: number; limit: number }): BoardEvent[] {
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    if (opts.task) {
+      clauses.push('task_id = ?');
+      params.push(opts.task);
+    }
+    if (opts.before !== undefined) {
+      clauses.push('seq < ?');
+      params.push(opts.before);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    params.push(opts.limit);
+    return (
+      this.db.prepare(`SELECT * FROM event ${where} ORDER BY seq DESC LIMIT ?`).all(...params) as any[]
+    ).map(this.mapEvent);
+  }
+
   /** Scoped delta: events touching the task or its direct deps. */
   watch(taskId: string, sinceSeq: number): BoardEvent[] {
     const related = new Set<string>([taskId]);

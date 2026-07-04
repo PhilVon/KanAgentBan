@@ -1,7 +1,7 @@
 import type { Repo } from './repo';
 import { childProgress, deriveState, remainingBlockerCount } from './derive';
 import { recommend, type BlockedSummary } from './recommend';
-import { LABEL_TOP_N, type BoardStats, type MetricSummary, type TaskTiming } from './stats';
+import { LABEL_TOP_N, type BoardStats, type MetricSummary, type TaskTiming, type VelocityTrend } from './stats';
 import { WORKFLOW_STATUSES, type Comment, type Task, type WorkflowStatus } from '../shared/types';
 
 // Output format contract — see docs/03-token-efficiency.md §5. Bump on change.
@@ -19,7 +19,9 @@ import { WORKFLOW_STATUSES, type Comment, type Task, type WorkflowStatus } from 
 //     flow, aging buckets/flags, rework, per-priority/label/agent tables, drain
 //     forecast, and a CFD series. New lines render after the core block (shed first
 //     under budget); `stats <id>` gains a flow-efficiency line.
-export const FORMAT_VERSION = 7;
+// v8: `stats` gains a per-status dwell line with a bottleneck flag, and the
+//     velocity line carries a trend annotation (recent vs prior half-window).
+export const FORMAT_VERSION = 8;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;
@@ -484,7 +486,7 @@ export function renderStats(stats: BoardStats, opts: { full?: boolean; maxTokens
     perStatusLine('WIP', wipCounts(stats), (n) => String(n)),
     `lead p50 ${fmtDur(lead.p50)} · p90 ${fmtDur(lead.p90)} (n=${lead.n})   cycle p50 ${fmtDur(cycle.p50)} · p90 ${fmtDur(cycle.p90)} (n=${cycle.n})`,
     `burndown (remaining): ${sparkline(stats.burndown.map((p) => p.remaining))}  ${burndownEnds(stats)}`,
-    `velocity: ${sparkline(tp.series.map((p) => p.completed))}`,
+    `velocity: ${sparkline(tp.series.map((p) => p.completed))}${trendSuffix(tp.trend)}`,
     agingLine(stats),
     // --- expansion lines (FORMAT_VERSION 7) — appended after the core block so
     //     never-silent budgeting sheds them first. ---
@@ -497,6 +499,7 @@ export function renderStats(stats: BoardStats, opts: { full?: boolean; maxTokens
     byLabelLine(stats),
     byAgentLine(stats),
     forecastLine(stats),
+    dwellLine(stats),
   ].filter(Boolean);
 
   if (stats.partial_history)
@@ -592,6 +595,24 @@ function forecastLine(stats: BoardStats): string {
   const f = stats.forecast;
   const drain = f.days_to_drain !== null ? `~${f.days_to_drain}d (eta ${f.eta})` : 'stalled (velocity 0)';
   return `forecast: ${f.remaining} open · ${f.velocity_per_day}/day → drain ${drain}${f.diverging ? ' · ⚠ diverging' : ''}`;
+}
+
+/** ` · trend ↑ +40% (1.2/d vs 0.86/d)` — empty when there's nothing to compare. */
+function trendSuffix(t: VelocityTrend): string {
+  if (t.delta_pct === null && t.direction === 'flat') return '';
+  const arrow = t.direction === 'up' ? '↑' : t.direction === 'down' ? '↓' : '→';
+  const delta = t.delta_pct !== null ? ` ${t.delta_pct > 0 ? '+' : ''}${t.delta_pct}%` : '';
+  return `  · trend ${arrow}${delta} (${t.recent_per_day}/d vs ${t.prior_per_day}/d)`;
+}
+
+/** Closed-stint dwell per active-flow status, flagging the slowest (bottleneck). */
+function dwellLine(stats: BoardStats): string {
+  const cells = stats.dwell
+    .filter((d) => d.closed.n > 0)
+    .map((d) => `${d.status} p50 ${fmtDur(d.closed.p50)} · p90 ${fmtDur(d.closed.p90)} (n=${d.closed.n})`);
+  if (!cells.length) return '';
+  const flag = stats.bottleneck ? `  ⚠ bottleneck: ${stats.bottleneck.status}` : '';
+  return `dwell (closed stints): ${cells.join('  ·  ')}${flag}`;
 }
 
 /** `kanban stats <id>` — per-task timing. */

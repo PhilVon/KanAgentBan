@@ -183,6 +183,20 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
   // Per-task detail for the UI drawer.
   app.get('/api/ui/tasks/:id', wrap((req, res) => res.json(taskDetail(req.params.id))));
 
+  // Activity log: newest-first page of retained events, optionally scoped to one
+  // task; `before` pages older. `floor` rides along so bounded history is never
+  // silent (a page read, not a delta cursor — no reset semantics needed).
+  app.get('/api/ui/activity', (req, res) => {
+    const rawLimit = num(req.query.limit);
+    const limit = Math.min(500, Math.max(1, Number.isFinite(rawLimit) ? (rawLimit as number) : 100));
+    const task = req.query.task ? String(req.query.task) : undefined;
+    res.json({
+      events: repo.listEventsDesc({ task, before: num(req.query.before), limit }),
+      floor: repo.floor(),
+      cursor: repo.maxSeq(),
+    });
+  });
+
   // Dependency graph for the graph panel: light nodes + blocks-edges between
   // non-archived tasks. Edges point prerequisite -> dependent so the drawing
   // reads left-to-right in execution order (dependency rows store the reverse:

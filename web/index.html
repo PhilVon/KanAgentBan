@@ -16,6 +16,7 @@
       <h1>KanAgentBan</h1>
       <button id="add-task" class="add-task"><i class="fa-solid fa-plus" aria-hidden="true"></i> Add task</button>
       <button id="metrics-btn" class="ghost"><i class="fa-solid fa-chart-simple" aria-hidden="true"></i> Metrics</button>
+      <button id="activity-btn" class="ghost"><i class="fa-solid fa-list-ul" aria-hidden="true"></i> Activity</button>
       <button id="graph-btn" class="ghost"><i class="fa-solid fa-diagram-project" aria-hidden="true"></i> Graph</button>
       <input id="filter" class="filter" type="search" placeholder="filter… (title, id, @assignee, label)" autocomplete="off" />
       <button id="notify-btn" class="ghost" aria-label="Enable desktop notifications" title="Enable desktop notifications when the agent needs your input"><i class="fa-solid fa-bell" aria-hidden="true"></i></button>
@@ -33,6 +34,15 @@
         <button id="metrics-close" class="ghost" aria-label="Close metrics"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
       </div>
       <div id="metrics-body"></div>
+    </section>
+
+    <section id="activity-panel" class="metrics-panel hidden">
+      <div class="metrics-head">
+        <h2><i class="fa-solid fa-list-ul" aria-hidden="true"></i> Activity</h2>
+        <input id="activity-filter" class="filter" type="search" placeholder="filter by task id (T-12)" autocomplete="off" />
+        <button id="activity-close" class="ghost" aria-label="Close activity"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+      </div>
+      <div id="activity-body"></div>
     </section>
 
     <section id="graph-panel" class="metrics-panel hidden">

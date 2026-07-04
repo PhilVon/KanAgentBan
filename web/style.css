@@ -495,6 +495,20 @@ textarea.edit-field { font: inherit; resize: vertical; }
 .legend-item { display: flex; align-items: center; gap: 0.3rem; }
 .legend-swatch { width: 0.7rem; height: 0.7rem; border-radius: 2px; display: inline-block; }
 
+/* --- activity log panel --- */
+#activity-panel .metrics-head .filter { max-width: 14rem; margin-left: auto; }
+#activity-panel .metrics-head .ghost { margin-left: 0; }
+.activity-list { max-height: 55vh; overflow-y: auto; font-size: 0.85rem; }
+.activity-row { display: flex; align-items: baseline; gap: 0.6rem; padding: 0.18rem 0; border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.06)); }
+.activity-time { color: var(--muted); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+.activity-actor { color: var(--muted); flex: 0 0 4.5rem; font-size: 0.78rem; }
+.activity-actor.user { color: var(--accent); font-weight: 600; }
+.activity-task { color: var(--accent); text-decoration: none; flex: 0 0 auto; }
+.activity-task:hover { text-decoration: underline; }
+.activity-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-empty { color: var(--muted); padding: 0.4rem 0; }
+.activity-more { margin-top: 0.6rem; }
+
 /* --- dependency graph panel --- */
 #graph-body { overflow: auto; }
 svg.dep-graph { display: block; max-width: 100%; }

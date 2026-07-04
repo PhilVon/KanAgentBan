@@ -36,6 +36,8 @@ Related: [02-data-model](02-data-model.md) · [03-token-efficiency](03-token-eff
 | **Burndown** | per-day series of `remaining` vs `done` vs `created_cum` over a window |
 | **Flow health** | **net flow** (arrival vs departure); **input-wait latency** (human response time); **rework** (reopen + kickback rates); **completion forecast** (days-to-drain) |
 | **Breakdowns** | **per-priority** lead/cycle/WIP; **per-label** throughput; **per-agent** throughput; **CFD** (cumulative-flow series) |
+| **Bottleneck** | **dwell by status** (closed-stint p50/p90/avg per column, non-partial tasks, all retained history); the slowest of `Ready`/`In Progress`/`Review` is flagged the **bottleneck** (Backlog is long-lived by design, Done is terminal) |
+| **Velocity trend** | recent half of the window vs the prior half (middle day dropped when odd): `up`/`down` on a >10% move, `flat` otherwise or when the window is under 4 days; `delta_pct` is null when the prior half is 0 |
 
 ## 2. Derivation — the status timeline
 

@@ -165,13 +165,35 @@ export interface CfdPoint {
   counts: Record<WorkflowStatus, number>;
 }
 
+/** Closed-stint dwell time per workflow status (T-12). Open segments are
+ *  excluded — they'd systematically understate, and the current oldest already
+ *  shows in `wip[].oldest`. */
+export interface DwellStat {
+  status: WorkflowStatus;
+  closed: MetricSummary;
+}
+
+/** Velocity trend (T-13): recent half of the window vs the prior half. */
+export interface VelocityTrend {
+  recent_per_day: number;
+  prior_per_day: number;
+  delta_pct: number | null; // null when the prior half is 0 or the window is too short
+  direction: 'up' | 'down' | 'flat';
+}
+
 export interface BoardStats {
   generated_at: string;
   window: StatsWindow;
   compaction_floor: number;
   partial_history: boolean;
   excluded_partial: string[];
-  throughput: { series: ThroughputPoint[]; total: number; rolling_avg_per_day: number; per_week: number };
+  throughput: {
+    series: ThroughputPoint[];
+    total: number;
+    rolling_avg_per_day: number;
+    per_week: number;
+    trend: VelocityTrend;
+  };
   wip: ColumnStat[];
   aging_flags: AgingFlag[];
   burndown: BurndownPoint[];
@@ -184,11 +206,18 @@ export interface BoardStats {
   by_label: LabelStat[];
   by_agent: AgentStat[];
   cfd: CfdPoint[];
+  dwell: DwellStat[];
+  bottleneck: { status: WorkflowStatus; avg_ms: number } | null;
 }
 
 const zeroPerStatus = (): Record<WorkflowStatus, number> => {
   const m = {} as Record<WorkflowStatus, number>;
   for (const s of WORKFLOW_STATUSES) m[s] = 0;
+  return m;
+};
+const zeroPerStatusLists = (): Record<WorkflowStatus, number[]> => {
+  const m = {} as Record<WorkflowStatus, number[]>;
+  for (const s of WORKFLOW_STATUSES) m[s] = [];
   return m;
 };
 
@@ -318,6 +347,31 @@ function summarize(values: number[], round: (n: number) => number = Math.round):
   const avg = round(values.reduce((a, b) => a + b, 0) / values.length);
   return { p50: round(percentile(sorted, 0.5)), p90: round(percentile(sorted, 0.9)), avg, n: values.length };
 }
+
+/**
+ * Velocity trend (T-13): compare the recent half of the per-day series against
+ * the prior half (dropping the middle day when odd). Simpler to explain than a
+ * regression slope and robust on small n. Direction needs a >10% move to leave
+ * `flat`; windows under 4 days are always `flat` (halves too small to compare).
+ */
+export function computeTrend(series: ThroughputPoint[]): VelocityTrend {
+  const days = series.length;
+  const half = Math.floor(days / 2);
+  const rate = (pts: ThroughputPoint[]): number =>
+    pts.length ? round2(pts.reduce((a, p) => a + p.completed, 0) / pts.length) : 0;
+  const prior = rate(series.slice(0, half));
+  const recent = rate(series.slice(days - half));
+  if (days < 4 || (prior === 0 && recent === 0))
+    return { recent_per_day: recent, prior_per_day: prior, delta_pct: null, direction: 'flat' };
+  if (prior === 0) return { recent_per_day: recent, prior_per_day: prior, delta_pct: null, direction: 'up' };
+  const delta_pct = Math.round(((recent - prior) / prior) * 100);
+  const direction = recent > prior * 1.1 ? 'up' : recent < prior * 0.9 ? 'down' : 'flat';
+  return { recent_per_day: recent, prior_per_day: prior, delta_pct, direction };
+}
+
+/** Statuses eligible for the bottleneck flag: Backlog is long-lived by design
+ *  and Done is terminal, so only the active flow competes. */
+const BOTTLENECK_STATUSES: WorkflowStatus[] = ['Ready', 'In Progress', 'Review'];
 
 /**
  * Board-level analytics over a window: throughput/velocity, WIP & aging,
@@ -554,6 +608,24 @@ export function boardStats(repo: Repo, opts: { windowDays?: number } = {}): Boar
         .sort((a, b) => b.completed - a.completed || b.active_wip - a.active_wip)
     : [];
 
+  // ---- per-status dwell / bottleneck (T-12) ---------------------------------
+  // Closed stints only, from non-partial-history tasks; all retained history
+  // (matches timing_summary semantics — the window governs series, not lifetimes).
+  const dwellDurations = zeroPerStatusLists();
+  for (const c of computed) {
+    if (c.timing.partial_history) continue;
+    for (const s of c.segments) if (s.exit !== null) dwellDurations[s.status].push(s.exit - s.enter);
+  }
+  const dwell: DwellStat[] = WORKFLOW_STATUSES.map((status) => ({
+    status,
+    closed: summarize(dwellDurations[status]),
+  }));
+  let bottleneck: BoardStats['bottleneck'] = null;
+  for (const d of dwell) {
+    if (!BOTTLENECK_STATUSES.includes(d.status) || d.closed.n === 0) continue;
+    if (!bottleneck || d.closed.avg > bottleneck.avg_ms) bottleneck = { status: d.status, avg_ms: d.closed.avg };
+  }
+
   // ---- cumulative-flow diagram (T-11) — one stacked column per window day ----
   const cfd: CfdPoint[] = dates.map((date) => {
     const end = endOfDay(date);
@@ -573,7 +645,13 @@ export function boardStats(repo: Repo, opts: { windowDays?: number } = {}): Boar
     compaction_floor: floor,
     partial_history: excluded_partial.length > 0,
     excluded_partial,
-    throughput: { series, total, rolling_avg_per_day, per_week: Math.round(rolling_avg_per_day * 7 * 100) / 100 },
+    throughput: {
+      series,
+      total,
+      rolling_avg_per_day,
+      per_week: Math.round(rolling_avg_per_day * 7 * 100) / 100,
+      trend: computeTrend(series),
+    },
     wip,
     aging_flags,
     burndown,
@@ -586,6 +664,8 @@ export function boardStats(repo: Repo, opts: { windowDays?: number } = {}): Boar
     by_label,
     by_agent,
     cfd,
+    dwell,
+    bottleneck,
   };
 }
 
