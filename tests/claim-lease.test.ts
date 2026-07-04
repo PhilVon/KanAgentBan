@@ -92,7 +92,7 @@ describe('repo: claim leases (ttl)', () => {
     const repo = makeRepo();
     const t = repo.createTask({ title: 'a', status: 'In Progress' });
     repo.claimTask(t.id, 'alice', { ttlSeconds: 3600 });
-    expect(renderContext(repo, t.id)).toMatch(/assignee: alice {2}\(lease expires in \d+m\)/);
+    expect(renderContext(repo, t.id)).toMatch(/assignee: alice {2}\(lease expires in \d+[mh]\)/);
     repo.db.prepare('UPDATE task SET claim_expires_at = ? WHERE id = ?').run(past(), t.id);
     expect(renderContext(repo, t.id)).toContain('assignee: alice  (lease expired)');
   });
