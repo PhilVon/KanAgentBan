@@ -22,6 +22,7 @@ const BODY = INDEX_HTML.replace(/^[\s\S]*<body>/i, '')
 let h: TestServer;
 let realFetch: typeof globalThis.fetch;
 let realWS: any;
+let tornDown: { v: boolean };
 
 /** Poll until `fn` returns a truthy value (or time out). */
 async function until<T>(fn: () => T | Promise<T>, ms = 4000): Promise<NonNullable<T>> {
@@ -73,9 +74,21 @@ beforeEach(async () => {
   localStorage.setItem('kanban_token', h.token); // app.js reads this as the token
 
   // app.js fetches relative URLs ('/api/...'); resolve them to the test server.
+  // A fetch that app.js left in flight when the test's server stops would
+  // reject with ECONNRESET as an unhandled rejection — after teardown, park it
+  // on a never-resolving promise instead.
+  // The flag is per-test (closure-captured): a stray rejection from test N must
+  // not escape just because test N+1 has already started.
+  const torn = (tornDown = { v: false });
   realFetch = globalThis.fetch;
-  globalThis.fetch = ((input: any, init?: any) =>
-    realFetch(typeof input === 'string' && input.startsWith('/') ? h.url + input : input, init)) as any;
+  globalThis.fetch = (async (input: any, init?: any) => {
+    try {
+      return await realFetch(typeof input === 'string' && input.startsWith('/') ? h.url + input : input, init);
+    } catch (e) {
+      if (torn.v) return new Promise(() => {});
+      throw e;
+    }
+  }) as any;
 
   // Stub the WebSocket so app.js doesn't open a live socket (the flows under
   // test reconcile via an explicit refresh()).
@@ -90,9 +103,10 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  globalThis.fetch = realFetch;
+  tornDown.v = true;
   (globalThis as any).WebSocket = realWS;
   await stopTestServer(h);
+  globalThis.fetch = realFetch;
 });
 
 describe('web UI (real app.js against a real server)', () => {
