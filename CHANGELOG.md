@@ -40,7 +40,14 @@ Unreleased section describing its change.
   workflow columns enforced server-side + skill reinforced (`11c5407`,
   2026-06-25)
 
+- GitHub Actions CI: build + test on ubuntu (node 20/22) and windows
+  (node 20) (#9)
+
 ### Fixed
+- Repeated `--label`/`--depends` on `kanban add` and `--options` on
+  `kanban ask` now accumulate instead of silently keeping only the last
+  value (#8)
+- Flaky `ui.test.ts` teardown race (unhandled ECONNRESET rejection) (#9)
 - Archived tasks no longer resurrect in the Done column (`256dee3`,
   2026-06-19)
 - Stats window clamped to project age; task description rendered (`79f8d06`,
