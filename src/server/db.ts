@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -135,6 +135,13 @@ CREATE TABLE IF NOT EXISTS idea (
   status TEXT NOT NULL DEFAULT 'open',
   promoted_task_id TEXT,
   created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS template (
+  name TEXT PRIMARY KEY,
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS event (
@@ -336,6 +343,9 @@ function migrate(db: DB): void {
   if (current > 0 && current < 9) {
     addColumnIfMissing(db, 'input_request', 'default_answer', 'TEXT');
   }
+
+  // v9 -> v10: task templates — purely additive `template` table; both fresh and
+  // existing boards get it from the idempotent CREATE in SCHEMA_SQL above.
 
   if (current < SCHEMA_VERSION) {
     db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)').run(

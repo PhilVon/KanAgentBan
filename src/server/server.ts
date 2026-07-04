@@ -480,6 +480,27 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     res.json(repo.promoteIdea(req.params.id, req.body?.task ?? {}, actor(req))),
   ));
 
+  // --- templates (reusable blueprints) -----------------------------------
+  app.get('/api/templates', (_req, res) => res.json({ templates: repo.listTemplates() }));
+  app.get('/api/templates/:name', wrap((req, res) => res.json(repo.requireTemplate(req.params.name))));
+  // PUT = save/overwrite a snapshot of task {from}; a template is config, not history.
+  app.put('/api/templates/:name', wrap((req, res) =>
+    res.json(repo.saveTemplateFromTask(req.params.name, req.body.from, actor(req))),
+  ));
+  app.delete('/api/templates/:name', wrap((req, res) => {
+    repo.deleteTemplate(req.params.name, actor(req));
+    res.json({ ok: true });
+  }));
+  app.post('/api/templates/:name/apply', wrap((req, res) =>
+    res.json(
+      repo.applyTemplate(
+        req.params.name,
+        { title: req.body.title, status: req.body.status, priority: req.body.priority, parent: req.body.parent },
+        actor(req),
+      ),
+    ),
+  ));
+
   // --- mutations --------------------------------------------------------
   app.post('/api/tasks', wrap((req, res) => res.json(repo.createTask({ ...req.body, actor: actor(req) }))));
   // Bulk-archive the Done column. Registered before the `:id` routes so the

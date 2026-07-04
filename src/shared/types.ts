@@ -190,6 +190,24 @@ export interface Idea {
   created_at: string;
 }
 
+/** Reusable task blueprint (`kanban template save/apply`) — criteria set,
+ *  labels, priority, and a one-level subtask skeleton. Stored as JSON in the
+ *  `template` table; the title always comes from `apply`. */
+export interface TemplateBlueprint {
+  description?: string;
+  priority?: Priority;
+  labels: string[];
+  criteria: string[];
+  subtasks: { title: string; criteria: string[] }[];
+}
+
+export interface TaskTemplate {
+  name: string;
+  blueprint: TemplateBlueprint;
+  created_at: string;
+  updated_at: string;
+}
+
 /** One board-wide search hit (tasks, docs, comments, ideas). See docs/07 §Search. */
 export interface SearchResult {
   type: 'task' | 'doc' | 'comment' | 'idea';
@@ -232,6 +250,9 @@ export type EventType =
   | 'doc.updated'
   | 'doc.linked'
   | 'doc.unlinked'
+  | 'template.saved'
+  | 'template.deleted'
+  | 'template.applied'
   | 'brainstorm.started'
   | 'brainstorm.closed'
   | 'idea.added'

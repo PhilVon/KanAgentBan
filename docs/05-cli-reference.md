@@ -195,6 +195,16 @@ conventions: `commit` → `uri: git:<sha>`, `branch` → `uri: branch:<name>`,
 Sets a fresh `summary` (clears the stale-summary flag). Server never
 auto-summarizes — this is the manual refresh path.
 
+### `kanban template save <name> --from T-n` / `apply <name> "<title>"` / `list` / `show <name>` / `delete <name>`
+Reusable blueprints — save a task's *shape* once (priority, labels, criteria
+texts, direct-subtask skeleton with their criteria; never the title), apply it
+many times: `apply` creates the task + criteria + labels + subtasks in **one
+transaction** with a `template.applied` provenance event. Overrides
+(`--prio/--status/--parent`) beat the blueprint. Same name re-saves (upsert —
+a template is config, not history). Names: 1–64 chars, letters/digits/`-`/`_`.
+Cuts repeated token spend authoring the same checklist; standardizes
+definition-of-done (e.g. `pr-checklist`, `spike`).
+
 ### `kanban standup [--since <seq> | --days N] [--json] [--max-tokens N | --full]`
 The narrative board diff — one call to catch up (agent cold-start or human
 coffee-in-hand): completed (approvals flagged), review kickbacks with reasons,

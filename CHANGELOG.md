@@ -116,6 +116,10 @@ Unreleased section describing its change.
   untouched for N days archive on the server sweep (no restart; env override
   `KANBAN_AUTO_ARCHIVE_DAYS`); bottom-up subtree collapse, `task.archived`
   flagged `{auto:true}` (actor `system`) (#29)
+- Task templates: `kanban template save <name> --from T-n / apply / list /
+  show / delete` — reusable blueprints (priority, labels, criteria, subtask
+  skeleton) applied atomically with `template.applied` provenance; REST
+  `/api/templates`, grouped MCP `template` tool (SCHEMA_VERSION 9→10) (#30)
 
 ### Fixed
 - Repeated `--label`/`--depends` on `kanban add` and `--options` on
