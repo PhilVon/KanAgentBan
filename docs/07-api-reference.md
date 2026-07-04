@@ -138,7 +138,9 @@ detail: [02-data-model §3](02-data-model.md), [11-roadmap §2](11-roadmap.md).
 3. Buffered live events drain next; client **dedupes by `seq`**.
 
 This is the *same* replay query as `GET /api/changes` — one code path, two
-transports (see [09-concurrency](09-concurrency.md)).
+transports (see [09-concurrency](09-concurrency.md)). Besides the web UI, this
+stream is consumed by `kanban watch/changes --follow`, which prints each frame
+as one NDJSON line ([05-cli-reference](05-cli-reference.md)).
 
 **Message frames (server → client):**
 ```json

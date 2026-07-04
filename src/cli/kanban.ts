@@ -2,6 +2,7 @@
 import * as fs from 'node:fs';
 import { Command } from 'commander';
 import { api, CliError, connect, initBoard } from './board';
+import { followChanges, followTask, type FollowHandle } from './follow';
 import { renderInbox } from './format';
 import { boardPaths, findBoardRoot, readBoardMeta, writeBoardMeta } from '../shared/board-paths';
 import type { NudgeConfig } from '../shared/types';
@@ -87,16 +88,44 @@ program
 
 program
   .command('watch <id>')
-  .requiredOption('--since <seq>')
+  .option('--since <seq>', 'event seq to start from (required without --follow)')
+  .option('--follow', 'stream events (task + direct deps) as NDJSON until Ctrl-C')
   .action(async (id, o) => {
+    if (o.follow) {
+      const c = await conn();
+      const since = o.since !== undefined ? Number(o.since) : (await api(c, 'GET', '/api/board')).seq;
+      runFollow(followTask(c, id, since, (ev) => out(JSON.stringify(ev)), followOpts()));
+      return;
+    }
+    if (o.since === undefined) throw new CliError('watch needs --since <seq> (or --follow)', 1);
     const r = await api(await conn(), 'GET', `/api/tasks/${id}/watch?since=${o.since}`);
     out(JSON.stringify(r, null, 2));
   });
 
 program
   .command('changes')
-  .requiredOption('--since <seq>')
-  .action(async (o) => out(JSON.stringify(await api(await conn(), 'GET', `/api/changes?since=${o.since}`), null, 2)));
+  .option('--since <seq>', 'event seq to start from (required without --follow)')
+  .option('--follow', 'stream board-wide events as NDJSON until Ctrl-C')
+  .action(async (o) => {
+    if (o.follow) {
+      const c = await conn();
+      const since = o.since !== undefined ? Number(o.since) : (await api(c, 'GET', '/api/board')).seq;
+      runFollow(followChanges(c, since, (ev) => out(JSON.stringify(ev)), followOpts()));
+      return;
+    }
+    if (o.since === undefined) throw new CliError('changes needs --since <seq> (or --follow)', 1);
+    out(JSON.stringify(await api(await conn(), 'GET', `/api/changes?since=${o.since}`), null, 2));
+  });
+
+// --follow plumbing: the open socket keeps the process alive; Ctrl-C exits 0.
+// Reconnect attempts are noted on stderr so a dying server is never silent.
+const followOpts = () => ({ onRetry: () => process.stderr.write('reconnecting…\n') });
+function runFollow(h: FollowHandle): void {
+  process.on('SIGINT', () => {
+    h.close();
+    process.exit(0);
+  });
+}
 
 program
   .command('inbox')
