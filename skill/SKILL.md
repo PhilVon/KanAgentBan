@@ -138,6 +138,27 @@ board-wide search over tasks, docs, and comments (one snippet line per hit,
 `--type doc` etc. to narrow). Prior findings, past decisions, and old task
 discussions surface here — a 20-token search beats redoing an hour of research.
 
+## Brainstorming — when the solution space is wide
+
+For **more than ~3 candidate approaches** (a binary choice is just `kanban ask`),
+run a structured session instead of dumping options into chat:
+
+```
+kanban brainstorm start "cache strategy" --task T-12   # → B-2 (anchor shows in T-12's context)
+kanban brainstorm add B-2 "write-through" --cluster safe
+kanban brainstorm add B-2 "ttl only" --cluster simple
+kanban idea score I-4 8                                # integers 0–10
+kanban idea promote I-4 --prio P1                      # → task, atomically, with provenance
+kanban idea drop I-5                                   # one-way discard (stays searchable)
+kanban brainstorm close B-2                            # after distilling the outcome (often into a doc)
+```
+
+Capture fast, judge later; cluster related ideas (`--cluster` free-form). The
+human can score/promote/discard from the web UI's Brainstorm panel — scoring is
+a lightweight HITL channel. `kanban brainstorm show B-2` renders clusters ranked
+by their best idea. Promoted/discarded ideas are frozen; ideas of any status
+surface in `kanban search`.
+
 ## Asking the human (durable, async — see docs/04)
 
 Default = **ask then yield**, not block:
@@ -210,7 +231,8 @@ The full surface — nothing here is off-limits. Any read takes `--json` and
 - Read: `next [--context|--n N|--mine]`, `list [--status|--label|--limit]`, `show <id>`, `context <id>`, `watch <id> --since <seq> [--follow]`, `changes --since <seq> [--follow]` (`--follow` streams NDJSON until Ctrl-C — for humans/scripts, not agent turns), `inbox [--since]`, `compact [--keep N]`
 - Write: `add [--parent T-1|--depends|--label|--ac|--prio|--status]`, `update [--expect-version N]`, `move <id> <col>`, `done`, `archive`, `claim [--force]`, `release [--force]`, `dep add/rm --on <id>`, `parent <id> --to <pid>|--clear`, `comment <id> "…"`, `criterion add/check [--off]`, `label --add/--rm`, `artifact --kind --title --uri`, `summarize`
 - Docs: `doc add "<title>" --kind design|adr|spike|research|note [--body|--body-file] [--summary] [--link T-n]`, `doc show <D-n> [--full]`, `doc update <D-n> [--status|--superseded-by D-n]`, `doc link/unlink <D-n> <T-n>`, `doc archive <D-n>`, `docs [--kind|--status|--task]`
-- Search: `search "<query>" [--type task|doc|comment] [--limit N]` — ranked hits with snippets across the whole board
+- Search: `search "<query>" [--type task|doc|comment|idea] [--limit N]` — ranked hits with snippets across the whole board
+- Brainstorm: `brainstorm start "<topic>" [--task T-n]`, `brainstorm add <B-n> "<idea>" [--cluster N]`, `brainstorm show/list/close`, `idea score <I-n> <0-10>`, `idea cluster <I-n> <name>`, `idea promote <I-n> [--title|--prio|--parent]`, `idea drop <I-n>`
 - HITL: `ask [--options|--freeform|--expires-at]`, `await [qid|--task|--any] [--timeout S]`, `answer`, `cancel`
 - Lifecycle: `board init/show/nudge`, `serve [--port]`, `export [--out FILE]`, `open`
 - Reporting (not the work loop): `stats [id] [--window N]` — board analytics / per-task timing, read-only.

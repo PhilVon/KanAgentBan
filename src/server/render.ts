@@ -2,7 +2,16 @@ import type { Repo } from './repo';
 import { childProgress, deriveState, remainingBlockerCount } from './derive';
 import { recommend, type BlockedSummary } from './recommend';
 import { LABEL_TOP_N, type BoardStats, type MetricSummary, type TaskTiming, type VelocityTrend } from './stats';
-import { WORKFLOW_STATUSES, type Comment, type Doc, type SearchResult, type Task, type WorkflowStatus } from '../shared/types';
+import {
+  WORKFLOW_STATUSES,
+  type BrainstormSession,
+  type Comment,
+  type Doc,
+  type Idea,
+  type SearchResult,
+  type Task,
+  type WorkflowStatus,
+} from '../shared/types';
 
 // Output format contract — see docs/03-token-efficiency.md §5. Bump on change.
 // v2: `--json` reads carry `est_tokens`; context budgeting degrades gracefully.
@@ -26,7 +35,11 @@ import { WORKFLOW_STATUSES, type Comment, type Doc, type SearchResult, type Task
 //     (titles + summaries only, body via `doc show`). See ADR 0007.
 // v10: search tier — `search` renders one budgeted line per hit
 //     (task/doc/comment) with a matched-text snippet.
-export const FORMAT_VERSION = 10;
+// v11: brainstorm tier — `brainstorm show` renders clustered, score-ranked
+//     ideas (sheds lowest clusters first); `brainstorm list` one line per
+//     session; `context` gains a one-line open-session anchor; search hits
+//     cover ideas.
+export const FORMAT_VERSION = 11;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;
@@ -375,11 +388,74 @@ function buildContextSections(repo: Repo, id: string, t: Task, fid: Fidelity): s
         `\n  (body: kanban doc show <D-id>)`,
     );
 
+  // 6.7 open brainstorm anchored to this task — one line, body via its own tier
+  const sessions = repo.listBrainstorms({ task: id, status: 'open' });
+  for (const s of sessions) {
+    const ideas = repo.getIdeas(s.id);
+    const promoted = ideas.filter((i) => i.status === 'promoted').length;
+    sections.push(
+      `brainstorm: ${s.id} "${s.topic}" (${ideas.length} ideas · ${promoted} promoted) — kanban brainstorm show ${s.id}`,
+    );
+  }
+
   // 7. labels
   const labels = repo.getLabels(id);
   if (labels.length) sections.push(`labels: ${labels.join(', ')}`);
 
   return sections;
+}
+
+/** `kanban brainstorm list` — one line per session, newest first. */
+export function renderBrainstormList(repo: Repo, sessions: BrainstormSession[], opts: { full?: boolean; maxTokens?: number } = {}): string {
+  if (!sessions.length) return '(no brainstorms)';
+  const rows = sessions.map((s) => {
+    const ideas = repo.getIdeas(s.id);
+    const promoted = ideas.filter((i) => i.status === 'promoted').length;
+    const anchor = s.task_id ? `  ⤷${s.task_id}` : '';
+    return `${s.id} [${s.status}] "${s.topic}"  ${ideas.length} ideas · ${promoted} promoted${anchor}`;
+  });
+  return budgetBlocks(rows, opts, '\n', (n) => `[+${n} sessions hidden for token budget — brainstorm list --full]`);
+}
+
+/**
+ * `kanban brainstorm show B-n` — ideas grouped by cluster (clusters ranked by
+ * their best idea, ideas score-desc within), promoted/discarded flagged.
+ * Budgeted: whole trailing (lowest-ranked) cluster blocks shed first.
+ */
+export function renderBrainstorm(
+  repo: Repo,
+  id: string,
+  opts: { full?: boolean; maxTokens?: number } = {},
+): string {
+  const s = repo.requireBrainstorm(id);
+  const ideas = repo.getIdeas(id);
+  const promoted = ideas.filter((i) => i.status === 'promoted').length;
+  const head =
+    `${s.id} [${s.status}] "${s.topic}"` +
+    (s.task_id ? `  ⤷${s.task_id}` : '') +
+    `\nideas ${ideas.length} · promoted ${promoted} · discarded ${ideas.filter((i) => i.status === 'discarded').length}`;
+  if (!ideas.length) return `${head}\n(no ideas yet — kanban brainstorm add ${id} "…")`;
+
+  // Group by cluster; getIdeas is already best-first so group order = rank order.
+  const groups = new Map<string, Idea[]>();
+  for (const i of ideas) {
+    const key = i.cluster ?? '(unclustered)';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(i);
+  }
+  const blocks = [...groups.entries()].map(([cluster, list]) => {
+    const lines = list.map((i) => {
+      const score = i.score !== null ? `[${String(i.score).padStart(2)}]` : '[ –]';
+      const mark = i.status === 'promoted' ? `  → ${i.promoted_task_id}` : i.status === 'discarded' ? '  ✕ discarded' : '';
+      return `  ${score} ${i.id} ${i.text}${mark}`;
+    });
+    return `${cluster}:\n${lines.join('\n')}`;
+  });
+  return (
+    head +
+    '\n\n' +
+    budgetBlocks(blocks, opts, '\n\n', (n) => `[+${n} cluster(s) hidden for token budget — brainstorm show ${id} --full]`)
+  );
 }
 
 /** One terse doc line shared by the list tier and the context docs section. */
@@ -529,7 +605,13 @@ export function renderSearch(
   if (!results.length) return `(no matches for "${query}")`;
   const rows = results.map((r) => {
     const badge =
-      r.type === 'doc' ? `[doc/${r.kind}]` : r.type === 'comment' ? `[comment on ${r.task_id}]` : `[task/${r.status}]`;
+      r.type === 'doc'
+        ? `[doc/${r.kind}]`
+        : r.type === 'comment'
+          ? `[comment on ${r.task_id}]`
+          : r.type === 'idea'
+            ? `[idea/${r.status}${r.task_id ? ` → ${r.task_id}` : ''}]`
+            : `[task/${r.status}]`;
     const title = r.title ? ` "${r.title}"` : '';
     return `${r.id} ${badge}${title} — ${r.snippet}`;
   });

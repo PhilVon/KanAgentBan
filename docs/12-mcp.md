@@ -82,7 +82,7 @@ Example MCP client config (`command` + `args`):
 - **stdout is the protocol channel.** All diagnostics go to **stderr** — the
   server never writes to stdout outside JSON-RPC.
 
-## 4. Tool catalogue (~24, curated)
+## 4. Tool catalogue (~25, curated)
 
 Each tool maps to the CLI command / REST endpoint of the same behaviour. Reads
 ride through `?json=1` and append an `[est_tokens: N]` footer; `max_tokens` /
@@ -98,6 +98,10 @@ ride through `?json=1` and append an `[est_tokens: N]` footer; `max_tokens` /
 
 **Search:** `search` — board-wide ranked FTS5 hits over tasks/docs/comments with
 snippets; the "check prior work before re-researching" read.
+
+**Brainstorm:** one grouped `brainstorm` tool (`op: start|close|show|list|
+idea_add|idea_score|idea_cluster|idea_promote|idea_discard`) over the ideation
+surface; `idea_promote` creates the task atomically.
 
 **Docs:** one grouped `doc` tool (`op: add|show|list|update|link|unlink`) over the
 board-native document surface (design/adr/spike/research/note — ADR 0007);

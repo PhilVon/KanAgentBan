@@ -35,7 +35,7 @@ describe('mcp tool surface', () => {
       expect(names).toContain(expected);
     }
     // Curated, not the full ~30 CLI surface.
-    expect(names.length).toBeLessThanOrEqual(24);
+    expect(names.length).toBeLessThanOrEqual(26);
     expect(names.length).toBeGreaterThanOrEqual(16);
   });
 

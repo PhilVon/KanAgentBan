@@ -6,6 +6,8 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { openDb, type DB } from './db';
 import { Repo, ConflictError, NotFoundError, ValidationError } from './repo';
 import {
+  renderBrainstorm,
+  renderBrainstormList,
   renderContext,
   renderDoc,
   renderDocList,
@@ -405,6 +407,50 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
       res.json({ ok: true });
     }),
   );
+
+  // --- brainstorms (ideation: capture -> cluster/score -> promote) -------
+  app.get('/api/brainstorms', (req, res) => {
+    const sessions = repo.listBrainstorms({ status: str(req.query.status), task: str(req.query.task) });
+    const text = renderBrainstormList(repo, sessions, {
+      full: req.query.full !== undefined,
+      maxTokens: num(req.query.max_tokens),
+    });
+    if (req.query.json !== undefined) return res.json({ sessions, est_tokens: estimateTokens(text) });
+    res.json({ text });
+  });
+  app.post('/api/brainstorms', wrap((req, res) =>
+    res.json(repo.startBrainstorm(req.body.topic, { task: req.body.task, actor: actor(req) })),
+  ));
+  app.get(
+    '/api/brainstorms/:id',
+    wrap((req, res) => {
+      const text = renderBrainstorm(repo, req.params.id, {
+        full: req.query.full !== undefined,
+        maxTokens: num(req.query.max_tokens),
+      });
+      if (req.query.json !== undefined) {
+        const s = repo.requireBrainstorm(req.params.id);
+        return res.json({ ...s, ideas: repo.getIdeas(s.id), est_tokens: estimateTokens(text) });
+      }
+      res.json({ text });
+    }),
+  );
+  app.post('/api/brainstorms/:id/close', wrap((req, res) => res.json(repo.closeBrainstorm(req.params.id, actor(req)))));
+  app.post('/api/brainstorms/:id/ideas', wrap((req, res) =>
+    res.json(repo.addIdea(req.params.id, req.body.text, { cluster: req.body.cluster, actor: actor(req) })),
+  ));
+  app.patch('/api/ideas/:id', wrap((req, res) =>
+    res.json(
+      repo.updateIdea(
+        req.params.id,
+        { score: req.body.score, cluster: req.body.cluster, text: req.body.text, discard: !!req.body.discard },
+        actor(req),
+      ),
+    ),
+  ));
+  app.post('/api/ideas/:id/promote', wrap((req, res) =>
+    res.json(repo.promoteIdea(req.params.id, req.body?.task ?? {}, actor(req))),
+  ));
 
   // --- mutations --------------------------------------------------------
   app.post('/api/tasks', wrap((req, res) => res.json(repo.createTask({ ...req.body, actor: actor(req) }))));

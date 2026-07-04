@@ -359,6 +359,77 @@ program
     out(o.json ? JSON.stringify(r, null, 2) : r.text);
   });
 
+// ---- brainstorm (ideation: capture -> cluster/score -> promote) -----------
+const brainstorm = program
+  .command('brainstorm')
+  .description('structured ideation sessions: capture ideas, cluster, score, promote winners to tasks');
+brainstorm
+  .command('start <topic>')
+  .option('--task <id>', 'anchor the session to a task (shows in its context)')
+  .action(async (topic, o) => {
+    const s = await api(await conn(), 'POST', '/api/brainstorms', { topic, task: o.task });
+    out(`${s.id}  started "${s.topic}"${s.task_id ? `  (anchored to ${s.task_id})` : ''}`);
+  });
+brainstorm
+  .command('add <id> <text>')
+  .option('--cluster <name>', 'group related ideas under a free-form cluster name')
+  .action(async (id, text, o) => {
+    const i = await api(await conn(), 'POST', `/api/brainstorms/${id}/ideas`, { text, cluster: o.cluster });
+    out(`${i.id} added${i.cluster ? ` [${i.cluster}]` : ''}`);
+  });
+brainstorm
+  .command('show <id>')
+  .option('--max-tokens <n>', 'token budget (sheds lowest-ranked clusters)')
+  .option('--full', 'ignore the token budget')
+  .option('--json')
+  .action(async (id, o) => {
+    const q = new URLSearchParams(clean({ max_tokens: o.maxTokens, full: o.full, json: o.json }));
+    const qs = q.toString();
+    const r = await api(await conn(), 'GET', `/api/brainstorms/${id}${qs ? `?${qs}` : ''}`);
+    out(o.json ? JSON.stringify(r, null, 2) : r.text);
+  });
+brainstorm
+  .command('list')
+  .option('--status <s>', 'open | closed')
+  .option('--task <id>')
+  .option('--json')
+  .action(async (o) => {
+    const q = new URLSearchParams(clean({ status: o.status, task: o.task, json: o.json }));
+    const qs = q.toString();
+    const r = await api(await conn(), 'GET', `/api/brainstorms${qs ? `?${qs}` : ''}`);
+    out(o.json ? JSON.stringify(r, null, 2) : r.text);
+  });
+brainstorm.command('close <id>').action(async (id) => {
+  const s = await api(await conn(), 'POST', `/api/brainstorms/${id}/close`);
+  out(`${s.id} closed`);
+});
+
+const idea = program.command('idea').description('score, cluster, promote, or drop brainstorm ideas');
+idea.command('score <id> <score>').action(async (id, score) => {
+  const i = await api(await conn(), 'PATCH', `/api/ideas/${id}`, { score: Number(score) });
+  out(`${i.id} scored ${i.score}`);
+});
+idea.command('cluster <id> <name>').action(async (id, name) => {
+  const i = await api(await conn(), 'PATCH', `/api/ideas/${id}`, { cluster: name });
+  out(`${i.id} → cluster "${i.cluster}"`);
+});
+idea
+  .command('promote <id>')
+  .option('--title <t>', 'task title (default: the idea text)')
+  .option('--prio <p>')
+  .option('--status <s>')
+  .option('--parent <tid>')
+  .action(async (id, o) => {
+    const r = await api(await conn(), 'POST', `/api/ideas/${id}/promote`, {
+      task: clean({ title: o.title, priority: o.prio, status: o.status, parent: o.parent }),
+    });
+    out(`${r.idea.id} promoted → ${r.task.id} "${r.task.title}"`);
+  });
+idea.command('drop <id>').description('discard an idea (one-way)').action(async (id) => {
+  await api(await conn(), 'PATCH', `/api/ideas/${id}`, { discard: true });
+  out(`${id} discarded`);
+});
+
 // ---- human-in-the-loop ---------------------------------------------------
 program.command('ask <id> <question>').option('--options <o>', 'answer option (repeatable or comma-separated)', collectList).option('--freeform').option('--expires-at <iso>')
   .action(async (id, question, o) => {
