@@ -110,6 +110,12 @@ is derived, never stored ([02-data-model §5-6](02-data-model.md)).
 
 `POST /api/tasks/:id/deps` rejects cycles/self/duplicate with `409`/`400`.
 
+## Search
+
+| Method | Path | CLI | Notes |
+|--------|------|-----|-------|
+| `GET` | `/api/search?q=&type=&limit=&max_tokens=&json=` | `search` | ranked FTS5 hits (bm25) with snippets; `400` without `q`; `?json` → `{results, fts, text, est_tokens}` (`fts:false` = LIKE fallback) |
+
 ## Docs (board-native knowledge — ADR 0007)
 
 | Method | Path | CLI | Notes |

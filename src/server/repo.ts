@@ -23,6 +23,7 @@ import type {
   EventType,
   InputRequest,
   Priority,
+  SearchResult,
   Task,
   WorkflowStatus,
 } from '../shared/types';
@@ -1014,6 +1015,100 @@ export class Repo {
       if (info.changes > 0)
         rec({ type: 'doc.unlinked', task_id: taskId, actor_type: actor, payload: { doc_id: docId } });
     });
+  }
+
+  // search (board-wide: tasks / docs / comments) ---------------------------
+
+  /** Whether the FTS5 index is available on this board (see db.ts v5 guard). */
+  ftsEnabled(): boolean {
+    const r = this.db.prepare("SELECT value FROM meta WHERE key = 'fts_enabled'").get() as
+      | { value: string }
+      | undefined;
+    return r?.value === '1';
+  }
+
+  /**
+   * Board-wide search over tasks (title/description/summary), docs
+   * (title/summary/body), and comments. FTS5 `MATCH` ranked by bm25 with a
+   * quoted-phrase retry on user-syntax errors; LIKE fallback when FTS5 is
+   * unavailable. Archived content never surfaces: task/doc rows drop out of the
+   * index via triggers, and a comment on an archived task is filtered here.
+   */
+  search(q: string, opts: { type?: string; limit?: number } = {}): SearchResult[] {
+    const query = q.trim();
+    if (!query) return [];
+    const limit = opts.limit && opts.limit > 0 ? Math.min(opts.limit, 100) : 20;
+    const raw = this.ftsEnabled() ? this.searchFts(query, opts.type, limit) : this.searchLike(query, opts.type, limit);
+    const out: SearchResult[] = [];
+    for (const r of raw) {
+      const hit = this.toSearchResult(r);
+      if (hit) out.push(hit);
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
+  private searchFts(query: string, type: string | undefined, limit: number): any[] {
+    // Over-fetch: the liveness check below may drop comment hits on archived tasks.
+    const run = (m: string) => {
+      const params: any[] = [m];
+      let sql = `SELECT type, ref_id, snippet(search_index, -1, '', '', '…', 12) AS snip
+                   FROM search_index WHERE search_index MATCH ?`;
+      if (type) {
+        sql += ' AND type = ?';
+        params.push(type);
+      }
+      sql += ' ORDER BY bm25(search_index) LIMIT ?';
+      params.push(limit * 3);
+      return this.db.prepare(sql).all(...params) as any[];
+    };
+    try {
+      return run(query);
+    } catch {
+      // User input isn't FTS5 query syntax (stray quotes/operators) — retry as a
+      // literal quoted phrase rather than erroring the read.
+      return run(`"${query.replace(/"/g, '""')}"`);
+    }
+  }
+
+  private searchLike(query: string, type: string | undefined, limit: number): any[] {
+    const esc = `%${query.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    const parts: string[] = [];
+    if (!type || type === 'task')
+      parts.push(`SELECT 'task' AS type, id AS ref_id,
+        substr(title || ' ' || COALESCE(description,''), 1, 60) AS snip, updated_at AS ts
+        FROM task WHERE archived_at IS NULL AND (title LIKE $q ESCAPE '\\'
+          OR description LIKE $q ESCAPE '\\' OR summary LIKE $q ESCAPE '\\')`);
+    if (!type || type === 'doc')
+      parts.push(`SELECT 'doc' AS type, id AS ref_id,
+        substr(title || ' ' || COALESCE(summary,''), 1, 60) AS snip, updated_at AS ts
+        FROM doc WHERE archived_at IS NULL AND (title LIKE $q ESCAPE '\\'
+          OR summary LIKE $q ESCAPE '\\' OR body LIKE $q ESCAPE '\\')`);
+    if (!type || type === 'comment')
+      parts.push(`SELECT 'comment' AS type, id AS ref_id, substr(body, 1, 60) AS snip, created_at AS ts
+        FROM comment WHERE body LIKE $q ESCAPE '\\'`);
+    if (!parts.length) return [];
+    const sql = parts.join(' UNION ALL ') + ` ORDER BY ts DESC LIMIT ${(limit * 3) | 0}`;
+    return this.db.prepare(sql).all({ q: esc }) as any[];
+  }
+
+  /** Enrich an index row from its source table; null = stale/archived, drop it. */
+  private toSearchResult(r: { type: string; ref_id: string; snip: string }): SearchResult | null {
+    if (r.type === 'task') {
+      const t = this.getTask(r.ref_id);
+      if (!t || t.archived_at !== null) return null;
+      return { type: 'task', id: t.id, title: t.title, snippet: r.snip, task_id: t.id, kind: null, status: t.status };
+    }
+    if (r.type === 'doc') {
+      const d = this.getDoc(r.ref_id);
+      if (!d || d.archived_at !== null) return null;
+      return { type: 'doc', id: d.id, title: d.title, snippet: r.snip, task_id: null, kind: d.kind, status: d.status };
+    }
+    const c = this.db.prepare('SELECT * FROM comment WHERE id = ?').get(r.ref_id) as Comment | undefined;
+    if (!c) return null;
+    const t = this.getTask(c.task_id);
+    if (!t || t.archived_at !== null) return null; // comment on an archived task
+    return { type: 'comment', id: c.id, title: t.title, snippet: r.snip, task_id: c.task_id, kind: null, status: null };
   }
 
   // human-in-the-loop -----------------------------------------------------

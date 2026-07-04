@@ -325,6 +325,22 @@ doc.command('archive <id>').action(async (id) => {
 });
 
 program
+  .command('search <query>')
+  .description('board-wide search over tasks, docs, and comments (FTS5)')
+  .option('--type <t>', 'task | doc | comment')
+  .option('--limit <n>', 'max hits (default 20)')
+  .option('--max-tokens <n>', 'token budget (sheds trailing hits)')
+  .option('--full', 'ignore the token budget')
+  .option('--json')
+  .action(async (query, o) => {
+    const q = new URLSearchParams(
+      clean({ q: query, type: o.type, limit: o.limit, max_tokens: o.maxTokens, full: o.full, json: o.json }),
+    );
+    const r = await api(await conn(), 'GET', `/api/search?${q}`);
+    out(o.json ? JSON.stringify(r, null, 2) : r.text);
+  });
+
+program
   .command('docs')
   .description('list board documents, one terse line each')
   .option('--kind <k>', 'design | adr | spike | research | note')

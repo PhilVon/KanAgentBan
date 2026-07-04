@@ -11,6 +11,7 @@ import {
   renderDocList,
   renderList,
   renderNext,
+  renderSearch,
   renderShow,
   renderStats,
   renderTaskStats,
@@ -337,6 +338,20 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     const since = num(req.query.since) ?? 0;
     if (repo.isStale(since)) return res.json(resetBody());
     res.json({ ...repo.inbox(since), floor: repo.floor() });
+  });
+
+  // --- search (board-wide, FTS5 with LIKE fallback) ----------------------
+  app.get('/api/search', (req, res) => {
+    const q = str(req.query.q);
+    if (!q) return res.status(400).json(errBody('validation', 'search needs ?q='));
+    const results = repo.search(q, { type: str(req.query.type), limit: num(req.query.limit) });
+    const text = renderSearch(results, q, {
+      full: req.query.full !== undefined,
+      maxTokens: num(req.query.max_tokens),
+    });
+    if (req.query.json !== undefined)
+      return res.json({ results, fts: repo.ftsEnabled(), text, est_tokens: estimateTokens(text) });
+    res.json({ text });
   });
 
   // --- docs (board-native knowledge — ADR 0007) --------------------------

@@ -270,6 +270,7 @@ Grouped to match [05-cli-reference](05-cli-reference.md). The skill steers to th
 | | `kanban doc update <D-id> [--status S] [--superseded-by D-n]` | lifecycle: draft → accepted → superseded |
 | | `kanban doc link\|unlink <D-id> <T-id>` | attach docs to tasks (many-to-many) |
 | | `kanban docs [--kind K] [--task T-1]` | scan doc titles + summaries |
+| | `kanban search "<q>" [--type task\|doc\|comment]` | find prior work before re-researching |
 | **HITL** | `kanban ask <id> "<q>" [--options a,b] [--expires-at ISO]` | create durable `Q-n` (non-blocking) |
 | | `kanban await <Q-id\|--task <id>\|--any> [--timeout S]` | short gate only (exit `2` = pending, `0` = resolved) |
 | | `kanban answer <Q-id> "<text>"` | CLI answer (testing/automation) |

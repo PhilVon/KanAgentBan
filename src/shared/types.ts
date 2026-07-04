@@ -140,6 +140,21 @@ export interface DocLink {
   task_id: string;
 }
 
+/** One board-wide search hit (tasks, docs, comments). See docs/07 §Search. */
+export interface SearchResult {
+  type: 'task' | 'doc' | 'comment';
+  /** Public id of the hit: T-n / D-n / C-n. */
+  id: string;
+  title: string;
+  /** Matched-text excerpt (FTS5 snippet; whole-text prefix under LIKE fallback). */
+  snippet: string;
+  /** The owning task for comment hits (and the hit itself for task hits). */
+  task_id: string | null;
+  /** Doc kind/status for doc hits. */
+  kind: DocKind | null;
+  status: string | null;
+}
+
 /** Canonical event types — see docs/02-data-model.md §3 and 07-api-reference.md. */
 export type EventType =
   | 'task.created'

@@ -249,6 +249,19 @@ Soft-deletes: the doc drops out of `docs`, task contexts, and the UI.
 One terse line per doc (id, kind/status, title, summary) — never bodies.
 Linked docs also surface in `context <id>` as a `docs (n):` section.
 
+### `kanban search "<query>" [--type task|doc|comment] [--limit N] [--max-tokens N] [--full] [--json]`
+Board-wide FTS5 search over tasks (title/description/summary), docs
+(title/summary/body), and comments — ranked (bm25), one line per hit with a
+matched-text snippet. FTS5 query syntax is allowed; input that isn't valid
+syntax retries as a literal phrase. Archived content never surfaces. On a
+SQLite build without FTS5 the board degrades to substring matching
+(`?json` exposes `fts: false`).
+
+```
+$ kanban search "token exchange" --type task
+T-12 [task/In Progress] "Wire up OAuth callback" — …the token exchange handles…
+```
+
 ---
 
 ## Human-in-the-loop commands
