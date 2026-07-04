@@ -272,4 +272,7 @@ export interface BoardMeta {
   name?: string;
   created_at?: string;
   nudge?: NudgeConfig;
+  /** Auto-archive policy: archive Done tasks untouched for this many days
+   *  (server sweep; `kanban board autoarchive`). Absent/0 = off. */
+  auto_archive_days?: number;
 }

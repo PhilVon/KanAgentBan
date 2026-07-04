@@ -774,13 +774,30 @@ export async function startServer(opts: { root?: string; port?: number } = {}): 
   };
   const detachNudge = attachNudge(repo, nudge, root);
 
+  // Auto-archive policy: config read at call time (env override first, then
+  // board.json) so `kanban board autoarchive` applies at the next sweep with
+  // no server restart. Inert when unset/0.
+  const autoArchiveDays = (): number => {
+    const env = process.env.KANBAN_AUTO_ARCHIVE_DAYS;
+    const v = env !== undefined ? Number(env) : readBoardMeta(paths).auto_archive_days ?? 0;
+    return Number.isFinite(v) && v > 0 ? v : 0;
+  };
+  const autoArchive = () => {
+    const days = autoArchiveDays();
+    if (days > 0) repo.archiveDoneOlderThan(days);
+  };
+
   // Auto-compaction: a low-frequency sweep bounds event-log growth without a
   // COUNT on every mutation. Inert when retention is 0 (docs/11-roadmap §2).
+  // The auto-archive policy rides the same timer (+ one pass at startup, so
+  // short-lived servers still apply it).
   const compactTimer = setInterval(() => {
     const keep = eventRetention();
     if (keep > 0 && repo.eventCount() > keep) repo.compact(keep);
+    autoArchive();
   }, 5 * 60 * 1000);
   compactTimer.unref?.(); // don't keep the process (or tests) alive
+  autoArchive();
 
   // Input-request expiry + stale-claim leases: one low-frequency sweep resolves
   // past-due questions (`input.expired`) and releases past-due claim leases

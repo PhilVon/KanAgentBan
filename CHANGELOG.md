@@ -112,6 +112,10 @@ Unreleased section describing its change.
   server-side transaction, one event per task, all-or-nothing rollback on any
   bad id or guard failure; REST `POST /api/tasks/bulk`; MCP move/archive
   accept comma lists (#28)
+- Auto-archive policy: `kanban board autoarchive --days N` — Done tasks
+  untouched for N days archive on the server sweep (no restart; env override
+  `KANBAN_AUTO_ARCHIVE_DAYS`); bottom-up subtree collapse, `task.archived`
+  flagged `{auto:true}` (actor `system`) (#29)
 
 ### Fixed
 - Repeated `--label`/`--depends` on `kanban add` and `--options` on

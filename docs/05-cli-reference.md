@@ -227,6 +227,16 @@ pointer, not a log — detail belongs in comments or docs.
 ### `kanban done <id>` / `kanban archive <id>`
 `done` moves to Done (recomputes dependents' readiness); `archive` soft-deletes.
 
+### `kanban board autoarchive [--days N | --off]`
+Auto-archive policy: Done tasks untouched for `N` days archive automatically on
+the server sweep (≤5 min lag; also once at server start). Config lives in
+`board.json` (`auto_archive_days`), read at each sweep — no restart needed;
+`KANBAN_AUTO_ARCHIVE_DAYS` overrides at runtime. Policy archives record
+`task.archived` with `{auto: true}` (actor `system`). Subtrees collapse
+bottom-up; a young child keeps its Done parent alive. No flags prints the
+current setting. Keeps list/UI/token costs flat as a board ages — archived
+tasks stay in the DB (soft delete) and in `export`.
+
 **Bulk ids.** `move`, `done`, `archive`, and `label` accept a comma-separated id
 list (`kanban move T-1,T-2,T-3 Ready`) — applied server-side as **one
 transaction, one event per task, all-or-nothing**: a single bad id or guard
