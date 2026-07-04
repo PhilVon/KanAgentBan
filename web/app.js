@@ -763,7 +763,16 @@ async function loadStats() {
   }
 
   const tiles = el('div', 'tiles');
-  tiles.append(tile('done / window', String(s.throughput.total), `${s.throughput.rolling_avg_per_day}/day · ${s.throughput.per_week}/wk`));
+  // Velocity trend: recent half of the window vs the prior half.
+  const tr = s.throughput.trend || { direction: 'flat', delta_pct: null };
+  const trendTxt =
+    tr.direction === 'flat' && tr.delta_pct === null
+      ? ''
+      : ` · ${tr.direction === 'up' ? '↑' : tr.direction === 'down' ? '↓' : '→'}${tr.delta_pct !== null ? ` ${tr.delta_pct > 0 ? '+' : ''}${tr.delta_pct}%` : ''} vs prior half`;
+  const tpTile = tile('done / window', String(s.throughput.total), `${s.throughput.rolling_avg_per_day}/day · ${s.throughput.per_week}/wk${trendTxt}`);
+  if (tr.direction === 'up') tpTile.classList.add('tile-good');
+  else if (tr.direction === 'down') tpTile.classList.add('tile-warn');
+  tiles.append(tpTile);
   tiles.append(tile('lead p50', fmtDur(s.timing_summary.lead_ms.p50), `p90 ${fmtDur(s.timing_summary.lead_ms.p90)} · n=${s.timing_summary.lead_ms.n}`));
   tiles.append(tile('cycle p50', fmtDur(s.timing_summary.cycle_ms.p50), `p90 ${fmtDur(s.timing_summary.cycle_ms.p90)} · n=${s.timing_summary.cycle_ms.n}`));
   tiles.append(tile('flow efficiency', pctVal(s.timing_summary.flow_efficiency.p50), `avg ${pctVal(s.timing_summary.flow_efficiency.avg)} · n=${s.timing_summary.flow_efficiency.n}`));
@@ -822,6 +831,21 @@ async function loadStats() {
   if (s.by_agent.length) {
     const rows = s.by_agent.map((a) => [a.agent_id, String(a.completed), fmtDur(a.cycle.p50), String(a.active_wip)]);
     grid.append(metricCard('By agent', metricTable(['agent', 'done', 'cycle p50', 'wip'], rows)));
+  }
+
+  // Dwell by status — closed-stint time per column; the slowest active-flow
+  // status is flagged as the bottleneck.
+  if (s.dwell && s.dwell.some((d) => d.closed.n > 0)) {
+    const rows = s.dwell
+      .filter((d) => d.closed.n > 0)
+      .map((d) => [
+        (s.bottleneck && s.bottleneck.status === d.status ? '⚠ ' : '') + d.status,
+        fmtDur(d.closed.p50),
+        fmtDur(d.closed.p90),
+        String(d.closed.n),
+      ]);
+    const title = s.bottleneck ? `Dwell by status · bottleneck: ${s.bottleneck.status}` : 'Dwell by status';
+    grid.append(metricCard(title, metricTable(['status', 'p50', 'p90', 'n'], rows)));
   }
 
   if (grid.children.length) body.append(grid);
