@@ -2,6 +2,7 @@
 import * as fs from 'node:fs';
 import { Command } from 'commander';
 import { api, CliError, connect, initBoard } from './board';
+import { normalizeShell, renderCompletion, specFromCommand } from './completion';
 import { renderInbox } from './format';
 import { boardPaths, findBoardRoot, readBoardMeta, writeBoardMeta } from '../shared/board-paths';
 import type { NudgeConfig } from '../shared/types';
@@ -300,6 +301,15 @@ program.command('export').option('--out <file>', 'write JSON to a file instead o
   if (o.out) { fs.writeFileSync(o.out, json); out(`exported ${snap.tasks.length} tasks -> ${o.out}`); }
   else out(json);
 });
+
+program
+  .command('completion <shell>')
+  .description('print a static shell completion script (bash | zsh | pwsh)')
+  .action((shell) => {
+    const s = normalizeShell(shell);
+    if (!s) throw new CliError(`unknown shell '${shell}' — use bash, zsh, or pwsh`, 1);
+    out(renderCompletion(specFromCommand(program), s));
+  });
 
 program.command('open').action(async () => {
   const c = await conn();
