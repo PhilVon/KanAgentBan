@@ -31,7 +31,7 @@ Related: [03-token-efficiency](03-token-efficiency.md) ·
 - **Auto-start:** any command health-checks the server and starts it detached if
   down (`kanban serve`), then proceeds.
 - **Output:** terse plaintext by default. `--json` emits a JSON object.
-  `--format-version <n>` pins the plaintext schema (current: `4`). No ANSI colour
+  `--format-version <n>` pins the plaintext schema (current: `8`). No ANSI colour
   when stdout is not a TTY.
 - **Token control:** read commands accept `--max-tokens N` and never silently
   truncate — they emit an explicit footer (see [03](03-token-efficiency.md)).
@@ -125,10 +125,11 @@ automatically; this command forces it. See [11-roadmap §2](11-roadmap.md).
 ### `kanban stats [id] [--window N] [--max-tokens N] [--full] [--json]`
 Board analytics, or per-task timing when `<id>` is given. Read-only derivation
 over the event log: per-task lead/cycle time and time-per-status; board
-throughput/velocity, WIP & aging, and a burndown series (`--window`, default 14
-days). Honours the token-budget contract and is never-silent about the compaction
-floor (tasks predating it are excluded from timing aggregates).
-See [13-analytics](13-analytics.md).
+throughput/velocity (with a recent-vs-prior-half **trend** annotation), WIP &
+aging, a burndown series (`--window`, default 14 days), and per-status **dwell**
+times with a bottleneck flag. Honours the token-budget contract and is
+never-silent about the compaction floor (tasks predating it are excluded from
+timing aggregates). See [13-analytics](13-analytics.md).
 
 ---
 
