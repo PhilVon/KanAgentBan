@@ -68,6 +68,7 @@ each sequence under the write transaction.
 | `priority` | TEXT | `P0`..`P3` (P0 highest) |
 | `position` | REAL | manual ordering within a column |
 | `assignee` | TEXT NULL | agent identity holding the task (`kanban claim`/`release`, [09 §9](09-concurrency.md)) |
+| `claim_expires_at` | TEXT NULL | claim-lease expiry (`claim --ttl`); null = indefinite; past-due leases auto-release via the server sweep |
 | `parent_id` | TEXT NULL | parent task (`T-n`) when this is a subtask; null at the top level (§6) |
 | `checkpoint` | TEXT NULL | one-slot resume pointer ("did X, next Y, watch Z"); latest wins, renders first in `show`/`context` |
 | `checkpoint_at` | TEXT NULL | when the checkpoint was written |

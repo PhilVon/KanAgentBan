@@ -82,6 +82,11 @@ Unreleased section describing its change.
   flagged on `next`; never shed under token budget; `task.checkpointed` events;
   REST `/api/tasks/:id/checkpoint`, MCP `checkpoint` tool
   (SCHEMA_VERSION 6→7, FORMAT_VERSION 12→13) (#22)
+- Claim leases: `kanban claim --ttl <seconds>` takes an auto-expiring lease;
+  the server sweep (and lazy takeover at claim time) releases past-due leases
+  with `task.released {expired:true}`, so a dead agent never wedges a task;
+  holder re-claim = heartbeat renewal (no event); lease state on `context`'s
+  assignee line (SCHEMA_VERSION 7→8, FORMAT_VERSION 13→14) (#23)
 
 ### Fixed
 - Repeated `--label`/`--depends` on `kanban add` and `--options` on

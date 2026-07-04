@@ -208,8 +208,17 @@ not authenticated — fine for the loopback, single-user model
 ([10-security-lifecycle](10-security-lifecycle.md)); each agent must set a distinct
 `KANBAN_AGENT` (or pass `--as`) or they collide on the default `agent` identity.
 
-> **Still future (v2+):** a crashed agent leaves its task claimed indefinitely;
-> reclaim it with `release --force`. A TTL / heartbeat auto-release is out of scope.
+**Claim leases (TTL).** A bare claim is indefinite — a crashed agent would wedge
+its task until a manual `release --force`. `kanban claim T-1 --ttl 900` instead
+takes a *lease* (`task.claim_expires_at`): the server's low-frequency sweep
+auto-releases any past-due lease (`task.released`, actor `system`, payload
+`{released_from, expired:true}`), and another agent claiming a past-due lease
+takes it over immediately without `--force` (the lazy release is recorded the
+same way — the sweep may simply not have run yet). Re-claiming your own task
+**renews** the lease (or clears it, when called without `--ttl`) in place — a
+heartbeat, deliberately not an event, so a long-running agent renewing every few
+minutes doesn't flood the log. Long-running multi-agent fleets should claim with
+a TTL and heartbeat; `release` still works as the explicit hand-back.
 
 ---
 

@@ -207,13 +207,19 @@ pointer, not a log — detail belongs in comments or docs.
 ### `kanban done <id>` / `kanban archive <id>`
 `done` moves to Done (recomputes dependents' readiness); `archive` soft-deletes.
 
-### `kanban claim <id> [--force]` / `kanban release <id> [--force]`
+### `kanban claim <id> [--force] [--ttl <seconds>]` / `kanban release <id> [--force]`
 Multi-agent coordination ([09 §9](09-concurrency.md)). `claim` sets `assignee` to
 your identity so the task drops out of other agents' `next`; idempotent if you
 already hold it, conflict (exit `4`) if another agent does (use `--force` to steal).
 Claiming a Done/archived task is rejected (exit `1`). `release` returns it to the
 pool (no-op if already free; `--force` releases another agent's claim). Claiming is
 **orthogonal to status** — it does not move the task; pair with `move`.
+
+`--ttl N` takes a **lease** instead of an indefinite claim: past-due, the server
+sweep auto-releases it (`task.released` with `expired:true`) and any agent may
+take it over without `--force` — a dead agent never wedges a task. Re-claiming
+your own task renews the lease (or clears it when called without `--ttl`); this
+heartbeat emits no event. See [09 §9](09-concurrency.md).
 
 ```
 $ KANBAN_AGENT=alice kanban claim T-12

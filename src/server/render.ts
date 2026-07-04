@@ -45,7 +45,9 @@ import {
 // v13: checkpoint — the one-slot resume pointer renders first in `show`/`context`
 //     (right under the task head, above all comments) and is never shed under
 //     budget; `next` flags a waiting checkpoint on its recommendation line.
-export const FORMAT_VERSION = 13;
+// v14: claim leases — `context`'s assignee line carries the lease state
+//     (`lease expires in 42m` / `lease expired`) when a claim has a TTL.
+export const FORMAT_VERSION = 14;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;
@@ -148,6 +150,13 @@ function agentNoteBlock(repo: Repo, id: string, limit: number, full: boolean, cm
   if (!full && total > shown.length)
     block += `\n  [+${total - shown.length} older agent notes — ${cmd} ${id} --full]`;
   return block;
+}
+
+/** ` (lease expires in 42m)` / ` (lease expired)` — empty for indefinite claims. */
+function leaseSuffix(t: Task): string {
+  if (!t.assignee || !t.claim_expires_at) return '';
+  const remaining = new Date(t.claim_expires_at).getTime() - Date.now();
+  return remaining > 0 ? `  (lease expires in ${fmtDur(remaining)})` : '  (lease expired)';
 }
 
 function flags(repo: Repo, t: Task): string {
@@ -328,7 +337,7 @@ function buildContextSections(repo: Repo, id: string, t: Task, fid: Fidelity): s
   const cp = checkpointLine(t);
   if (cp) sections.push(cp);
   if (t.parent_id) sections.push(`parent: ${t.parent_id}`);
-  if (t.assignee) sections.push(`assignee: ${t.assignee}`);
+  if (t.assignee) sections.push(`assignee: ${t.assignee}${leaseSuffix(t)}`);
   if (t.summary) {
     sections.push(
       fid.dropSummary

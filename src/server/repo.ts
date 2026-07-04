@@ -600,25 +600,55 @@ export class Repo {
    * The check-and-set runs inside `mutate()`'s single write transaction, so two
    * agents racing to claim the same task are serialized — exactly one wins.
    * Idempotent when already held by the same agent; `force` steals another's claim.
+   *
+   * With `ttlSeconds` the claim is a *lease*: past-due it is auto-released by the
+   * server sweep ([releaseExpiredClaims]) and may be taken over by any agent
+   * without `force`. Re-claiming your own task refreshes (or, without a ttl,
+   * clears) the lease in place — a heartbeat, not an event.
    */
   claimTask(
     id: string,
     agent: string,
-    opts: { force?: boolean; actor?: ActorType } = {},
+    opts: { force?: boolean; actor?: ActorType; ttlSeconds?: number } = {},
   ): Task {
     const actor = opts.actor ?? 'agent';
+    if (opts.ttlSeconds !== undefined && (!Number.isFinite(opts.ttlSeconds) || opts.ttlSeconds <= 0))
+      throw new ValidationError('claim ttl must be a positive number of seconds');
     return this.mutate((rec) => {
       const t = this.requireTask(id);
       if (t.archived_at !== null) throw new ValidationError(`cannot claim an archived task (${id})`);
       if (t.status === 'Done') throw new ValidationError(`cannot claim a Done task (${id})`);
-      if (t.assignee === agent) return t; // idempotent: already mine, no event
-      if (t.assignee && t.assignee !== agent && !opts.force) {
+      const ts = now();
+      const expiresAt =
+        opts.ttlSeconds !== undefined
+          ? new Date(Date.now() + opts.ttlSeconds * 1000).toISOString()
+          : null;
+      if (t.assignee === agent) {
+        if (t.claim_expires_at === expiresAt) return t; // idempotent: already mine, no event
+        // Heartbeat: refresh (ttl) or clear (no ttl) my own lease — no event spam.
+        this.db
+          .prepare('UPDATE task SET claim_expires_at = ?, version = version + 1, updated_at = ? WHERE id = ?')
+          .run(expiresAt, ts, id);
+        return this.requireTask(id);
+      }
+      const leaseExpired = !!t.assignee && t.claim_expires_at !== null && t.claim_expires_at <= ts;
+      if (t.assignee && !opts.force && !leaseExpired) {
         throw new ConflictError(`${id} already claimed by ${t.assignee}`);
       }
-      const stolenFrom = t.assignee && t.assignee !== agent ? t.assignee : undefined;
+      // A dead lease releases lazily at takeover (the sweep may not have run yet).
+      if (t.assignee && leaseExpired)
+        rec({
+          type: 'task.released',
+          task_id: id,
+          actor_type: 'system',
+          payload: { released_from: t.assignee, expired: true },
+        });
+      const stolenFrom = t.assignee && !leaseExpired ? t.assignee : undefined;
       this.db
-        .prepare('UPDATE task SET assignee = ?, version = version + 1, updated_at = ? WHERE id = ?')
-        .run(agent, now(), id);
+        .prepare(
+          'UPDATE task SET assignee = ?, claim_expires_at = ?, version = version + 1, updated_at = ? WHERE id = ?',
+        )
+        .run(agent, expiresAt, ts, id);
       rec({
         type: 'task.claimed',
         task_id: id,
@@ -626,6 +656,38 @@ export class Repo {
         payload: { assignee: agent, ...(stolenFrom ? { stolen_from: stolenFrom } : {}) },
       });
       return this.requireTask(id);
+    });
+  }
+
+  /**
+   * Sweep: release every claim whose lease is past due (`task.released` with
+   * `expired: true`, actor `system`) so a dead agent never wedges a task.
+   * Called on the server's low-frequency sweep timer; cheap when nothing leases.
+   */
+  releaseExpiredClaims(nowTs: string = now()): { released: number } {
+    const due = this.db
+      .prepare(
+        `SELECT id, assignee FROM task
+          WHERE assignee IS NOT NULL AND claim_expires_at IS NOT NULL
+            AND claim_expires_at <= ? AND archived_at IS NULL`,
+      )
+      .all(nowTs) as { id: string; assignee: string }[];
+    if (!due.length) return { released: 0 };
+    return this.mutate((rec) => {
+      for (const row of due) {
+        this.db
+          .prepare(
+            'UPDATE task SET assignee = NULL, claim_expires_at = NULL, version = version + 1, updated_at = ? WHERE id = ?',
+          )
+          .run(now(), row.id);
+        rec({
+          type: 'task.released',
+          task_id: row.id,
+          actor_type: 'system',
+          payload: { released_from: row.assignee, expired: true },
+        });
+      }
+      return { released: due.length };
     });
   }
 
@@ -646,7 +708,9 @@ export class Repo {
         throw new ConflictError(`${id} claimed by ${t.assignee}, not you (use --force)`);
       }
       this.db
-        .prepare('UPDATE task SET assignee = NULL, version = version + 1, updated_at = ? WHERE id = ?')
+        .prepare(
+          'UPDATE task SET assignee = NULL, claim_expires_at = NULL, version = version + 1, updated_at = ? WHERE id = ?',
+        )
         .run(now(), id);
       rec({
         type: 'task.released',

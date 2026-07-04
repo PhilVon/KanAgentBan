@@ -56,6 +56,10 @@ export interface Task {
   priority: Priority;
   position: number | null;
   assignee: string | null;
+  /** Claim-lease expiry (ISO). Null = indefinite claim. Past-due leases are
+   *  auto-released by the server sweep (`task.released` with `expired: true`)
+   *  so a dead agent never wedges a task. */
+  claim_expires_at: string | null;
   /** Parent task id (`T-n`) when this is a subtask; null at the top level. */
   parent_id: string | null;
   /** Resume pointer — one per task, latest wins ("did X, next Y, watch Z").
