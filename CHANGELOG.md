@@ -42,6 +42,8 @@ Unreleased section describing its change.
 
 - GitHub Actions CI: build + test on ubuntu (node 20/22) and windows
   (node 20) (#9)
+- Per-status dwell/bottleneck + velocity trend in `stats` (FORMAT_VERSION 8)
+  (#11)
 
 ### Fixed
 - Repeated `--label`/`--depends` on `kanban add` and `--options` on
