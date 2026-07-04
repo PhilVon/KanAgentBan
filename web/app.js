@@ -954,6 +954,111 @@ function toggleMetrics() {
 $('#metrics-btn').addEventListener('click', toggleMetrics);
 $('#metrics-close').addEventListener('click', () => $('#metrics-panel').classList.add('hidden'));
 
+// --- activity log -------------------------------------------------------------
+// Newest-first page over /api/ui/activity; live events prepend while the panel is
+// open (the WS frame IS the event — no refetch). `floor` renders a never-silent
+// banner when history is bounded by compaction.
+const activity = { oldest: null };
+
+const truncStr = (s, n = 80) => (s && s.length > n ? s.slice(0, n - 1) + '…' : s || '');
+
+/** One human phrase per EventType; falls back to `type + payload` for anything
+ *  unmapped so future event types render terse instead of vanishing. */
+function fmtEvent(ev) {
+  const p = ev.payload || {};
+  const M = {
+    'task.created': () => `created${p.title ? ` "${truncStr(p.title)}"` : ''}${p.parent_id ? ` (subtask of ${p.parent_id})` : ''}`,
+    'task.updated': () => `updated ${(p.fields || []).join(', ')}`,
+    'task.moved': () => `moved ${p.from} → ${p.to}`,
+    'task.archived': () => 'archived',
+    'task.claimed': () => `claimed by ${p.assignee}${p.stolen_from ? ` (stolen from ${p.stolen_from})` : ''}`,
+    'task.released': () => `released${p.released_from ? ` (was ${p.released_from})` : ''}`,
+    'task.reparented': () => (p.to ? `nested under ${p.to}` : `detached from ${p.from}`),
+    'dep.added': () => `now blocked by ${p.to}`,
+    'dep.removed': () => `no longer blocked by ${p.to}`,
+    'comment.added': () => `comment ${p.id} added`,
+    'criterion.added': () => `criterion ${p.id} added`,
+    'criterion.checked': () => `criterion ${p.id} checked`,
+    'criterion.unchecked': () => `criterion ${p.id} unchecked`,
+    'label.added': () => `label +${p.name}`,
+    'label.removed': () => `label −${p.name}`,
+    'artifact.added': () => `artifact ${p.id} (${p.kind}) attached`,
+    'input.requested': () => `asked ${p.request_id}: ${truncStr(p.question)}`,
+    'input.answered': () => `${p.request_id} answered: ${truncStr(p.answer)}`,
+    'input.cancelled': () => `${p.request_id} cancelled`,
+    'input.expired': () => `${p.request_id} expired`,
+  };
+  const f = M[ev.type];
+  return f ? f() : `${ev.type} ${truncStr(JSON.stringify(p))}`;
+}
+
+function activityRow(ev) {
+  const row = el('div', 'activity-row');
+  const t = new Date(ev.ts);
+  const hhmm = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+  row.append(el('span', 'activity-time', hhmm));
+  row.append(el('span', `activity-actor ${ev.actor_type || ''}`, ev.actor_type || ''));
+  if (ev.task_id) {
+    const link = el('a', 'activity-task', ev.task_id);
+    link.href = '#';
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      openDrawer(ev.task_id);
+    });
+    row.append(link);
+  }
+  row.append(el('span', 'activity-text', fmtEvent(ev)));
+  return row;
+}
+
+function matchesActivityFilter(ev) {
+  const q = $('#activity-filter').value.trim().toLowerCase();
+  return !q || (ev.task_id || '').toLowerCase() === q;
+}
+
+async function loadActivity({ append = false } = {}) {
+  const body = $('#activity-body');
+  const params = new URLSearchParams();
+  const q = $('#activity-filter').value.trim();
+  if (q) params.set('task', q);
+  if (append && activity.oldest !== null) params.set('before', String(activity.oldest));
+  let r;
+  try {
+    r = await api(`/api/ui/activity${params.toString() ? `?${params}` : ''}`);
+  } catch (e) {
+    body.replaceChildren(el('div', 'metrics-banner', `activity failed: ${e.message}`));
+    return;
+  }
+  if (!append) {
+    body.replaceChildren();
+    activity.oldest = null;
+    if (r.floor > 0)
+      body.append(el('div', 'metrics-banner', `history starts at seq ${r.floor + 1} — older events compacted`));
+    body.append(el('div', 'activity-list'));
+    const more = el('button', 'ghost activity-more', 'Load more');
+    more.addEventListener('click', () => loadActivity({ append: true }));
+    body.append(more);
+  }
+  const list = body.querySelector('.activity-list');
+  for (const ev of r.events) list.append(activityRow(ev));
+  if (r.events.length) activity.oldest = r.events[r.events.length - 1].seq;
+  else if (!append) list.append(el('div', 'activity-empty', 'no activity yet'));
+  // Nothing older to page once we get a short page or reach the floor.
+  const more = body.querySelector('.activity-more');
+  if (more) more.disabled = !r.events.length || (activity.oldest !== null && activity.oldest <= r.floor + 1);
+}
+
+function toggleActivity() {
+  const p = $('#activity-panel');
+  p.classList.toggle('hidden');
+  if (!p.classList.contains('hidden')) loadActivity();
+}
+$('#activity-btn').addEventListener('click', toggleActivity);
+$('#activity-close').addEventListener('click', () => $('#activity-panel').classList.add('hidden'));
+$('#activity-filter').addEventListener('input', () => {
+  if (!$('#activity-panel').classList.contains('hidden')) loadActivity();
+});
+
 // --- create task modal ------------------------------------------------------
 (() => {
   const statusSel = $('#ct-status');
@@ -1151,10 +1256,17 @@ function applyEvent(ev) {
   // reset-loop, then reseed from full state.
   if (ev.type === 'reset') {
     lastSeq = Math.max(lastSeq, ev.cursor || ev.floor || 0);
+    if (!$('#activity-panel').classList.contains('hidden')) loadActivity();
     return void refresh();
   }
   if (ev.seq) lastSeq = Math.max(lastSeq, ev.seq);
   if (ev.type === 'input.requested') notify(ev);
+
+  // Live-prepend into the open activity panel — the WS frame IS the event.
+  if (ev.seq && !$('#activity-panel').classList.contains('hidden') && matchesActivityFilter(ev)) {
+    const list = document.querySelector('#activity-panel .activity-list');
+    if (list) list.prepend(activityRow(ev));
+  }
 
   const id = ev.task_id;
   if (ev.type === 'task.archived') return removeCard(id);
