@@ -33,6 +33,14 @@ export type DepType = 'blocks' | 'relates' | 'duplicates';
 export type ArtifactKind = 'link' | 'file' | 'pr' | 'output';
 export type SummarySource = 'human' | 'agent' | 'auto';
 
+export type DocKind = 'design' | 'adr' | 'spike' | 'research' | 'note';
+export const DOC_KINDS: DocKind[] = ['design', 'adr', 'spike', 'research', 'note'];
+
+/** One lifecycle enum for every doc kind: ADRs walk draft→accepted→superseded;
+ *  research/notes default straight to `active` (see docs/02-data-model.md). */
+export type DocStatus = 'draft' | 'active' | 'accepted' | 'rejected' | 'superseded';
+export const DOC_STATUSES: DocStatus[] = ['draft', 'active', 'accepted', 'rejected', 'superseded'];
+
 export interface Task {
   id: string; // T-n
   title: string;
@@ -105,6 +113,33 @@ export interface Label {
   color: string | null;
 }
 
+/**
+ * A board-native knowledge document: design doc, ADR, spike write-up, research
+ * finding, or free note. Unlike artifacts (references only, ADR 0005), a doc's
+ * markdown `body` IS stored on the board — durable, searchable, token-budgeted
+ * (ADR 0007). Linked to tasks many-to-many via `doc_link`.
+ */
+export interface Doc {
+  id: string; // D-n
+  kind: DocKind;
+  title: string;
+  /** Markdown content, capped server-side (see repo.ts MAX_DOC_BODY_BYTES). */
+  body: string | null;
+  /** Short abstract — what list/context tiers render; body needs `doc show`. */
+  summary: string | null;
+  status: DocStatus;
+  /** Doc id (D-n) that replaces this one, when status is `superseded`. */
+  superseded_by: string | null;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+}
+
+export interface DocLink {
+  doc_id: string;
+  task_id: string;
+}
+
 /** Canonical event types — see docs/02-data-model.md §3 and 07-api-reference.md. */
 export type EventType =
   | 'task.created'
@@ -126,7 +161,11 @@ export type EventType =
   | 'input.requested'
   | 'input.answered'
   | 'input.cancelled'
-  | 'input.expired';
+  | 'input.expired'
+  | 'doc.created'
+  | 'doc.updated'
+  | 'doc.linked'
+  | 'doc.unlinked';
 
 export interface BoardEvent {
   seq: number;

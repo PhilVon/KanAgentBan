@@ -12,7 +12,7 @@ import {
   collectMessages,
 } from './helpers';
 import { Repo } from '../src/server/repo';
-import { openDb } from '../src/server/db';
+import { openDb, SCHEMA_VERSION } from '../src/server/db';
 
 /** Append n trivial events by creating n tasks; returns the repo. */
 function withEvents(n: number): Repo {
@@ -204,7 +204,7 @@ describe('compaction: export + migration', () => {
       };
       const events = db.prepare('SELECT COUNT(*) n FROM event').get() as { n: number };
       expect(floor?.value).toBe('0');
-      expect(ver.value).toBe('3');
+      expect(ver.value).toBe(String(SCHEMA_VERSION));
       expect(events.n).toBe(2); // existing events preserved across migration
     } finally {
       db.close();

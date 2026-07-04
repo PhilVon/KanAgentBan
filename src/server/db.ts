@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -93,6 +93,25 @@ CREATE TABLE IF NOT EXISTS task_label (
   PRIMARY KEY (task_id, label_name)
 );
 
+CREATE TABLE IF NOT EXISTS doc (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT,
+  summary TEXT,
+  status TEXT NOT NULL DEFAULT 'draft',
+  superseded_by TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  archived_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS doc_link (
+  doc_id TEXT NOT NULL,
+  task_id TEXT NOT NULL,
+  PRIMARY KEY (doc_id, task_id)
+);
+
 CREATE TABLE IF NOT EXISTS event (
   seq INTEGER PRIMARY KEY,
   ts TEXT NOT NULL,
@@ -109,6 +128,9 @@ CREATE INDEX IF NOT EXISTS idx_dep_from ON dependency(from_task);
 CREATE INDEX IF NOT EXISTS idx_dep_to ON dependency(to_task);
 CREATE INDEX IF NOT EXISTS idx_comment_task ON comment(task_id);
 CREATE INDEX IF NOT EXISTS idx_task_status ON task(status);
+CREATE INDEX IF NOT EXISTS idx_doc_kind ON doc(kind);
+CREATE INDEX IF NOT EXISTS idx_doclink_task ON doc_link(task_id);
+CREATE INDEX IF NOT EXISTS idx_doclink_doc ON doc_link(doc_id);
 `;
 
 export type DB = Database.Database;
@@ -154,6 +176,10 @@ function migrate(db: DB): void {
   if (!db.prepare('SELECT 1 FROM meta WHERE key = ?').get('compaction_floor')) {
     db.prepare('INSERT INTO meta(key, value) VALUES(?, ?)').run('compaction_floor', '0');
   }
+
+  // v3 -> v4: docs (`doc` + `doc_link` + indexes). Purely additive new tables, so
+  // both fresh and existing boards get them from the idempotent CREATEs in
+  // SCHEMA_SQL above — no ALTER needed here, only the version stamp below.
 
   if (current < SCHEMA_VERSION) {
     db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)').run(

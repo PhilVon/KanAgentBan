@@ -54,6 +54,11 @@ Unreleased section describing its change.
   CLI (#16)
 - `kanban watch/changes --follow`: NDJSON streaming over the WebSocket with
   reconnect + never-silent reset passthrough (#17)
+- Board-native docs: `doc` entity (design/adr/spike/research/note, D-n) with
+  markdown bodies stored on the board (ADR 0007; 64 KB cap), many-to-many task
+  links, lifecycle statuses incl. supersession; `kanban doc`/`docs` CLI, REST
+  `/api/docs`, grouped MCP `doc` tool, `context` docs section, web Docs panel
+  (SCHEMA_VERSION 3→4, FORMAT_VERSION 8→9) (#18)
 
 ### Fixed
 - Repeated `--label`/`--depends` on `kanban add` and `--options` on

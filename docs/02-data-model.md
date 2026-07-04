@@ -30,6 +30,7 @@ Related: [03-token-efficiency](03-token-efficiency.md) ·
 | Comment | `C-<n>` | rowid | per-board monotonic |
 | Acceptance criterion | `AC-<n>` | rowid | per-board monotonic |
 | Artifact | `A-<n>` | rowid | per-board monotonic |
+| Doc | `D-<n>` | rowid | per-board monotonic |
 | Label | name (string) | rowid | unique per board |
 | Event | `seq` (integer) | seq | per-board monotonic, gap-free |
 
@@ -142,6 +143,27 @@ items individually via the CLI.
 ### label / task_label
 `label(name, color)` unique per board; `task_label(task_id, label_name)` join.
 
+### doc / doc_link
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | TEXT (`D-n`) | |
+| `kind` | TEXT | `design` \| `adr` \| `spike` \| `research` \| `note` |
+| `title` | TEXT | required |
+| `body` | TEXT | markdown, **content stored on the board** (ADR 0007), capped 64 KB |
+| `summary` | TEXT | short abstract — the only doc text list/context tiers render |
+| `status` | TEXT | `draft` \| `active` \| `accepted` \| `rejected` \| `superseded` |
+| `superseded_by` | TEXT NULL | `D-n` replacing this one; setting it implies `superseded` |
+| `created_at` / `updated_at` / `archived_at` | TEXT | soft-delete like tasks |
+
+Board-native knowledge: design docs, ADRs, spike write-ups, research notes. The
+one deliberate exception to artifact reference-only storage — see
+[ADR 0007](adr/0007-docs-store-content.md) for the guard rails (64 KB write cap,
+budgeted `doc show`, summary-only in every other tier). ADRs/designs/spikes
+default to `draft`; research/notes default to `active`.
+
+`doc_link(doc_id, task_id)` joins docs to tasks **many-to-many** (an ADR governs
+several tasks; a research note informs many). Linking is idempotent.
+
 ### event (the spine)
 | Field | Type | Notes |
 |-------|------|-------|
@@ -171,6 +193,7 @@ criterion.added   criterion.checked criterion.unchecked
 label.added       label.removed
 artifact.added
 input.requested   input.answered    input.cancelled   input.expired
+doc.created       doc.updated       doc.linked        doc.unlinked
 ```
 
 `task.claimed` / `task.released` carry the multi-agent `assignee` change; their
@@ -181,6 +204,11 @@ payloads are `{assignee, stolen_from?}` and `{released_from}` respectively — s
 null) when a task is nested under, or detached from, a parent (§6). A subtask
 created with a parent records its `parent_id` directly in the `task.created`
 payload rather than emitting a separate event.
+
+Doc events carry `doc_id` in the payload. `doc.created` / `doc.updated` are
+board-scoped (`task_id` null); `doc.linked` / `doc.unlinked` set `task_id` to the
+linked task so `watch` and the UI drawer refresh on link changes. Archiving a doc
+records `doc.updated` with `fields: ['archived_at']`.
 
 All three terminal transitions — `input.answered`, `input.cancelled` (the agent
 withdraws a question via `kanban cancel`), and `input.expired` (a server sweep
@@ -313,6 +341,15 @@ CREATE TABLE event (
   seq INTEGER PRIMARY KEY, ts TEXT NOT NULL, type TEXT NOT NULL,
   task_id TEXT, actor_type TEXT NOT NULL, payload TEXT NOT NULL
 );
+CREATE TABLE doc (
+  id TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT NOT NULL,
+  body TEXT, summary TEXT, status TEXT NOT NULL DEFAULT 'draft',
+  superseded_by TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  archived_at TEXT
+);
+CREATE TABLE doc_link (
+  doc_id TEXT NOT NULL, task_id TEXT NOT NULL, PRIMARY KEY (doc_id, task_id)
+);
 -- comment, acceptance_criterion, artifact, label, task_label: analogous.
 
 CREATE INDEX idx_event_seq ON event(seq);
@@ -324,6 +361,8 @@ CREATE INDEX idx_task_parent ON task(parent_id);
 `parent_id` shipped as the first real schema migration (`schema_version` 1 → 2):
 fresh boards get the column from `CREATE TABLE`; existing boards get it via an
 idempotent `ALTER TABLE task ADD COLUMN parent_id` in `openDb`'s migrator.
+`doc` / `doc_link` shipped as v3 → v4 — purely additive tables, so both fresh and
+existing boards get them from the idempotent `CREATE TABLE IF NOT EXISTS` pass.
 
 Single-process server is the **sole writer**; WAL allows the UI's concurrent
 reads. Transaction boundaries and `seq` allocation: see

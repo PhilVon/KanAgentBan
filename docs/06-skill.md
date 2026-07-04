@@ -115,6 +115,15 @@ When the agent picks up a task, the skill steers it through:
 5. **Record artifacts as references, never contents.**
    `kanban artifact T-12 --kind pr --title "auth callback PR" --uri <url>`.
    The board stores the pointer; the contents live where they live.
+6. **Write knowledge worth keeping as a doc, not a comment.** Comments are notes
+   *about one task*; a **doc** is durable knowledge that outlives it (the one
+   place the board stores content — ADR 0007). Rules of thumb: a hard-to-reverse
+   decision → `kanban doc add "…" --kind adr --link T-12`; reusable research
+   findings → `--kind research`; a design that governs several tasks →
+   `--kind design --link T-12,T-13`. Always set `--summary` — that's all the
+   list/context tiers show; the body costs tokens only via `doc show D-n`.
+   Linked docs surface in `context` as a `docs (n):` section — read the summary,
+   pull the body only when you actually need it.
 
 **Subtasks (decomposition).** When a task splits into pieces, nest children under
 it — a single-parent tree, distinct from `blocks` deps: `kanban add "step"
@@ -256,6 +265,11 @@ Grouped to match [05-cli-reference](05-cli-reference.md). The skill steers to th
 | | `kanban label <id> --add\|--rm L` | labels |
 | | `kanban artifact <id> --kind ... --title T --uri U` | record a reference |
 | | `kanban summarize <id> "<summary>"` | manual summary refresh |
+| **Docs** | `kanban doc add "<title>" --kind adr\|design\|spike\|research\|note [--link T-1]` | durable knowledge (ADR, design, research) |
+| | `kanban doc show <D-id> [--full]` | one doc's body (budgeted) |
+| | `kanban doc update <D-id> [--status S] [--superseded-by D-n]` | lifecycle: draft → accepted → superseded |
+| | `kanban doc link\|unlink <D-id> <T-id>` | attach docs to tasks (many-to-many) |
+| | `kanban docs [--kind K] [--task T-1]` | scan doc titles + summaries |
 | **HITL** | `kanban ask <id> "<q>" [--options a,b] [--expires-at ISO]` | create durable `Q-n` (non-blocking) |
 | | `kanban await <Q-id\|--task <id>\|--any> [--timeout S]` | short gate only (exit `2` = pending, `0` = resolved) |
 | | `kanban answer <Q-id> "<text>"` | CLI answer (testing/automation) |
@@ -303,6 +317,17 @@ kanban context T-12     # reload, continue
 ```
 kanban watch T-12 --since 142
 # → only events touching T-12 + its direct deps; returns the new high-water seq
+```
+
+**(e) Record a decision as an ADR linked to the work.**
+```
+kanban doc add "Use Auth0 over Cognito" --kind adr --link T-12 \
+  --summary "Auth0: managed, faster to ship; Cognito revisit at scale" \
+  --body-file decision.md
+# → D-3 [adr/draft]; after the human signs off:
+kanban doc update D-3 --status accepted
+# later, superseded by a new decision:
+kanban doc update D-3 --superseded-by D-9
 ```
 
 ---

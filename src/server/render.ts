@@ -2,7 +2,7 @@ import type { Repo } from './repo';
 import { childProgress, deriveState, remainingBlockerCount } from './derive';
 import { recommend, type BlockedSummary } from './recommend';
 import { LABEL_TOP_N, type BoardStats, type MetricSummary, type TaskTiming, type VelocityTrend } from './stats';
-import { WORKFLOW_STATUSES, type Comment, type Task, type WorkflowStatus } from '../shared/types';
+import { WORKFLOW_STATUSES, type Comment, type Doc, type Task, type WorkflowStatus } from '../shared/types';
 
 // Output format contract — see docs/03-token-efficiency.md §5. Bump on change.
 // v2: `--json` reads carry `est_tokens`; context budgeting degrades gracefully.
@@ -21,7 +21,10 @@ import { WORKFLOW_STATUSES, type Comment, type Task, type WorkflowStatus } from 
 //     under budget); `stats <id>` gains a flow-efficiency line.
 // v8: `stats` gains a per-status dwell line with a bottleneck flag, and the
 //     velocity line carries a trend annotation (recent vs prior half-window).
-export const FORMAT_VERSION = 8;
+// v9: docs tier — `docs` list and `doc show` render board-native documents
+//     (design/adr/spike/research/note); `context` gains a docs section
+//     (titles + summaries only, body via `doc show`). See ADR 0007.
+export const FORMAT_VERSION = 9;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;
@@ -36,6 +39,12 @@ const USER_COMMENT_FLOOR = 2;
  * pathological token-bomb tasks. Opt out with `--full` or `--max-tokens 0`.
  */
 export const DEFAULT_CONTEXT_MAX_TOKENS = 2000;
+
+/**
+ * Default token ceiling for `doc show` — docs store real content (ADR 0007), so
+ * the body renders budgeted by default; opt out with `--full` / `--max-tokens 0`.
+ */
+export const DEFAULT_DOC_MAX_TOKENS = 2000;
 
 /** Token estimate used by both the budgeter and the `--json` meter (chars/4). */
 export function estimateTokens(s: string): number {
@@ -355,11 +364,75 @@ function buildContextSections(repo: Repo, id: string, t: Task, fid: Fidelity): s
         arts.map((a) => `  ${a.kind.padEnd(6)} "${a.title}"  ${a.uri}`).join('\n'),
     );
 
+  // 6.5 linked docs (titles + summaries only — body via `doc show D-n`)
+  const docs = repo.getTaskDocs(id);
+  if (docs.length)
+    sections.push(
+      `docs (${docs.length}):\n` +
+        docs.map((d) => `  ${docLine(d)}`).join('\n') +
+        `\n  (body: kanban doc show <D-id>)`,
+    );
+
   // 7. labels
   const labels = repo.getLabels(id);
   if (labels.length) sections.push(`labels: ${labels.join(', ')}`);
 
   return sections;
+}
+
+/** One terse doc line shared by the list tier and the context docs section. */
+function docLine(d: Doc): string {
+  const sup = d.status === 'superseded' && d.superseded_by ? ` → ${d.superseded_by}` : '';
+  const summary = d.summary ? ` — ${d.summary}` : '';
+  return `${d.id} [${d.kind}/${d.status}${sup}] "${d.title}"${summary}`;
+}
+
+/** `kanban docs` — compact one-line-per-doc list. */
+export function renderDocList(
+  docs: Doc[],
+  opts: { full?: boolean; maxTokens?: number } = {},
+): string {
+  if (!docs.length) return '(no docs)';
+  const rows = docs.map(docLine);
+  return budgetBlocks(rows, opts, '\n', (n) => `[+${n} docs hidden for token budget — kanban docs --full]`);
+}
+
+/**
+ * `kanban doc show D-n` — summary + full markdown body, budgeted by default
+ * (`DEFAULT_DOC_MAX_TOKENS`): the body tail sheds line-by-line with a
+ * never-silent footer. Docs deliberately store content (ADR 0007) — this
+ * budget is the read-side guard rail.
+ */
+export function renderDoc(
+  repo: Repo,
+  id: string,
+  opts: { full?: boolean; maxTokens?: number } = {},
+): string {
+  const d = repo.requireDoc(id);
+  const tasks = repo.getDocTasks(id);
+  const head: string[] = [docLine(d)];
+  if (tasks.length) head.push(`linked tasks: ${tasks.join(', ')}`);
+  head.push(`updated ${rel(d.updated_at)} ago${d.archived_at ? '  [archived]' : ''}`);
+  const header = head.join('\n');
+  if (!d.body) return `${header}\n\n(no body)`;
+
+  const max = opts.full ? 0 : opts.maxTokens === undefined ? DEFAULT_DOC_MAX_TOKENS : opts.maxTokens;
+  if (!max) return `${header}\n\n${d.body}`;
+
+  const bodyLines = d.body.split('\n');
+  let kept = bodyLines.length;
+  const build = () =>
+    `${header}\n\n${bodyLines.slice(0, kept).join('\n')}` +
+    (kept < bodyLines.length
+      ? `\n[body trimmed: ${bodyLines.length - kept} more line(s) — doc show ${id} --full]`
+      : '');
+  let out = build();
+  while (kept > 1 && estimateTokens(out) > max) {
+    // Halve-then-step keeps this O(log n) for token-bomb bodies.
+    kept = estimateTokens(out) > max * 2 ? Math.floor(kept / 2) : kept - 1;
+    out = build();
+  }
+  return out;
 }
 
 /**

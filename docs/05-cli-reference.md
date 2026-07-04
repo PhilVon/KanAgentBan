@@ -212,6 +212,45 @@ error: T-12 already claimed by alice        # exit 4
 
 ---
 
+## Docs commands (board-native knowledge)
+
+Board-native documents — design docs, ADRs, spike write-ups, research notes —
+whose markdown bodies live **on the board** (the deliberate exception to
+reference-only artifacts; guard rails in [ADR 0007](adr/0007-docs-store-content.md)).
+Kinds: `design | adr | spike | research | note`. Statuses: `draft | active |
+accepted | rejected | superseded` (ADRs/designs/spikes start `draft`;
+research/notes start `active`).
+
+### `kanban doc add "<title>" --kind K [--body MD | --body-file PATH] [--summary T] [--status S] [--link T-1,...]`
+Creates a doc, optionally linking tasks in the same call. Bodies over 64 KB are
+rejected (exit `1`) — store big material as a file and attach an artifact instead.
+
+```
+$ kanban doc add "Use FTS5 for search" --kind adr --summary "FTS5 over LIKE" --body-file adr.md --link T-12
+D-3  created [adr/draft]  linked: T-12
+```
+
+### `kanban doc show <D-id> [--max-tokens N] [--full] [--json]`
+Summary + full markdown body. **Budgeted by default** (2000 tokens): the body
+tail sheds with a never-silent `[body trimmed: …]` footer; `--full` renders
+everything. This is the only read tier that ever includes a body.
+
+### `kanban doc update <D-id> [--title T] [--body MD | --body-file PATH] [--summary T] [--status S] [--superseded-by D-n]`
+Edits fields. `--superseded-by` also flips the status to `superseded` unless a
+status is given explicitly. A doc cannot supersede itself.
+
+### `kanban doc link <D-id> <T-id>` / `kanban doc unlink <D-id> <T-id>`
+Many-to-many task links; linking is idempotent (re-link emits no event).
+
+### `kanban doc archive <D-id>`
+Soft-deletes: the doc drops out of `docs`, task contexts, and the UI.
+
+### `kanban docs [--kind K] [--status S] [--task T-1] [--limit N] [--max-tokens N] [--full] [--json]`
+One terse line per doc (id, kind/status, title, summary) — never bodies.
+Linked docs also surface in `context <id>` as a `docs (n):` section.
+
+---
+
 ## Human-in-the-loop commands
 
 ### `kanban ask <id> "<question>" [--options a,b,c] [--freeform] [--expires-at ISO]`

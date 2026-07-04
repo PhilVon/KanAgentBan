@@ -82,7 +82,7 @@ Example MCP client config (`command` + `args`):
 - **stdout is the protocol channel.** All diagnostics go to **stderr** — the
   server never writes to stdout outside JSON-RPC.
 
-## 4. Tool catalogue (~22, curated)
+## 4. Tool catalogue (~23, curated)
 
 Each tool maps to the CLI command / REST endpoint of the same behaviour. Reads
 ride through `?json=1` and append an `[est_tokens: N]` footer; `max_tokens` /
@@ -95,6 +95,10 @@ ride through `?json=1` and append an `[est_tokens: N]` footer; `max_tokens` /
 `move` (Done included), `claim` (`op: claim|release`, `force`), `archive`, `dep`
 (`op: add|remove`), `parent` (`to` / `clear`), `comment`, `criterion`
 (`op: add|check`), `label` (`op: add|remove`), `artifact`.
+
+**Docs:** one grouped `doc` tool (`op: add|show|list|update|link|unlink`) over the
+board-native document surface (design/adr/spike/research/note — ADR 0007);
+`show` is budgeted by default and the only op that returns a body.
 
 **Human-in-the-loop:** `ask`, `await` (bounded; `qid` / `task` / `any`), `cancel`.
 
