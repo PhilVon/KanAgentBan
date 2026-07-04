@@ -475,7 +475,13 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
   ));
   app.delete('/api/tasks/:id/parent', wrap((req, res) => res.json(repo.setParent(req.params.id, null, actor(req)))));
   app.post('/api/tasks/:id/claim', wrap((req, res) =>
-    res.json(repo.claimTask(req.params.id, agentId(req), { force: !!req.body?.force, actor: actor(req) })),
+    res.json(
+      repo.claimTask(req.params.id, agentId(req), {
+        force: !!req.body?.force,
+        ttlSeconds: num(req.body?.ttl),
+        actor: actor(req),
+      }),
+    ),
   ));
   app.post('/api/tasks/:id/release', wrap((req, res) =>
     res.json(repo.releaseTask(req.params.id, agentId(req), { force: !!req.body?.force, actor: actor(req) })),
@@ -720,10 +726,14 @@ export async function startServer(opts: { root?: string; port?: number } = {}): 
   }, 5 * 60 * 1000);
   compactTimer.unref?.(); // don't keep the process (or tests) alive
 
-  // Input-request expiry: a low-frequency sweep resolves any open question whose
-  // `expires_at` has passed (firing `input.expired`). Cheap + inert when nothing
-  // carries a TTL; mirrors the compaction sweep above.
-  const expireTimer = setInterval(() => repo.expireDue(), EXPIRY_SWEEP_MS);
+  // Input-request expiry + stale-claim leases: one low-frequency sweep resolves
+  // past-due questions (`input.expired`) and releases past-due claim leases
+  // (`task.released` with `expired:true`). Cheap + inert when nothing carries a
+  // TTL; mirrors the compaction sweep above.
+  const expireTimer = setInterval(() => {
+    repo.expireDue();
+    repo.releaseExpiredClaims();
+  }, EXPIRY_SWEEP_MS);
   expireTimer.unref?.();
 
   await new Promise<void>((resolve) => server.listen(opts.port ?? 0, '127.0.0.1', resolve));

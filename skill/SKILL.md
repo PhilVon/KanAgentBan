@@ -78,6 +78,8 @@ they do, set a distinct `KANBAN_AGENT` per agent (else they collide on the defau
 `kanban next`; it does **not** change status. `done` needs no release (Done tasks
 never surface in `next`); `kanban release T-12` returns an **unfinished** task you're
 abandoning to the pool, and `kanban next --mine` lists only what you hold.
+In a fleet, prefer `kanban claim T-12 --ttl 900` — a lease the server auto-releases
+past due (re-claim to renew), so your crash never wedges the task for peers.
 
 ## Columns & the workflow lifecycle
 

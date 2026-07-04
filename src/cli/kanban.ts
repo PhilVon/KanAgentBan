@@ -211,10 +211,16 @@ program.command('done <id>').action(async (id) => {
 });
 program.command('archive <id>').action(async (id) => { await api(await conn(), 'POST', `/api/tasks/${id}/archive`); out(`${id} archived`); });
 
-program.command('claim <id>').option('--force', 'steal a claim held by another agent').action(async (id, o) => {
-  const t = await api(await conn(), 'POST', `/api/tasks/${id}/claim`, o.force ? { force: true } : undefined);
-  out(`${t.id} claimed by ${t.assignee}`);
-});
+program.command('claim <id>')
+  .option('--force', 'steal a claim held by another agent')
+  .option('--ttl <s>', 'lease seconds — the sweep auto-releases a past-due claim; re-claim to renew')
+  .action(async (id, o) => {
+    const body: Record<string, unknown> = {};
+    if (o.force) body.force = true;
+    if (o.ttl) body.ttl = Number(o.ttl);
+    const t = await api(await conn(), 'POST', `/api/tasks/${id}/claim`, Object.keys(body).length ? body : undefined);
+    out(`${t.id} claimed by ${t.assignee}${t.claim_expires_at ? `  (lease until ${t.claim_expires_at})` : ''}`);
+  });
 program.command('release <id>').option('--force', 'release a claim held by another agent').action(async (id, o) => {
   const t = await api(await conn(), 'POST', `/api/tasks/${id}/release`, o.force ? { force: true } : undefined);
   out(t.assignee ? `${t.id} still claimed by ${t.assignee}` : `${t.id} released`);

@@ -191,15 +191,19 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'claim',
-    description: 'Claim a task for yourself (or release it with op=release). A claimed task drops out of other agents\' `next`. Use force=true to steal/release a claim held by another agent.',
+    description: 'Claim a task for yourself (or release it with op=release). A claimed task drops out of other agents\' `next`. Use force=true to steal/release a claim held by another agent. Pass ttl (seconds) to hold a lease instead of an indefinite claim — the server auto-releases it past due, so a dead agent never wedges the task; re-claim to renew.',
     inputSchema: {
       id: z.string(),
       op: z.enum(['claim', 'release']).optional().describe('default claim'),
       force: z.boolean().optional(),
+      ttl: z.number().optional().describe('lease seconds (claim only)'),
     },
     run: async (c, a) => {
       const op = a.op ?? 'claim';
-      const t = await api(c, 'POST', `/api/tasks/${a.id}/${op}`, a.force ? { force: true } : undefined);
+      const body: Record<string, unknown> = {};
+      if (a.force) body.force = true;
+      if (op === 'claim' && a.ttl != null) body.ttl = a.ttl;
+      const t = await api(c, 'POST', `/api/tasks/${a.id}/${op}`, Object.keys(body).length ? body : undefined);
       if (op === 'release') return t.assignee ? `${t.id} still claimed by ${t.assignee}` : `${t.id} released`;
       return `${t.id} claimed by ${t.assignee}`;
     },

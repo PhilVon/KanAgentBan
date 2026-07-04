@@ -89,6 +89,13 @@ Both stamp the compaction floor so bounded history is never silent.
 task. `next` hides tasks claimed by *other* agents; `?mine=1` shows only the caller's.
 Both emit `task.claimed` / `task.released` events. See [09 §9](09-concurrency.md).
 
+`POST /api/tasks/:id/claim` also accepts `{ttl: <seconds>}` for a **lease**
+(`claim_expires_at` on the task; non-positive ttl → `400`). A past-due lease is
+released by the server sweep or lazily at the next claim — both record
+`task.released` (actor `system`, `{released_from, expired:true}`) — and taking
+over an expired lease needs no `force`. The holder re-claiming renews/clears the
+lease without an event (heartbeat).
+
 **Subtasks.** `POST /api/tasks` accepts an optional `parent` (parent `T-n`).
 `POST /api/tasks/:id/parent {parent}` nests a task; `DELETE` detaches it; both emit
 `task.reparented` and return the updated task. Self-parenting and cycles return

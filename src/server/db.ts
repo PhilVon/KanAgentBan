@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS task (
   priority TEXT NOT NULL DEFAULT 'P2',
   position REAL,
   assignee TEXT,
+  claim_expires_at TEXT,
   parent_id TEXT REFERENCES task(id),
   checkpoint TEXT,
   checkpoint_at TEXT,
@@ -323,6 +324,11 @@ function migrate(db: DB): void {
     addColumnIfMissing(db, 'task', 'checkpoint', 'TEXT');
     addColumnIfMissing(db, 'task', 'checkpoint_at', 'TEXT');
     addColumnIfMissing(db, 'task', 'checkpoint_by', 'TEXT');
+  }
+
+  // v7 -> v8: claim leases — one nullable expiry column beside `assignee`.
+  if (current > 0 && current < 8) {
+    addColumnIfMissing(db, 'task', 'claim_expires_at', 'TEXT');
   }
 
   if (current < SCHEMA_VERSION) {
