@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -28,6 +28,9 @@ CREATE TABLE IF NOT EXISTS task (
   position REAL,
   assignee TEXT,
   parent_id TEXT REFERENCES task(id),
+  checkpoint TEXT,
+  checkpoint_at TEXT,
+  checkpoint_by TEXT,
   version INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
@@ -312,6 +315,14 @@ function migrate(db: DB): void {
     } catch {
       /* FTS vanished from the build — search simply won't cover ideas */
     }
+  }
+
+  // v6 -> v7: checkpoint resume pointer — three nullable task columns. Fresh DBs
+  // get them from CREATE TABLE; older boards via the idempotent ALTERs.
+  if (current > 0 && current < 7) {
+    addColumnIfMissing(db, 'task', 'checkpoint', 'TEXT');
+    addColumnIfMissing(db, 'task', 'checkpoint_at', 'TEXT');
+    addColumnIfMissing(db, 'task', 'checkpoint_by', 'TEXT');
   }
 
   if (current < SCHEMA_VERSION) {

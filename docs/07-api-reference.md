@@ -107,8 +107,14 @@ is derived, never stored ([02-data-model §5-6](02-data-model.md)).
 | `POST` / `DELETE` | `/api/tasks/:id/labels` | `label --add/--rm` |
 | `POST` | `/api/tasks/:id/artifacts` | `artifact` / `git link` |
 | `POST` | `/api/tasks/:id/summary` | `summarize` |
+| `POST` | `/api/tasks/:id/checkpoint` | `checkpoint` |
 
 `POST /api/tasks/:id/deps` rejects cycles/self/duplicate with `409`/`400`.
+
+`POST /api/tasks/:id/checkpoint` sets the one-slot resume pointer: `{text}` sets
+(latest wins, `X-Agent` recorded as `checkpoint_by`), `{clear:true}` clears; a
+body with neither is `400` — a malformed set never silently clears. Emits
+`task.checkpointed` (`{text}` / `{cleared:true}`). Text over 1000 chars → `400`.
 
 `POST /api/tasks/:id/artifacts` is **idempotent on (task, kind, uri)** — a
 duplicate reference returns the existing artifact with no new event (safe for

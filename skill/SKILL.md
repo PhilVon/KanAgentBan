@@ -58,6 +58,12 @@ kanban artifact T-12 --kind pr --title "auth PR" --uri https://github.com/acme/a
 kanban done T-12
 ```
 
+**Pausing? Set a checkpoint.** Whenever you yield, end a turn mid-task, or park a
+task on an `ask`, write the one-slot resume pointer first:
+`kanban checkpoint T-12 "did X, next Y, watch Z"` (latest wins). It renders
+first in `show`/`context` and is flagged by `next`, so the next session — yours
+or another agent's — resumes from it instead of re-deriving state from notes.
+
 **Git linkage** (all CLI-side; convention: `T-n-slug` branches, `T-n` in commit
 subjects): `kanban git branch T-12 --checkout` starts the conventional branch;
 `kanban git link` records commits/branches mentioning task ids as
@@ -237,7 +243,7 @@ The full surface — nothing here is off-limits. Any read takes `--json` and
 `KANBAN_AGENT`) apply everywhere. Full flag detail: `docs/05-cli-reference.md`.
 
 - Read: `next [--context|--n N|--mine]`, `list [--status|--label|--limit]`, `show <id>`, `context <id>`, `watch <id> --since <seq> [--follow]`, `changes --since <seq> [--follow]` (`--follow` streams NDJSON until Ctrl-C — for humans/scripts, not agent turns), `inbox [--since]`, `compact [--keep N]`
-- Write: `add [--parent T-1|--depends|--label|--ac|--prio|--status]`, `update [--expect-version N]`, `move <id> <col>`, `done`, `archive`, `claim [--force]`, `release [--force]`, `dep add/rm --on <id>`, `parent <id> --to <pid>|--clear`, `comment <id> "…"`, `criterion add/check [--off]`, `label --add/--rm`, `artifact --kind --title --uri`, `summarize`
+- Write: `add [--parent T-1|--depends|--label|--ac|--prio|--status]`, `update [--expect-version N]`, `move <id> <col>`, `done`, `archive`, `claim [--force]`, `release [--force]`, `dep add/rm --on <id>`, `parent <id> --to <pid>|--clear`, `comment <id> "…"`, `criterion add/check [--off]`, `label --add/--rm`, `artifact --kind --title --uri`, `summarize`, `checkpoint <id> "…"|--clear` (resume pointer)
 - Docs: `doc add "<title>" --kind design|adr|spike|research|note [--body|--body-file] [--summary] [--link T-n]`, `doc show <D-n> [--full]`, `doc update <D-n> [--status|--superseded-by D-n]`, `doc link/unlink <D-n> <T-n>`, `doc archive <D-n>`, `docs [--kind|--status|--task]`
 - Search: `search "<query>" [--type task|doc|comment|idea] [--limit N]` — ranked hits with snippets across the whole board
 - Brainstorm: `brainstorm start "<topic>" [--task T-n]`, `brainstorm add <B-n> "<idea>" [--cluster N]`, `brainstorm show/list/close`, `idea score <I-n> <0-10>`, `idea cluster <I-n> <name>`, `idea promote <I-n> [--title|--prio|--parent]`, `idea drop <I-n>`

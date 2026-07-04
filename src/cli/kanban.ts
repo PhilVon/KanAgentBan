@@ -257,6 +257,24 @@ program.command('artifact <id>').requiredOption('--kind <k>').requiredOption('--
 
 program.command('summarize <id> <summary>').action(async (id, summary) => { await api(await conn(), 'POST', `/api/tasks/${id}/summary`, { summary }); out(`${id} summary updated`); });
 
+program
+  .command('checkpoint <id> [text]')
+  .description('set the one-slot resume pointer ("did X, next Y, watch Z") — latest wins')
+  .option('--clear', 'remove the checkpoint')
+  .action(async (id, text, o) => {
+    const c = await conn();
+    if (o.clear) {
+      await api(c, 'POST', `/api/tasks/${id}/checkpoint`, { clear: true });
+      out(`${id} checkpoint cleared`);
+    } else if (text !== undefined) {
+      await api(c, 'POST', `/api/tasks/${id}/checkpoint`, { text });
+      out(`${id} checkpoint set`);
+    } else {
+      const r = await api(c, 'GET', `/api/tasks/${id}?json=1`);
+      out(r.task.checkpoint ?? '(no checkpoint)');
+    }
+  });
+
 // ---- docs (board-native knowledge: design docs / ADRs / research) ---------
 const doc = program.command('doc').description('board-native documents: design | adr | spike | research | note');
 doc
