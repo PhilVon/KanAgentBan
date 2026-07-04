@@ -113,6 +113,19 @@ vs created over the window — no external chart library). It refetches on each
 WebSocket frame while open, and shows a bounded-history banner when
 `partial_history` (some tasks predate the compaction floor).
 
+### Dependency graph panel
+
+A **Graph** toggle in the header opens a hand-rolled inline-SVG view of the
+blocks-DAG backed by `GET /api/ui/graph` ([07](07-api-reference.md)): layered
+longest-path layout (safe — the server rejects dependency cycles) with
+barycenter row ordering, one rounded rect per task colored by status, dashed
+stroke when blocked, bezier edges with arrowheads pointing prerequisite →
+dependent. Only tasks participating in at least one edge are drawn (empty state
+otherwise); clicking a node opens its drawer. The panel re-renders (debounced)
+on dependency/task events while open. A per-task subgraph inside the drawer is
+a possible follow-up — the drawer already lists direct blockers as clickable
+rows.
+
 ---
 
 ## 4. Card detail drawer
