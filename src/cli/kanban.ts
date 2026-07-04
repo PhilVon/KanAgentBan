@@ -257,6 +257,92 @@ program.command('artifact <id>').requiredOption('--kind <k>').requiredOption('--
 
 program.command('summarize <id> <summary>').action(async (id, summary) => { await api(await conn(), 'POST', `/api/tasks/${id}/summary`, { summary }); out(`${id} summary updated`); });
 
+// ---- docs (board-native knowledge: design docs / ADRs / research) ---------
+const doc = program.command('doc').description('board-native documents: design | adr | spike | research | note');
+doc
+  .command('add <title>')
+  .requiredOption('--kind <k>', 'design | adr | spike | research | note')
+  .option('--body <md>', 'markdown body (or --body-file)')
+  .option('--body-file <path>', 'read the markdown body from a file')
+  .option('--summary <t>', 'short abstract (what list/context tiers show)')
+  .option('--status <s>', 'draft | active | accepted | rejected | superseded')
+  .option('--link <id>', 'task to link (repeatable or comma-separated)', collectList)
+  .action(async (title, o) => {
+    if (o.body && o.bodyFile) throw new CliError('use --body or --body-file, not both', 1);
+    const body = o.bodyFile ? fs.readFileSync(o.bodyFile, 'utf8') : o.body;
+    const d = await api(await conn(), 'POST', '/api/docs', {
+      kind: o.kind,
+      title,
+      body,
+      summary: o.summary,
+      status: o.status,
+      links: o.link,
+    });
+    out(`${d.id}  created [${d.kind}/${d.status}]${o.link?.length ? `  linked: ${o.link.join(', ')}` : ''}`);
+  });
+doc
+  .command('show <id>')
+  .option('--max-tokens <n>', 'token budget (sheds the body tail; default 2000)')
+  .option('--full', 'ignore the token budget')
+  .option('--json')
+  .action(async (id, o) => {
+    const q = new URLSearchParams(clean({ max_tokens: o.maxTokens, full: o.full, json: o.json }));
+    const qs = q.toString();
+    const r = await api(await conn(), 'GET', `/api/docs/${id}${qs ? `?${qs}` : ''}`);
+    out(o.json ? JSON.stringify(r, null, 2) : r.text);
+  });
+doc
+  .command('update <id>')
+  .option('--title <t>')
+  .option('--body <md>', 'replace the markdown body (or --body-file)')
+  .option('--body-file <path>')
+  .option('--summary <t>')
+  .option('--status <s>', 'draft | active | accepted | rejected | superseded')
+  .option('--superseded-by <did>', 'doc that replaces this one (also sets status)')
+  .action(async (id, o) => {
+    if (o.body && o.bodyFile) throw new CliError('use --body or --body-file, not both', 1);
+    const body = o.bodyFile ? fs.readFileSync(o.bodyFile, 'utf8') : o.body;
+    const d = await api(await conn(), 'PATCH', `/api/docs/${id}`, clean({
+      title: o.title,
+      body,
+      summary: o.summary,
+      status: o.status,
+      superseded_by: o.supersededBy,
+    }));
+    out(`${d.id}  updated [${d.kind}/${d.status}]`);
+  });
+doc.command('link <id> <task>').action(async (id, task) => {
+  await api(await conn(), 'POST', `/api/docs/${id}/links`, { task });
+  out(`${id} linked to ${task}`);
+});
+doc.command('unlink <id> <task>').action(async (id, task) => {
+  await api(await conn(), 'DELETE', `/api/docs/${id}/links?task=${task}`);
+  out(`${id} unlinked from ${task}`);
+});
+doc.command('archive <id>').action(async (id) => {
+  await api(await conn(), 'POST', `/api/docs/${id}/archive`);
+  out(`${id} archived`);
+});
+
+program
+  .command('docs')
+  .description('list board documents, one terse line each')
+  .option('--kind <k>', 'design | adr | spike | research | note')
+  .option('--status <s>')
+  .option('--task <id>', 'only docs linked to this task')
+  .option('--limit <n>')
+  .option('--max-tokens <n>', 'token budget (sheds trailing rows)')
+  .option('--full', 'ignore the token budget')
+  .option('--json')
+  .action(async (o) => {
+    const q = new URLSearchParams(
+      clean({ kind: o.kind, status: o.status, task: o.task, limit: o.limit, max_tokens: o.maxTokens, full: o.full, json: o.json }),
+    );
+    const qs = q.toString();
+    const r = await api(await conn(), 'GET', `/api/docs${qs ? `?${qs}` : ''}`);
+    out(o.json ? JSON.stringify(r, null, 2) : r.text);
+  });
+
 // ---- human-in-the-loop ---------------------------------------------------
 program.command('ask <id> <question>').option('--options <o>', 'answer option (repeatable or comma-separated)', collectList).option('--freeform').option('--expires-at <iso>')
   .action(async (id, question, o) => {

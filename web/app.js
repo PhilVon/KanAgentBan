@@ -604,6 +604,23 @@ function renderDrawer(d) {
       body.append(row);
     }
   }
+
+  if (d.docs?.length) {
+    body.append(el('h4', '', 'Docs'));
+    for (const doc of d.docs) {
+      const row = el('div', 'artifact');
+      row.append(el('span', 'kind', `${doc.kind}/${doc.status}`));
+      const link = el('a', '', `${doc.id} ${doc.title}`);
+      link.href = '#';
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        $('#drawer-close').onclick();
+        openDocsPanel(doc.id);
+      });
+      row.append(link);
+      body.append(row);
+    }
+  }
 }
 
 // A labelled "[input] [+ button]" row that submits `value` via `submit(value)`,
@@ -1155,6 +1172,10 @@ function fmtEvent(ev) {
     'input.answered': () => `${p.request_id} answered: ${truncStr(p.answer)}`,
     'input.cancelled': () => `${p.request_id} cancelled`,
     'input.expired': () => `${p.request_id} expired`,
+    'doc.created': () => `doc ${p.doc_id} (${p.kind}) created${p.title ? ` "${truncStr(p.title)}"` : ''}`,
+    'doc.updated': () => `doc ${p.doc_id} updated ${(p.fields || []).join(', ')}`,
+    'doc.linked': () => `doc ${p.doc_id} linked`,
+    'doc.unlinked': () => `doc ${p.doc_id} unlinked`,
   };
   const f = M[ev.type];
   return f ? f() : `${ev.type} ${truncStr(JSON.stringify(p))}`;
@@ -1225,6 +1246,106 @@ $('#activity-btn').addEventListener('click', toggleActivity);
 $('#activity-close').addEventListener('click', () => $('#activity-panel').classList.add('hidden'));
 $('#activity-filter').addEventListener('input', () => {
   if (!$('#activity-panel').classList.contains('hidden')) loadActivity();
+});
+
+// --- docs panel ---------------------------------------------------------------
+// List over /api/ui/docs (no bodies); clicking a row loads the body from
+// GET /api/docs/:id?json and renders it as preformatted markdown text. doc.*
+// WS events refresh the list while the panel is open.
+async function loadDocs() {
+  const body = $('#docs-body');
+  let r;
+  try {
+    r = await api('/api/ui/docs');
+  } catch (e) {
+    body.replaceChildren(el('div', 'metrics-banner', `docs failed: ${e.message}`));
+    return;
+  }
+  body.replaceChildren();
+  const q = $('#docs-filter').value.trim().toLowerCase();
+  const docs = q ? r.docs.filter((d) => d.kind === q || d.status === q || d.id.toLowerCase() === q) : r.docs;
+  if (!docs.length) {
+    body.append(el('div', 'activity-empty', q ? 'no docs match' : 'no docs yet'));
+    return;
+  }
+  const list = el('div', 'activity-list');
+  for (const d of docs) list.append(docRow(d));
+  body.append(list);
+}
+
+function docRow(d) {
+  const row = el('div', 'activity-row doc-row');
+  row.append(el('span', 'doc-kind', `${d.kind}/${d.status}`));
+  const link = el('a', 'activity-task', d.id);
+  link.href = '#';
+  link.addEventListener('click', (e) => {
+    e.preventDefault();
+    viewDoc(d.id);
+  });
+  row.append(link);
+  const text = el('span', 'activity-text', d.title + (d.summary ? ` — ${d.summary}` : ''));
+  row.append(text);
+  for (const t of d.tasks || []) {
+    const task = el('a', 'activity-task', t);
+    task.href = '#';
+    task.addEventListener('click', (e) => {
+      e.preventDefault();
+      openDrawer(t);
+    });
+    row.append(task);
+  }
+  return row;
+}
+
+async function viewDoc(id) {
+  const body = $('#docs-body');
+  let d;
+  try {
+    d = await api(`/api/docs/${id}?json=1`);
+  } catch (e) {
+    body.replaceChildren(el('div', 'metrics-banner', `doc failed: ${e.message}`));
+    return;
+  }
+  body.replaceChildren();
+  const back = el('button', 'ghost', '← All docs');
+  back.addEventListener('click', loadDocs);
+  body.append(back);
+  const head = el('div', 'doc-head');
+  head.append(el('span', 'doc-kind', `${d.kind}/${d.status}`));
+  head.append(el('strong', '', ` ${d.id} ${d.title}`));
+  body.append(head);
+  if (d.summary) body.append(el('p', 'doc-summary', d.summary));
+  if (d.tasks?.length) {
+    const links = el('div', 'doc-tasks');
+    links.append(el('span', '', 'linked: '));
+    for (const t of d.tasks) {
+      const a = el('a', 'activity-task', t);
+      a.href = '#';
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        openDrawer(t);
+      });
+      links.append(a);
+    }
+    body.append(links);
+  }
+  body.append(el('pre', 'doc-body', d.body || '(no body)'));
+}
+
+function openDocsPanel(docId) {
+  $('#docs-panel').classList.remove('hidden');
+  if (docId) viewDoc(docId);
+  else loadDocs();
+}
+function toggleDocs() {
+  const p = $('#docs-panel');
+  p.classList.toggle('hidden');
+  if (!p.classList.contains('hidden')) loadDocs();
+}
+$('#docs-btn').addEventListener('click', toggleDocs);
+$('#docs-close').addEventListener('click', () => $('#docs-panel').classList.add('hidden'));
+$('#docs-filter').addEventListener('input', () => {
+  if (!$('#docs-panel').classList.contains('hidden')) loadDocs();
 });
 
 // --- create task modal ------------------------------------------------------
@@ -1435,6 +1556,9 @@ function applyEvent(ev) {
     const list = document.querySelector('#activity-panel .activity-list');
     if (list) list.prepend(activityRow(ev));
   }
+
+  // Docs panel stays current while open; a doc list is cheap to re-pull.
+  if (ev.type.startsWith('doc.') && !$('#docs-panel').classList.contains('hidden')) loadDocs();
 
   const id = ev.task_id;
   if (ev.type === 'task.archived') return removeCard(id);

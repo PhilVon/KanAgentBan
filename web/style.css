@@ -509,6 +509,16 @@ textarea.edit-field { font: inherit; resize: vertical; }
 .activity-empty { color: var(--muted); padding: 0.4rem 0; }
 .activity-more { margin-top: 0.6rem; }
 
+/* --- docs panel --- */
+#docs-panel .metrics-head .filter { max-width: 14rem; margin-left: auto; }
+#docs-panel .metrics-head .ghost { margin-left: 0; }
+.doc-kind { color: var(--muted); font-size: 0.78rem; flex: 0 0 auto; border: 1px solid var(--line); border-radius: 4px; padding: 0 0.3rem; }
+.doc-head { margin: 0.6rem 0 0.2rem; display: flex; align-items: baseline; gap: 0.5rem; }
+.doc-summary { color: var(--muted); margin: 0.2rem 0; }
+.doc-tasks { display: flex; gap: 0.5rem; margin: 0.2rem 0; color: var(--muted); }
+.doc-body { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg, rgba(0, 0, 0, 0.15)); border: 1px solid var(--line); border-radius: 6px; padding: 0.7rem; margin-top: 0.5rem; font-size: 0.85rem; max-height: 60vh; overflow: auto; }
+.doc-row .activity-text { white-space: normal; }
+
 /* --- dependency graph panel --- */
 #graph-body { overflow: auto; }
 svg.dep-graph { display: block; max-width: 100%; }

@@ -4,11 +4,12 @@ import {
   nextArtifactId,
   nextCommentId,
   nextCriterionId,
+  nextDocId,
   nextRequestId,
   nextSeq,
   nextTaskId,
 } from './ids';
-import { WORKFLOW_STATUSES } from '../shared/types';
+import { DOC_KINDS, DOC_STATUSES, WORKFLOW_STATUSES } from '../shared/types';
 import type {
   AcceptanceCriterion,
   Artifact,
@@ -16,6 +17,9 @@ import type {
   BoardEvent,
   Comment,
   Dependency,
+  Doc,
+  DocKind,
+  DocStatus,
   EventType,
   InputRequest,
   Priority,
@@ -24,6 +28,11 @@ import type {
 } from '../shared/types';
 
 const now = () => new Date().toISOString();
+
+/** Ceiling on a doc's markdown body. Docs deliberately store content on the
+ *  board (ADR 0007) — the cap keeps a single doc from becoming a token bomb
+ *  and stays well inside the server's 1 MB JSON body limit. */
+export const MAX_DOC_BODY_BYTES = 64 * 1024;
 
 /** Append a comment-author filter to a WHERE clause, pushing any bound param. */
 function commentAuthorClause(author: ActorType | 'non-user' | undefined, params: any[]): string {
@@ -396,6 +405,9 @@ export class Repo {
       tasks,
       dependencies: this.getDependencies(),
       input_requests: this.getAllRequests(),
+      docs: (this.db.prepare('SELECT * FROM doc ORDER BY created_at ASC').all() as Doc[]).map(
+        (d) => ({ ...d, tasks: this.getDocTasks(d.id) }),
+      ),
       events: this.changes(0),
     };
   }
@@ -827,6 +839,180 @@ export class Repo {
     this.mutate((rec) => {
       this.db.prepare('DELETE FROM task_label WHERE task_id=? AND label_name=?').run(taskId, name);
       rec({ type: 'label.removed', task_id: taskId, actor_type: actor, payload: { name } });
+    });
+  }
+
+  // docs (board-native knowledge: design docs / ADRs / research — ADR 0007) --
+
+  getDoc(id: string): Doc | undefined {
+    return this.db.prepare('SELECT * FROM doc WHERE id = ?').get(id) as Doc | undefined;
+  }
+
+  requireDoc(id: string): Doc {
+    const d = this.getDoc(id);
+    if (!d) throw new NotFoundError(`doc ${id} not found`);
+    return d;
+  }
+
+  listDocs(opts: { kind?: string; status?: string; task?: string; limit?: number } = {}): Doc[] {
+    const where: string[] = ['d.archived_at IS NULL'];
+    const params: any[] = [];
+    let sql = 'SELECT d.* FROM doc d';
+    if (opts.task) {
+      sql += ' JOIN doc_link dl ON dl.doc_id = d.id AND dl.task_id = ?';
+      params.push(opts.task);
+    }
+    if (opts.kind) {
+      where.push('d.kind = ?');
+      params.push(opts.kind);
+    }
+    if (opts.status) {
+      where.push('d.status = ?');
+      params.push(opts.status);
+    }
+    sql += ` WHERE ${where.join(' AND ')} ORDER BY d.updated_at DESC`;
+    if (opts.limit && opts.limit > 0) sql += ` LIMIT ${opts.limit | 0}`;
+    return this.db.prepare(sql).all(...params) as Doc[];
+  }
+
+  /** Non-archived docs linked to a task, newest-updated first. */
+  getTaskDocs(taskId: string): Doc[] {
+    return this.db
+      .prepare(
+        `SELECT d.* FROM doc_link dl JOIN doc d ON d.id = dl.doc_id
+          WHERE dl.task_id = ? AND d.archived_at IS NULL ORDER BY d.updated_at DESC`,
+      )
+      .all(taskId) as Doc[];
+  }
+
+  /** Task ids a doc is linked to (live tasks only). */
+  getDocTasks(docId: string): string[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT dl.task_id FROM doc_link dl JOIN task t ON t.id = dl.task_id
+            WHERE dl.doc_id = ? AND t.archived_at IS NULL ORDER BY dl.task_id`,
+        )
+        .all(docId) as { task_id: string }[]
+    ).map((r) => r.task_id);
+  }
+
+  private assertDocKind(kind: string): asserts kind is DocKind {
+    if (!(DOC_KINDS as readonly string[]).includes(kind))
+      throw new ValidationError(`invalid doc kind "${kind}"; valid: ${DOC_KINDS.join(', ')}`);
+  }
+
+  private assertDocBody(body: string | undefined | null): void {
+    if (body && Buffer.byteLength(body, 'utf8') > MAX_DOC_BODY_BYTES)
+      throw new ValidationError(
+        `doc body exceeds ${MAX_DOC_BODY_BYTES / 1024} KB — split it or store it as a file and attach an artifact reference instead`,
+      );
+  }
+
+  createDoc(input: {
+    kind: string;
+    title: string;
+    body?: string;
+    summary?: string;
+    status?: string;
+    links?: string[];
+    actor?: ActorType;
+  }): Doc {
+    const actor = input.actor ?? 'agent';
+    this.assertDocKind(input.kind);
+    this.assertDocBody(input.body);
+    if (input.status !== undefined && !(DOC_STATUSES as readonly string[]).includes(input.status))
+      throw new ValidationError(`invalid doc status "${input.status}"; valid: ${DOC_STATUSES.join(', ')}`);
+    return this.mutate((rec) => {
+      const id = nextDocId(this.db);
+      const ts = now();
+      // ADRs/designs/spikes start as drafts; research/notes are immediately live.
+      const status =
+        input.status ?? (input.kind === 'research' || input.kind === 'note' ? 'active' : 'draft');
+      this.db
+        .prepare(
+          `INSERT INTO doc(id,kind,title,body,summary,status,created_at,updated_at)
+           VALUES(?,?,?,?,?,?,?,?)`,
+        )
+        .run(id, input.kind, input.title, input.body ?? null, input.summary ?? null, status, ts, ts);
+      rec({
+        type: 'doc.created',
+        task_id: null,
+        actor_type: actor,
+        payload: { doc_id: id, kind: input.kind, title: input.title },
+      });
+      for (const taskId of input.links ?? []) this.linkDocTx(rec, id, taskId, actor);
+      return this.requireDoc(id);
+    });
+  }
+
+  updateDoc(
+    id: string,
+    fields: Partial<Pick<Doc, 'title' | 'body' | 'summary' | 'status' | 'superseded_by'>>,
+    actor: ActorType = 'agent',
+  ): Doc {
+    this.assertDocBody(fields.body);
+    if (fields.status !== undefined && !(DOC_STATUSES as readonly string[]).includes(fields.status))
+      throw new ValidationError(`invalid doc status "${fields.status}"; valid: ${DOC_STATUSES.join(', ')}`);
+    return this.mutate((rec) => {
+      this.requireDoc(id);
+      if (fields.superseded_by !== undefined && fields.superseded_by !== null) {
+        if (fields.superseded_by === id) throw new ValidationError('a doc cannot supersede itself');
+        this.requireDoc(fields.superseded_by);
+      }
+      const sets: string[] = ['updated_at = @ts'];
+      const params: any = { id, ts: now() };
+      for (const key of ['title', 'body', 'summary', 'status', 'superseded_by'] as const) {
+        if (fields[key] !== undefined) {
+          sets.push(`${key} = @${key}`);
+          params[key] = fields[key];
+        }
+      }
+      // Marking a doc superseded (either way in) keeps both fields coherent.
+      if (fields.superseded_by && fields.status === undefined) {
+        sets.push(`status = 'superseded'`);
+      }
+      this.db.prepare(`UPDATE doc SET ${sets.join(', ')} WHERE id = @id`).run(params);
+      rec({
+        type: 'doc.updated',
+        task_id: null,
+        actor_type: actor,
+        payload: { doc_id: id, fields: Object.keys(fields), ...(fields.status ? { status: fields.status } : {}) },
+      });
+      return this.requireDoc(id);
+    });
+  }
+
+  archiveDoc(id: string, actor: ActorType = 'agent'): void {
+    this.mutate((rec) => {
+      this.requireDoc(id);
+      this.db.prepare('UPDATE doc SET archived_at = ?, updated_at = ? WHERE id = ?').run(now(), now(), id);
+      rec({ type: 'doc.updated', task_id: null, actor_type: actor, payload: { doc_id: id, fields: ['archived_at'] } });
+    });
+  }
+
+  private linkDocTx(rec: any, docId: string, taskId: string, actor: ActorType) {
+    this.requireDoc(docId);
+    this.requireTask(taskId);
+    // Idempotent: re-linking is a no-op with no duplicate event.
+    const info = this.db
+      .prepare('INSERT OR IGNORE INTO doc_link(doc_id, task_id) VALUES(?, ?)')
+      .run(docId, taskId);
+    if (info.changes > 0)
+      rec({ type: 'doc.linked', task_id: taskId, actor_type: actor, payload: { doc_id: docId } });
+  }
+
+  linkDoc(docId: string, taskId: string, actor: ActorType = 'agent'): void {
+    this.mutate((rec) => this.linkDocTx(rec, docId, taskId, actor));
+  }
+
+  unlinkDoc(docId: string, taskId: string, actor: ActorType = 'agent'): void {
+    this.mutate((rec) => {
+      const info = this.db
+        .prepare('DELETE FROM doc_link WHERE doc_id = ? AND task_id = ?')
+        .run(docId, taskId);
+      if (info.changes > 0)
+        rec({ type: 'doc.unlinked', task_id: taskId, actor_type: actor, payload: { doc_id: docId } });
     });
   }
 

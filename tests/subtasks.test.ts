@@ -7,7 +7,7 @@ import { Repo, ValidationError, NotFoundError } from '../src/server/repo';
 import { blockedByChildren, childProgress, deriveState } from '../src/server/derive';
 import { recommend } from '../src/server/recommend';
 import { renderContext, renderList, renderShow } from '../src/server/render';
-import { openDb } from '../src/server/db';
+import { openDb, SCHEMA_VERSION } from '../src/server/db';
 
 describe('subtasks: repo parent/child', () => {
   it('creates a child with parent_id and records it on the event', () => {
@@ -196,8 +196,8 @@ describe('subtasks: schema migration v1 -> v2', () => {
     expect(cols).toContain('parent_id');
     const idx = db.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_task_parent'`).get();
     expect(idx).toBeTruthy();
-    // migrate() carries an old board all the way to the current SCHEMA_VERSION (now 3).
-    expect(db.prepare('SELECT value FROM meta WHERE key=?').get('schema_version')).toEqual({ value: '3' });
+    // migrate() carries an old board all the way to the current SCHEMA_VERSION.
+    expect(db.prepare('SELECT value FROM meta WHERE key=?').get('schema_version')).toEqual({ value: String(SCHEMA_VERSION) });
     // v2 -> v3 also seeds the compaction floor on the upgraded board.
     expect(db.prepare('SELECT value FROM meta WHERE key=?').get('compaction_floor')).toEqual({ value: '0' });
     // Existing row intact, new column defaults to NULL, and the repo can use it.

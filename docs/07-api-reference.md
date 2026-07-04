@@ -110,6 +110,21 @@ is derived, never stored ([02-data-model §5-6](02-data-model.md)).
 
 `POST /api/tasks/:id/deps` rejects cycles/self/duplicate with `409`/`400`.
 
+## Docs (board-native knowledge — ADR 0007)
+
+| Method | Path | CLI | Notes |
+|--------|------|-----|-------|
+| `GET` | `/api/docs?kind=&status=&task=&limit=` | `docs` | one-line rows; `?json` rows **never carry bodies** |
+| `POST` | `/api/docs` | `doc add` | `{kind, title, body?, summary?, status?, links?}`; body > 64 KB → `400` |
+| `GET` | `/api/docs/:id` | `doc show` | text is budgeted by default (2000); `?json` carries `body` + linked `tasks` |
+| `PATCH` | `/api/docs/:id` | `doc update` | `superseded_by` implies `status: superseded` |
+| `POST` | `/api/docs/:id/archive` | `doc archive` | soft-delete |
+| `POST` / `DELETE` | `/api/docs/:id/links` | `doc link` / `unlink` | `{task}` / `?task=`; idempotent |
+| `GET` | `/api/ui/docs` | — | panel list: rows (no bodies) + linked task ids |
+
+Task detail (`GET /api/ui/tasks/:id`, `context ?json`) includes a `docs` array of
+linked docs **without bodies** — a body loads only via `GET /api/docs/:id`.
+
 ## Human-in-the-loop
 
 | Method | Path | CLI | Notes |

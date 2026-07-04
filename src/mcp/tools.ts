@@ -301,6 +301,61 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  // ---- docs (board-native knowledge — ADR 0007) ---------------------------
+  {
+    name: 'doc',
+    description:
+      'Board-native documents (design docs, ADRs, spike write-ups, research notes) with markdown bodies stored on the board — durable and linked to tasks. op=add creates (kind + title, optional body/summary/links); op=show renders one doc (body budgeted — pass full=true for everything); op=list scans titles (filter by kind/status/task); op=update edits fields incl. status (draft|active|accepted|rejected|superseded) and superseded_by; op=link/unlink manages task links. Write an ADR for hard-to-reverse decisions; a research note for reusable findings.',
+    inputSchema: {
+      op: z.enum(['add', 'show', 'list', 'update', 'link', 'unlink']),
+      id: z.string().optional().describe('doc id, e.g. D-3 (for show/update/link/unlink)'),
+      kind: z.enum(['design', 'adr', 'spike', 'research', 'note']).optional().describe('for op=add (required) or op=list (filter)'),
+      title: z.string().optional().describe('for op=add (required) or op=update'),
+      body: z.string().optional().describe('markdown body (add/update); capped at 64 KB'),
+      summary: z.string().optional().describe('short abstract — what list/context tiers show'),
+      status: z.string().optional().describe('draft | active | accepted | rejected | superseded'),
+      superseded_by: z.string().optional().describe('doc id replacing this one (op=update; also sets status)'),
+      task: z.string().optional().describe('task id (link/unlink target, or list filter)'),
+      links: z.array(z.string()).optional().describe('task ids to link at creation (op=add)'),
+      max_tokens: z.number().int().positive().optional().describe('token budget for op=show (default 2000)'),
+      full: z.boolean().optional().describe('op=show: ignore the token budget'),
+    },
+    run: async (c, a) => {
+      switch (a.op) {
+        case 'add': {
+          if (!a.kind || !a.title) throw new CliError('doc add needs kind and title', 1);
+          const d = await api(c, 'POST', '/api/docs', {
+            kind: a.kind, title: a.title, body: a.body, summary: a.summary, status: a.status, links: a.links,
+          });
+          return `${d.id} created [${d.kind}/${d.status}]`;
+        }
+        case 'show': {
+          if (!a.id) throw new CliError('doc show needs id', 1);
+          const r = await api(c, 'GET', `/api/docs/${a.id}${qs({ max_tokens: a.max_tokens, full: a.full })}`);
+          return r.text;
+        }
+        case 'list': {
+          const r = await api(c, 'GET', `/api/docs${qs({ kind: a.kind, status: a.status, task: a.task, max_tokens: a.max_tokens, full: a.full })}`);
+          return r.text;
+        }
+        case 'update': {
+          if (!a.id) throw new CliError('doc update needs id', 1);
+          const d = await api(c, 'PATCH', `/api/docs/${a.id}`, {
+            title: a.title, body: a.body, summary: a.summary, status: a.status, superseded_by: a.superseded_by,
+          });
+          return `${d.id} updated [${d.kind}/${d.status}]`;
+        }
+        case 'link':
+        case 'unlink': {
+          if (!a.id || !a.task) throw new CliError(`doc ${a.op} needs id and task`, 1);
+          if (a.op === 'link') await api(c, 'POST', `/api/docs/${a.id}/links`, { task: a.task });
+          else await api(c, 'DELETE', `/api/docs/${a.id}/links?task=${a.task}`);
+          return `${a.id} ${a.op}ed ${a.op === 'link' ? 'to' : 'from'} ${a.task}`;
+        }
+      }
+    },
+  },
+
   // ---- human-in-the-loop (durable async; never block) ---------------------
   {
     name: 'ask',

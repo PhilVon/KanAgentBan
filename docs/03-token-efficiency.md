@@ -47,6 +47,8 @@ next --context → that task + full working set (ONE call — cold start)
 list         → compact one-line-per-task
 show <id>    → medium: summary + counts + user comments + recent agent notes
 context <id> → full curated working set (the flagship payload)
+docs         → compact one-line-per-doc (id, kind/status, title, summary)
+doc show D-n → one doc's markdown body (budgeted by default — ADR 0007)
 ```
 
 Each tier is a strict superset of detail. The agent climbs only as far as it needs.
@@ -68,6 +70,8 @@ needs first:
    directives, shed last) then **agent notes** (shed first), newest first,
    author-tagged
 6. **Artifacts** — title + URI only (**never inline contents**)
+6.5. **Docs** — linked docs as id + kind/status + title + summary only; a body
+   renders solely via `doc show D-n` (itself budgeted — ADR 0007)
 7. **Labels**
 
 ### Sample output (plaintext)
@@ -151,7 +155,7 @@ The trailing bracketed lines are **truncation footers** — see §4.
 - Terse plaintext default; `--json` opt-in for machine parsing.
 - Stable field order, stable section headers, no decorative noise.
 - No ANSI colour when stdout is not a TTY.
-- Versioned: `--format-version` (current `8`); changes bump the version so a
+- Versioned: `--format-version` (current `9`); changes bump the version so a
   pinned agent/skill never silently breaks. **v2** added the `est_tokens` field to
   `--json` reads and the context-tier graceful-degradation truncation footers (§4);
   **v3** extended `--max-tokens` budgeting (and its never-silent footers) to the
@@ -161,7 +165,8 @@ The trailing bracketed lines are **truncation footers** — see §4.
   shed-first **agent notes**, flagged a waiting user comment in `next`, and marked
   user-commented tasks `💬n*` in `list`; **v7** expanded `stats` with flow health,
   breakdowns, forecast, and CFD; **v8** added the `stats` per-status dwell line
-  with a bottleneck flag and the velocity-trend annotation.
+  with a bottleneck flag and the velocity-trend annotation; **v9** added the docs
+  tier (`docs` list, budgeted `doc show`) and the `context` docs section.
 
 This lets the skill and the agent regex specific fields without re-reading prose.
 

@@ -116,6 +116,23 @@ A parent with **open** subtasks is hidden from `next` and **cannot** `move`/`don
 to Done until its children finish (rejection = exit `1`). Self-parenting and cycles
 are rejected. `show`/`context` surface a `subtasks d/t` count.
 
+## Docs — knowledge that outlives a task
+
+Comments are notes *about one task*; a **doc** is durable knowledge the board
+stores in full (the one content-storing surface — docs/adr/0007). Five kinds:
+`design | adr | spike | research | note`.
+
+- **Hard-to-reverse decision** → `kanban doc add "Use X over Y" --kind adr --link T-12 --summary "one-line tradeoff"`. When the human signs off: `kanban doc update D-3 --status accepted`; replaced later by `--superseded-by D-9`.
+- **Reusable research findings** → `--kind research` (immediately `active`).
+- **A design spanning several tasks** → `--kind design --link T-12,T-13` (links are many-to-many).
+
+**Always set `--summary`** — lists and `context` show only id/kind/title/summary;
+the markdown body costs tokens **only** via `kanban doc show D-n` (budgeted by
+default; `--full` to expand). Bodies cap at 64 KB — bigger material stays a file
++ `artifact` reference. Scan with `kanban docs [--kind K|--task T-n]`; check a
+task's linked docs in its `context` (`docs (n):` section) before re-deciding or
+re-researching something.
+
 ## Asking the human (durable, async — see docs/04)
 
 Default = **ask then yield**, not block:
@@ -187,6 +204,7 @@ The full surface — nothing here is off-limits. Any read takes `--json` and
 
 - Read: `next [--context|--n N|--mine]`, `list [--status|--label|--limit]`, `show <id>`, `context <id>`, `watch <id> --since <seq> [--follow]`, `changes --since <seq> [--follow]` (`--follow` streams NDJSON until Ctrl-C — for humans/scripts, not agent turns), `inbox [--since]`, `compact [--keep N]`
 - Write: `add [--parent T-1|--depends|--label|--ac|--prio|--status]`, `update [--expect-version N]`, `move <id> <col>`, `done`, `archive`, `claim [--force]`, `release [--force]`, `dep add/rm --on <id>`, `parent <id> --to <pid>|--clear`, `comment <id> "…"`, `criterion add/check [--off]`, `label --add/--rm`, `artifact --kind --title --uri`, `summarize`
+- Docs: `doc add "<title>" --kind design|adr|spike|research|note [--body|--body-file] [--summary] [--link T-n]`, `doc show <D-n> [--full]`, `doc update <D-n> [--status|--superseded-by D-n]`, `doc link/unlink <D-n> <T-n>`, `doc archive <D-n>`, `docs [--kind|--status|--task]`
 - HITL: `ask [--options|--freeform|--expires-at]`, `await [qid|--task|--any] [--timeout S]`, `answer`, `cancel`
 - Lifecycle: `board init/show/nudge`, `serve [--port]`, `export [--out FILE]`, `open`
 - Reporting (not the work loop): `stats [id] [--window N]` — board analytics / per-task timing, read-only.

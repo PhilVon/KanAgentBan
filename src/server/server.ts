@@ -7,6 +7,8 @@ import { openDb, type DB } from './db';
 import { Repo, ConflictError, NotFoundError, ValidationError } from './repo';
 import {
   renderContext,
+  renderDoc,
+  renderDocList,
   renderList,
   renderNext,
   renderShow,
@@ -123,6 +125,9 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
       artifacts: repo.getArtifacts(t.id),
       labels: repo.getLabels(t.id),
       open_input: repo.getOpenRequests(t.id),
+      // Linked docs, titles + summaries only — a drawer/context read never pays
+      // for doc bodies; those load via `doc show` / GET /api/docs/:id.
+      docs: repo.getTaskDocs(t.id).map(({ body: _body, ...d }) => d),
     };
   };
 
@@ -219,6 +224,14 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
         .getDependencies()
         .filter((e) => e.type === 'blocks' && ids.has(e.from_task) && ids.has(e.to_task))
         .map((e) => ({ from: e.to_task, to: e.from_task })),
+    });
+  });
+
+  // Docs panel: list rows (no bodies) with their linked task ids; the panel
+  // fetches GET /api/docs/:id?json for a body on click.
+  app.get('/api/ui/docs', (_req, res) => {
+    res.json({
+      docs: repo.listDocs({}).map(({ body: _b, ...d }) => ({ ...d, tasks: repo.getDocTasks(d.id) })),
     });
   });
 
@@ -325,6 +338,58 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     if (repo.isStale(since)) return res.json(resetBody());
     res.json({ ...repo.inbox(since), floor: repo.floor() });
   });
+
+  // --- docs (board-native knowledge — ADR 0007) --------------------------
+  app.get('/api/docs', (req, res) => {
+    const docs = repo.listDocs({
+      kind: str(req.query.kind),
+      status: str(req.query.status),
+      task: str(req.query.task),
+      limit: num(req.query.limit),
+    });
+    const text = renderDocList(docs, { full: req.query.full !== undefined, maxTokens: num(req.query.max_tokens) });
+    if (req.query.json !== undefined)
+      // List reads never carry bodies — that's `GET /api/docs/:id`'s job.
+      return res.json({ docs: docs.map(({ body: _b, ...d }) => d), est_tokens: estimateTokens(text) });
+    res.json({ text });
+  });
+  app.post('/api/docs', wrap((req, res) => res.json(repo.createDoc({ ...req.body, actor: actor(req) }))));
+  app.get(
+    '/api/docs/:id',
+    wrap((req, res) => {
+      const text = renderDoc(repo, req.params.id, {
+        full: req.query.full !== undefined,
+        maxTokens: num(req.query.max_tokens),
+      });
+      if (req.query.json !== undefined) {
+        const d = repo.requireDoc(req.params.id);
+        return res.json({ ...d, tasks: repo.getDocTasks(d.id), est_tokens: estimateTokens(text) });
+      }
+      res.json({ text });
+    }),
+  );
+  app.patch('/api/docs/:id', wrap((req, res) => res.json(repo.updateDoc(req.params.id, req.body, actor(req)))));
+  app.post(
+    '/api/docs/:id/archive',
+    wrap((req, res) => {
+      repo.archiveDoc(req.params.id, actor(req));
+      res.json({ ok: true });
+    }),
+  );
+  app.post(
+    '/api/docs/:id/links',
+    wrap((req, res) => {
+      repo.linkDoc(req.params.id, req.body.task, actor(req));
+      res.json({ ok: true });
+    }),
+  );
+  app.delete(
+    '/api/docs/:id/links',
+    wrap((req, res) => {
+      repo.unlinkDoc(req.params.id, str(req.query.task)!, actor(req));
+      res.json({ ok: true });
+    }),
+  );
 
   // --- mutations --------------------------------------------------------
   app.post('/api/tasks', wrap((req, res) => res.json(repo.createTask({ ...req.body, actor: actor(req) }))));
