@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -133,6 +133,69 @@ CREATE INDEX IF NOT EXISTS idx_doclink_task ON doc_link(task_id);
 CREATE INDEX IF NOT EXISTS idx_doclink_doc ON doc_link(doc_id);
 `;
 
+// Search index (v5): one self-contained FTS5 table spanning tasks, docs, and
+// comments. `type`/`ref_id` are UNINDEXED metadata; `title`/`body` are the
+// searchable text. Task and doc triggers delete-then-conditionally-reinsert so an
+// archived row drops out of the index; comments are insert/delete only (no comment
+// edit path exists) and a comment on an archived task is filtered at query time
+// (repo.search liveness check).
+const FTS_SQL = `
+CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
+  type UNINDEXED, ref_id UNINDEXED, title, body
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_fts_task_ai AFTER INSERT ON task BEGIN
+  INSERT INTO search_index(type, ref_id, title, body)
+  VALUES('task', new.id, new.title, COALESCE(new.description,'') || ' ' || COALESCE(new.summary,''));
+END;
+CREATE TRIGGER IF NOT EXISTS trg_fts_task_au AFTER UPDATE ON task BEGIN
+  DELETE FROM search_index WHERE type = 'task' AND ref_id = old.id;
+  INSERT INTO search_index(type, ref_id, title, body)
+  SELECT 'task', new.id, new.title, COALESCE(new.description,'') || ' ' || COALESCE(new.summary,'')
+  WHERE new.archived_at IS NULL;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_fts_task_ad AFTER DELETE ON task BEGIN
+  DELETE FROM search_index WHERE type = 'task' AND ref_id = old.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_fts_doc_ai AFTER INSERT ON doc BEGIN
+  INSERT INTO search_index(type, ref_id, title, body)
+  VALUES('doc', new.id, new.title, COALESCE(new.summary,'') || ' ' || COALESCE(new.body,''));
+END;
+CREATE TRIGGER IF NOT EXISTS trg_fts_doc_au AFTER UPDATE ON doc BEGIN
+  DELETE FROM search_index WHERE type = 'doc' AND ref_id = old.id;
+  INSERT INTO search_index(type, ref_id, title, body)
+  SELECT 'doc', new.id, new.title, COALESCE(new.summary,'') || ' ' || COALESCE(new.body,'')
+  WHERE new.archived_at IS NULL;
+END;
+CREATE TRIGGER IF NOT EXISTS trg_fts_doc_ad AFTER DELETE ON doc BEGIN
+  DELETE FROM search_index WHERE type = 'doc' AND ref_id = old.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_fts_comment_ai AFTER INSERT ON comment BEGIN
+  INSERT INTO search_index(type, ref_id, title, body) VALUES('comment', new.id, '', new.body);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_fts_comment_ad AFTER DELETE ON comment BEGIN
+  DELETE FROM search_index WHERE type = 'comment' AND ref_id = old.id;
+END;
+`;
+
+/** One-time index seed for a board that predates v5 (or a fresh board — its
+ *  tables are empty, so this is a no-op there). */
+function backfillSearchIndex(db: Database.Database): void {
+  db.exec(`
+    DELETE FROM search_index;
+    INSERT INTO search_index(type, ref_id, title, body)
+      SELECT 'task', id, title, COALESCE(description,'') || ' ' || COALESCE(summary,'')
+        FROM task WHERE archived_at IS NULL;
+    INSERT INTO search_index(type, ref_id, title, body)
+      SELECT 'doc', id, title, COALESCE(summary,'') || ' ' || COALESCE(body,'')
+        FROM doc WHERE archived_at IS NULL;
+    INSERT INTO search_index(type, ref_id, title, body)
+      SELECT 'comment', id, '', body FROM comment;
+  `);
+}
+
 export type DB = Database.Database;
 
 /**
@@ -180,6 +243,21 @@ function migrate(db: DB): void {
   // v3 -> v4: docs (`doc` + `doc_link` + indexes). Purely additive new tables, so
   // both fresh and existing boards get them from the idempotent CREATEs in
   // SCHEMA_SQL above — no ALTER needed here, only the version stamp below.
+
+  // v4 -> v5: board-wide search. An FTS5 index over tasks/docs/comments, kept in
+  // sync by SQL triggers (they can't be forgotten by a future write path). Guarded:
+  // if this SQLite build lacks FTS5 the board still opens — `meta.fts_enabled=0`
+  // and repo.search() falls back to LIKE. Runs once per board (keyed on the flag).
+  if (!db.prepare('SELECT 1 FROM meta WHERE key = ?').get('fts_enabled')) {
+    let enabled = '1';
+    try {
+      db.exec(FTS_SQL);
+      backfillSearchIndex(db);
+    } catch {
+      enabled = '0';
+    }
+    db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)').run('fts_enabled', enabled);
+  }
 
   if (current < SCHEMA_VERSION) {
     db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)').run(

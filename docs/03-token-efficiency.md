@@ -49,6 +49,7 @@ show <id>    → medium: summary + counts + user comments + recent agent notes
 context <id> → full curated working set (the flagship payload)
 docs         → compact one-line-per-doc (id, kind/status, title, summary)
 doc show D-n → one doc's markdown body (budgeted by default — ADR 0007)
+search "q"   → ranked one-line hits across tasks/docs/comments (snippets)
 ```
 
 Each tier is a strict superset of detail. The agent climbs only as far as it needs.
@@ -155,7 +156,7 @@ The trailing bracketed lines are **truncation footers** — see §4.
 - Terse plaintext default; `--json` opt-in for machine parsing.
 - Stable field order, stable section headers, no decorative noise.
 - No ANSI colour when stdout is not a TTY.
-- Versioned: `--format-version` (current `9`); changes bump the version so a
+- Versioned: `--format-version` (current `10`); changes bump the version so a
   pinned agent/skill never silently breaks. **v2** added the `est_tokens` field to
   `--json` reads and the context-tier graceful-degradation truncation footers (§4);
   **v3** extended `--max-tokens` budgeting (and its never-silent footers) to the
@@ -166,7 +167,8 @@ The trailing bracketed lines are **truncation footers** — see §4.
   user-commented tasks `💬n*` in `list`; **v7** expanded `stats` with flow health,
   breakdowns, forecast, and CFD; **v8** added the `stats` per-status dwell line
   with a bottleneck flag and the velocity-trend annotation; **v9** added the docs
-  tier (`docs` list, budgeted `doc show`) and the `context` docs section.
+  tier (`docs` list, budgeted `doc show`) and the `context` docs section;
+  **v10** added the `search` tier (budgeted one-line ranked hits).
 
 This lets the skill and the agent regex specific fields without re-reading prose.
 

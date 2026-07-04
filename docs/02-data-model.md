@@ -164,6 +164,17 @@ default to `draft`; research/notes default to `active`.
 `doc_link(doc_id, task_id)` joins docs to tasks **many-to-many** (an ADR governs
 several tasks; a research note informs many). Linking is idempotent.
 
+### search_index (FTS5, v5)
+
+A self-contained FTS5 virtual table `search_index(type UNINDEXED, ref_id
+UNINDEXED, title, body)` spanning tasks (title/description/summary), docs
+(title/summary/body), and comments. Kept in sync by SQL **triggers** on the
+source tables (delete-then-conditional-reinsert, so archived tasks/docs drop
+out; comments on archived tasks are filtered at query time). Created guarded at
+migration: a build without FTS5 sets `meta.fts_enabled=0` and search degrades to
+`LIKE` instead of the board failing to open. Not part of exported state — it is
+derived and rebuilt from source tables by the one-time backfill.
+
 ### event (the spine)
 | Field | Type | Notes |
 |-------|------|-------|

@@ -105,7 +105,7 @@ Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficie
 | Input-request cancel + expiry (`input.cancelled` / `input.expired` fired) | ✅ (post-v1) | |
 | Per-task time tracking, burndown / analytics | ✅ (post-v1) | |
 | Board-native docs (design/ADR/spike/research/note — ADR 0007) | ✅ (post-v1) | |
-| Board-wide search (FTS5) | | planned (tool-expansion batch) |
+| Board-wide search (FTS5) | ✅ (post-v1) | |
 | Brainstorm sessions + idea promotion | | planned (tool-expansion batch) |
 | Git linkage (commit/branch artifacts, CLI-side git) | | planned (tool-expansion batch) |
 | Cloud sync / multi-machine | | ✅ |

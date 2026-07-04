@@ -301,6 +301,24 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  // ---- search --------------------------------------------------------------
+  {
+    name: 'search',
+    description:
+      'Board-wide search over tasks (title/description/summary), docs (title/summary/body), and comments. Ranked matches with a snippet, one line each. Use before re-researching or re-deciding something — prior findings and ADRs surface here.',
+    inputSchema: {
+      query: z.string().describe('search terms (FTS5 syntax allowed; falls back to a literal phrase)'),
+      type: z.enum(['task', 'doc', 'comment']).optional().describe('restrict to one entity type'),
+      limit: z.number().int().positive().optional().describe('max hits (default 20)'),
+      max_tokens: z.number().int().positive().optional().describe('token budget (sheds trailing hits)'),
+      full: z.boolean().optional(),
+    },
+    run: async (c, a) =>
+      readText(
+        await api(c, 'GET', `/api/search${qs({ q: a.query, type: a.type, limit: a.limit, max_tokens: a.max_tokens, full: a.full, json: 1 })}`),
+      ),
+  },
+
   // ---- docs (board-native knowledge — ADR 0007) ---------------------------
   {
     name: 'doc',

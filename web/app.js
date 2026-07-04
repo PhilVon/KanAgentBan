@@ -1348,6 +1348,74 @@ $('#docs-filter').addEventListener('input', () => {
   if (!$('#docs-panel').classList.contains('hidden')) loadDocs();
 });
 
+// --- search panel -------------------------------------------------------------
+// Debounced board-wide search over /api/search?json. Hits link to the drawer
+// (tasks/comments) or the docs panel (docs).
+let searchTimer = null;
+
+async function runSearch() {
+  const body = $('#search-body');
+  const q = $('#search-input').value.trim();
+  if (!q) {
+    body.replaceChildren();
+    return;
+  }
+  let r;
+  try {
+    r = await api(`/api/search?json=1&q=${encodeURIComponent(q)}`);
+  } catch (e) {
+    body.replaceChildren(el('div', 'metrics-banner', `search failed: ${e.message}`));
+    return;
+  }
+  body.replaceChildren();
+  if (!r.fts) body.append(el('div', 'metrics-banner', 'FTS5 unavailable — plain substring matching'));
+  if (!r.results.length) {
+    body.append(el('div', 'activity-empty', `no matches for "${q}"`));
+    return;
+  }
+  const list = el('div', 'activity-list');
+  for (const hit of r.results) list.append(searchRow(hit));
+  body.append(list);
+}
+
+function searchRow(hit) {
+  const row = el('div', 'activity-row');
+  const badge = hit.type === 'doc' ? `doc/${hit.kind}` : hit.type === 'comment' ? 'comment' : `task/${hit.status}`;
+  row.append(el('span', 'doc-kind', badge));
+  const link = el('a', 'activity-task', hit.id);
+  link.href = '#';
+  link.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (hit.type === 'doc') {
+      $('#search-panel').classList.add('hidden');
+      openDocsPanel(hit.id);
+    } else if (hit.task_id) {
+      openDrawer(hit.task_id);
+    }
+  });
+  row.append(link);
+  row.append(el('span', 'activity-text', `${hit.title ? `"${hit.title}" — ` : ''}${hit.snippet}`));
+  return row;
+}
+
+function toggleSearch() {
+  const p = $('#search-panel');
+  p.classList.toggle('hidden');
+  if (!p.classList.contains('hidden')) $('#search-input').focus();
+}
+$('#search-btn').addEventListener('click', toggleSearch);
+$('#search-close').addEventListener('click', () => $('#search-panel').classList.add('hidden'));
+$('#search-input').addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(runSearch, 250);
+});
+$('#search-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    clearTimeout(searchTimer);
+    runSearch();
+  }
+});
+
 // --- create task modal ------------------------------------------------------
 (() => {
   const statusSel = $('#ct-status');

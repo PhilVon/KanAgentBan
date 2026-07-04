@@ -59,6 +59,11 @@ Unreleased section describing its change.
   links, lifecycle statuses incl. supersession; `kanban doc`/`docs` CLI, REST
   `/api/docs`, grouped MCP `doc` tool, `context` docs section, web Docs panel
   (SCHEMA_VERSION 3→4, FORMAT_VERSION 8→9) (#18)
+- Board-wide search: FTS5 index over tasks/docs/comments kept in sync by SQL
+  triggers with one-time backfill and a guarded LIKE fallback
+  (`meta.fts_enabled`); bm25-ranked snippets via `kanban search`, REST
+  `/api/search`, MCP `search` tool, and a web Search panel
+  (SCHEMA_VERSION 4→5, FORMAT_VERSION 9→10) (#19)
 
 ### Fixed
 - Repeated `--label`/`--depends` on `kanban add` and `--options` on

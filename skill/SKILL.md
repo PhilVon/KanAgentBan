@@ -133,6 +133,11 @@ default; `--full` to expand). Bodies cap at 64 KB — bigger material stays a fi
 task's linked docs in its `context` (`docs (n):` section) before re-deciding or
 re-researching something.
 
+**Search before you re-research.** `kanban search "<terms>"` runs ranked
+board-wide search over tasks, docs, and comments (one snippet line per hit,
+`--type doc` etc. to narrow). Prior findings, past decisions, and old task
+discussions surface here — a 20-token search beats redoing an hour of research.
+
 ## Asking the human (durable, async — see docs/04)
 
 Default = **ask then yield**, not block:
@@ -205,6 +210,7 @@ The full surface — nothing here is off-limits. Any read takes `--json` and
 - Read: `next [--context|--n N|--mine]`, `list [--status|--label|--limit]`, `show <id>`, `context <id>`, `watch <id> --since <seq> [--follow]`, `changes --since <seq> [--follow]` (`--follow` streams NDJSON until Ctrl-C — for humans/scripts, not agent turns), `inbox [--since]`, `compact [--keep N]`
 - Write: `add [--parent T-1|--depends|--label|--ac|--prio|--status]`, `update [--expect-version N]`, `move <id> <col>`, `done`, `archive`, `claim [--force]`, `release [--force]`, `dep add/rm --on <id>`, `parent <id> --to <pid>|--clear`, `comment <id> "…"`, `criterion add/check [--off]`, `label --add/--rm`, `artifact --kind --title --uri`, `summarize`
 - Docs: `doc add "<title>" --kind design|adr|spike|research|note [--body|--body-file] [--summary] [--link T-n]`, `doc show <D-n> [--full]`, `doc update <D-n> [--status|--superseded-by D-n]`, `doc link/unlink <D-n> <T-n>`, `doc archive <D-n>`, `docs [--kind|--status|--task]`
+- Search: `search "<query>" [--type task|doc|comment] [--limit N]` — ranked hits with snippets across the whole board
 - HITL: `ask [--options|--freeform|--expires-at]`, `await [qid|--task|--any] [--timeout S]`, `answer`, `cancel`
 - Lifecycle: `board init/show/nudge`, `serve [--port]`, `export [--out FILE]`, `open`
 - Reporting (not the work loop): `stats [id] [--window N]` — board analytics / per-task timing, read-only.

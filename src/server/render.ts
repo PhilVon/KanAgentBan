@@ -2,7 +2,7 @@ import type { Repo } from './repo';
 import { childProgress, deriveState, remainingBlockerCount } from './derive';
 import { recommend, type BlockedSummary } from './recommend';
 import { LABEL_TOP_N, type BoardStats, type MetricSummary, type TaskTiming, type VelocityTrend } from './stats';
-import { WORKFLOW_STATUSES, type Comment, type Doc, type Task, type WorkflowStatus } from '../shared/types';
+import { WORKFLOW_STATUSES, type Comment, type Doc, type SearchResult, type Task, type WorkflowStatus } from '../shared/types';
 
 // Output format contract — see docs/03-token-efficiency.md §5. Bump on change.
 // v2: `--json` reads carry `est_tokens`; context budgeting degrades gracefully.
@@ -24,7 +24,9 @@ import { WORKFLOW_STATUSES, type Comment, type Doc, type Task, type WorkflowStat
 // v9: docs tier — `docs` list and `doc show` render board-native documents
 //     (design/adr/spike/research/note); `context` gains a docs section
 //     (titles + summaries only, body via `doc show`). See ADR 0007.
-export const FORMAT_VERSION = 9;
+// v10: search tier — `search` renders one budgeted line per hit
+//     (task/doc/comment) with a matched-text snippet.
+export const FORMAT_VERSION = 10;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;
@@ -516,6 +518,22 @@ function budget(sections: string[], maxTokens: number, id: string): string {
     '\n\n',
     (n) => `[${n} section(s) hidden for token budget — context ${id} --full]`,
   );
+}
+
+/** `kanban search` — one line per hit, budgeted (rank order, sheds the tail). */
+export function renderSearch(
+  results: SearchResult[],
+  query: string,
+  opts: { full?: boolean; maxTokens?: number } = {},
+): string {
+  if (!results.length) return `(no matches for "${query}")`;
+  const rows = results.map((r) => {
+    const badge =
+      r.type === 'doc' ? `[doc/${r.kind}]` : r.type === 'comment' ? `[comment on ${r.task_id}]` : `[task/${r.status}]`;
+    const title = r.title ? ` "${r.title}"` : '';
+    return `${r.id} ${badge}${title} — ${r.snippet}`;
+  });
+  return budgetBlocks(rows, opts, '\n', (n) => `[+${n} hits hidden for token budget — search --full]`);
 }
 
 // ---- analytics tier (FORMAT_VERSION 5) -----------------------------------
