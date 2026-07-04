@@ -98,6 +98,11 @@ Unreleased section describing its change.
   agent stays unblocked when the human is away; flagged in `inbox`, `await`,
   and `context`'s open-input lines; human answer before the deadline wins
   (SCHEMA_VERSION 8→9, FORMAT_VERSION 15→16) (#25)
+- First-class review gate: `kanban review approve/reject T-n --reason` +
+  approve/reject buttons on the web UI's Review cards; reject requires a
+  reason, recorded on the `task.moved` event (`{review, reason}`) and as a
+  task comment; feeds existing kickback stats unchanged; REST
+  `/api/tasks/:id/review`, MCP `review` tool (#26)
 
 ### Fixed
 - Repeated `--label`/`--depends` on `kanban add` and `--options` on

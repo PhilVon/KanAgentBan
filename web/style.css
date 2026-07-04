@@ -540,3 +540,19 @@ svg.dep-graph { display: block; max-width: 100%; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* --- review gate buttons on Review cards --- */
+.review-actions { display: flex; gap: 0.35rem; margin-top: 0.45rem; }
+.review-actions button {
+  flex: 1;
+  font-size: 0.78rem;
+  padding: 0.25rem 0.4rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: transparent;
+  cursor: pointer;
+}
+.review-approve { color: var(--ok, #3fb950); }
+.review-approve:hover { background: rgba(63, 185, 80, 0.12); border-color: var(--ok, #3fb950); }
+.review-reject { color: var(--danger, #f85149); }
+.review-reject:hover { background: rgba(248, 81, 73, 0.12); border-color: var(--danger, #f85149); }

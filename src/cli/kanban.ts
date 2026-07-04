@@ -240,6 +240,22 @@ program.command('release <id>').option('--force', 'release a claim held by anoth
   out(t.assignee ? `${t.id} still claimed by ${t.assignee}` : `${t.id} released`);
 });
 
+const review = program.command('review').description('the Review-column sign-off gate (normally the human, via UI or CLI)');
+review
+  .command('approve <id>')
+  .option('--reason <r>', 'optional sign-off note (recorded as a comment)')
+  .action(async (id, o) => {
+    const t = await api(await conn(), 'POST', `/api/tasks/${id}/review`, { verdict: 'approve', reason: o.reason });
+    out(`${t.id} approved -> ${t.status}`);
+  });
+review
+  .command('reject <id>')
+  .requiredOption('--reason <r>', 'why it bounced (recorded as a comment + kickback stat)')
+  .action(async (id, o) => {
+    const t = await api(await conn(), 'POST', `/api/tasks/${id}/review`, { verdict: 'reject', reason: o.reason });
+    out(`${t.id} rejected -> ${t.status}  (reason recorded)`);
+  });
+
 const dep = program.command('dep');
 dep.command('add <id>').requiredOption('--on <id>').action(async (id, o) => { await api(await conn(), 'POST', `/api/tasks/${id}/deps`, { on: o.on }); out(`${id} now blocked by ${o.on}`); });
 dep.command('rm <id>').requiredOption('--on <id>').action(async (id, o) => { await api(await conn(), 'DELETE', `/api/tasks/${id}/deps?on=${o.on}`); out(`removed ${id} -> ${o.on}`); });
