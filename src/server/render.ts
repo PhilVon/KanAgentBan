@@ -1,4 +1,5 @@
 import type { Repo } from './repo';
+import type { DoctorFinding, DoctorReport } from './doctor';
 import { childProgress, deriveState, remainingBlockerCount } from './derive';
 import { recommend, type BlockedSummary } from './recommend';
 import { LABEL_TOP_N, type BoardStats, type MetricSummary, type TaskTiming, type VelocityTrend } from './stats';
@@ -47,7 +48,9 @@ import {
 //     budget; `next` flags a waiting checkpoint on its recommendation line.
 // v14: claim leases — `context`'s assignee line carries the lease state
 //     (`lease expires in 42m` / `lease expired`) when a claim has a TTL.
-export const FORMAT_VERSION = 14;
+// v15: doctor tier — `kanban doctor` renders the hygiene report (findings
+//     grouped by check, healthy = one line); CLI exit 2 signals findings.
+export const FORMAT_VERSION = 15;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;
@@ -647,6 +650,35 @@ export function renderSearch(
     return `${r.id} ${badge}${title} — ${r.snippet}`;
   });
   return budgetBlocks(rows, opts, '\n', (n) => `[+${n} hits hidden for token budget — search --full]`);
+}
+
+// ---- doctor tier (FORMAT_VERSION 15) --------------------------------------
+
+/**
+ * `kanban doctor` — the hygiene report. One line per finding, grouped by check
+ * in CHECKS order (the groups are rank-ordered: claims first — they block
+ * peers — then missing definitions of done, aging work, unanswered questions,
+ * drift, and easy closes). Budgeted like every read tier.
+ */
+export function renderDoctor(
+  report: DoctorReport,
+  opts: { full?: boolean; maxTokens?: number } = {},
+): string {
+  if (report.healthy) return `board healthy — ${report.checks.length} checks clean`;
+  const byCheck = new Map<string, DoctorFinding[]>();
+  for (const f of report.findings) {
+    if (!byCheck.has(f.check)) byCheck.set(f.check, []);
+    byCheck.get(f.check)!.push(f);
+  }
+  const blocks: string[] = [
+    `${report.findings.length} finding(s) across ${byCheck.size} of ${report.checks.length} checks:`,
+  ];
+  for (const check of report.checks) {
+    const fs = byCheck.get(check);
+    if (!fs) continue;
+    blocks.push(`${check} (${fs.length}):\n` + fs.map((f) => `  ${f.id}  ${f.detail}`).join('\n'));
+  }
+  return budgetBlocks(blocks, opts, '\n', (n) => `[+${n} block(s) hidden for token budget — doctor --full]`);
 }
 
 // ---- analytics tier (FORMAT_VERSION 5) -----------------------------------

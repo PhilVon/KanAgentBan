@@ -135,6 +135,22 @@ export const TOOLS: ToolDef[] = [
 
   // ---- write / workflow ---------------------------------------------------
   {
+    name: 'doctor',
+    description: 'Board hygiene report: stale claims, In Progress without criteria, aging WIP, ancient open questions, stale summaries, Done-eligible parents. Run at session start; each finding names its fix. healthy=true means all checks clean.',
+    inputSchema: {
+      max_tokens: z.number().optional(),
+      full: z.boolean().optional(),
+    },
+    run: async (c, a) => {
+      const q = new URLSearchParams();
+      if (a.max_tokens != null) q.set('max_tokens', String(a.max_tokens));
+      if (a.full) q.set('full', '1');
+      const qs = q.toString();
+      const r = await api(c, 'GET', `/api/doctor${qs ? `?${qs}` : ''}`);
+      return r.text;
+    },
+  },
+  {
     name: 'add',
     description: 'Create a task. Optionally seed labels, blocking dependencies, acceptance criteria, and a parent (to create a subtask) in one call.',
     inputSchema: {

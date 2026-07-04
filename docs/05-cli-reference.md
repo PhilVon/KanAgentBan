@@ -195,6 +195,16 @@ conventions: `commit` → `uri: git:<sha>`, `branch` → `uri: branch:<name>`,
 Sets a fresh `summary` (clears the stale-summary flag). Server never
 auto-summarizes — this is the manual refresh path.
 
+### `kanban doctor [--json] [--max-tokens N | --full]`
+One read-only hygiene sweep, findings grouped by check: `stale-claim` (expired
+lease, or an indefinite claim untouched >24h), `wip-no-criteria` (In Progress
+with no acceptance criteria), `aging-wip` (Ready/In Progress/Review untouched
+>7d), `ancient-ask` (open `Q-n` >48h), `stale-summary` (description newer than
+summary), `done-eligible-parent` (all subtasks Done, parent still open). Every
+finding names its fix. **Exit `0` = healthy, exit `2` = findings** (same
+semantic-exit pattern as `await`'s pending) — run it at session start and act on
+what it reports. Thresholds are deliberately fixed, not flags.
+
 ### `kanban checkpoint <id> ["did X, next Y, watch Z"] [--clear]`
 The **one-slot resume pointer** for cross-session continuity: set it whenever you
 pause or yield a task; the next session (any agent) reads it *first* — it renders

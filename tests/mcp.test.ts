@@ -34,8 +34,8 @@ describe('mcp tool surface', () => {
     for (const expected of ['next', 'list', 'show', 'context', 'watch', 'changes', 'inbox', 'add', 'move', 'claim', 'dep', 'ask', 'await', 'inbox']) {
       expect(names).toContain(expected);
     }
-    // Curated, not the full ~30 CLI surface.
-    expect(names.length).toBeLessThanOrEqual(26);
+    // Curated, not the full CLI surface (~35 commands incl. git/board/completion).
+    expect(names.length).toBeLessThanOrEqual(30);
     expect(names.length).toBeGreaterThanOrEqual(16);
   });
 
