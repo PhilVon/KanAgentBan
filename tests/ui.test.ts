@@ -253,6 +253,7 @@ describe('web UI (real app.js against a real server)', () => {
     expect(subs.some((s) => s?.startsWith('By priority'))).toBe(true);
     expect(subs.some((s) => s?.startsWith('By label'))).toBe(true);
     expect(subs.some((s) => s?.startsWith('By agent'))).toBe(true);
+    expect(subs.some((s) => s?.startsWith('Dwell by status'))).toBe(true);
     expect(subs.some((s) => s?.startsWith('Aging'))).toBe(true);
     expect(subs.some((s) => s?.startsWith('Cumulative flow'))).toBe(true);
     expect(document.querySelectorAll('#metrics-body .metric-table').length).toBeGreaterThanOrEqual(3);
