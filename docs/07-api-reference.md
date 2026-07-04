@@ -118,6 +118,11 @@ is derived, never stored ([02-data-model §5-6](02-data-model.md)).
 
 `POST /api/tasks/:id/deps` rejects cycles/self/duplicate with `409`/`400`.
 
+`POST /api/tasks/:id/review` — the Review gate: `{verdict:'approve'}` → Done,
+`{verdict:'reject', reason}` → In Progress (reason required, `400` without).
+Emits `task.moved` extended with `{review, reason?}` (kickback stats derive from
+it unchanged) and records the reason as a comment. Non-Review task → `400`.
+
 `POST /api/tasks/:id/checkpoint` sets the one-slot resume pointer: `{text}` sets
 (latest wins, `X-Agent` recorded as `checkpoint_by`), `{clear:true}` clears; a
 body with neither is `400` — a malformed set never silently clears. Emits

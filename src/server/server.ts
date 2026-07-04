@@ -484,6 +484,16 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     }),
   );
   app.post('/api/tasks/:id/move', wrap((req, res) => res.json(repo.moveTask(req.params.id, req.body.status, actor(req)))));
+  // Review gate: {verdict: approve|reject, reason?} — reject requires a reason.
+  app.post('/api/tasks/:id/review', wrap((req, res) =>
+    res.json(
+      repo.reviewTask(req.params.id, req.body?.verdict, {
+        reason: str(req.body?.reason),
+        actor: actor(req),
+        by: agentId(req),
+      }),
+    ),
+  ));
   app.post('/api/tasks/:id/parent', wrap((req, res) =>
     res.json(repo.setParent(req.params.id, req.body.parent ?? null, actor(req))),
   ));

@@ -263,6 +263,19 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'review',
+    description: 'Resolve a task sitting in Review: op=approve moves it to Done, op=reject kicks it back to In Progress and REQUIRES a reason (recorded as a comment + kickback stat). Normally the human\'s gate — only use it yourself when the human has delegated sign-off.',
+    inputSchema: {
+      id: z.string(),
+      op: z.enum(['approve', 'reject']),
+      reason: z.string().optional().describe('required for reject; optional sign-off note for approve'),
+    },
+    run: async (c, a) => {
+      const t = await api(c, 'POST', `/api/tasks/${a.id}/review`, { verdict: a.op, reason: a.reason });
+      return `${t.id} ${a.op === 'approve' ? 'approved' : 'rejected'} -> ${t.status}`;
+    },
+  },
+  {
     name: 'comment',
     description: 'Add an agent comment to a task. Record decisions and non-obvious choices — not status updates the board already tracks. Note: the human leaves `user` comments on tasks as directives; read those via `show`/`context` and act on them.',
     inputSchema: { id: z.string(), body: z.string() },

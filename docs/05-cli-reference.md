@@ -217,6 +217,16 @@ pointer, not a log — detail belongs in comments or docs.
 ### `kanban done <id>` / `kanban archive <id>`
 `done` moves to Done (recomputes dependents' readiness); `archive` soft-deletes.
 
+### `kanban review approve <id> [--reason T]` / `kanban review reject <id> --reason T`
+The Review-column sign-off gate — normally the **human's** verb (the web UI puts
+Approve/Reject buttons on Review cards). `approve` moves the task to Done (same
+open-subtask guard as any Done move); `reject` kicks it back to In Progress and
+**requires a reason**, recorded both on the `task.moved` event
+(`{review:'rejected', reason}`) and as a comment (`review rejected: …`) so the
+next agent session sees why it bounced. Rejections feed the existing
+rework/kickback stats unchanged. Only a task in `Review` passes the gate
+(anything else is exit `1`).
+
 ### `kanban claim <id> [--force] [--ttl <seconds>]` / `kanban release <id> [--force]`
 Multi-agent coordination ([09 §9](09-concurrency.md)). `claim` sets `assignee` to
 your identity so the task drops out of other agents' `next`; idempotent if you

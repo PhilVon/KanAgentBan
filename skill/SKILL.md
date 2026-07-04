@@ -91,7 +91,7 @@ loop until you promote it, so moving a task to `Ready` is what actually *queues*
 - **Backlog** — captured but not yet startable; the default for a new task. Parked: `next` skips it.
 - **Ready** — refined and unblocked; the actionable queue `next` pulls from. Promote here the moment a task is ready to be picked up.
 - **In Progress** — actively being worked. Move here on pickup.
-- **Review** — work finished, awaiting a human/peer sign-off (not more agent work). The natural pairing with a sign-off `ask` (below): move to `Review`, then `ask`.
+- **Review** — work finished, awaiting a human/peer sign-off (not more agent work). The human resolves it with `kanban review approve/reject` (or the UI's card buttons); a rejection kicks the task back to `In Progress` with the reason recorded as a comment — read it before resuming. Pair with a sign-off `ask` (below) when you need to actively pull the human in.
 - **Done** — accepted and complete (`kanban done`).
 
 **`Blocked` is not a column you set** — it's a *derived* projection the UI shows
@@ -249,7 +249,7 @@ The full surface — nothing here is off-limits. Any read takes `--json` and
 `KANBAN_AGENT`) apply everywhere. Full flag detail: `docs/05-cli-reference.md`.
 
 - Read: `next [--context|--n N|--mine]`, `list [--status|--label|--limit]`, `show <id>`, `context <id>`, `watch <id> --since <seq> [--follow]`, `changes --since <seq> [--follow]` (`--follow` streams NDJSON until Ctrl-C — for humans/scripts, not agent turns), `inbox [--since]`, `compact [--keep N]`
-- Write: `add [--parent T-1|--depends|--label|--ac|--prio|--status]`, `update [--expect-version N]`, `move <id> <col>`, `done`, `archive`, `claim [--force]`, `release [--force]`, `dep add/rm --on <id>`, `parent <id> --to <pid>|--clear`, `comment <id> "…"`, `criterion add/check [--off]`, `label --add/--rm`, `artifact --kind --title --uri`, `summarize`, `checkpoint <id> "…"|--clear` (resume pointer)
+- Write: `add [--parent T-1|--depends|--label|--ac|--prio|--status]`, `update [--expect-version N]`, `move <id> <col>`, `done`, `archive`, `review approve/reject <id> --reason` (the human's gate), `claim [--force]`, `release [--force]`, `dep add/rm --on <id>`, `parent <id> --to <pid>|--clear`, `comment <id> "…"`, `criterion add/check [--off]`, `label --add/--rm`, `artifact --kind --title --uri`, `summarize`, `checkpoint <id> "…"|--clear` (resume pointer)
 - Docs: `doc add "<title>" --kind design|adr|spike|research|note [--body|--body-file] [--summary] [--link T-n]`, `doc show <D-n> [--full]`, `doc update <D-n> [--status|--superseded-by D-n]`, `doc link/unlink <D-n> <T-n>`, `doc archive <D-n>`, `docs [--kind|--status|--task]`
 - Search: `search "<query>" [--type task|doc|comment|idea] [--limit N]` — ranked hits with snippets across the whole board
 - Brainstorm: `brainstorm start "<topic>" [--task T-n]`, `brainstorm add <B-n> "<idea>" [--cluster N]`, `brainstorm show/list/close`, `idea score <I-n> <0-10>`, `idea cluster <I-n> <name>`, `idea promote <I-n> [--title|--prio|--parent]`, `idea drop <I-n>`

@@ -329,9 +329,34 @@ function card(t) {
   if (t.assignee) flags.append(flag('flag assignee', 'user', t.assignee));
   for (const l of t.labels || []) flags.append(el('span', 'label', l));
   c.append(flags);
+  // Review gate: sign-off buttons on cards actually sitting in the Review
+  // column (a blocked Review task resolves its blocker first).
+  if (t.column === 'Review') {
+    const row = el('div', 'review-actions');
+    const ok = el('button', 'review-approve', '✓ Approve');
+    ok.onclick = (e) => {
+      e.stopPropagation();
+      review(t.id, 'approve');
+    };
+    const no = el('button', 'review-reject', '✕ Reject');
+    no.onclick = (e) => {
+      e.stopPropagation();
+      const reason = prompt(`Why does ${t.id} bounce back? (recorded on the task)`);
+      if (reason && reason.trim()) review(t.id, 'reject', reason.trim());
+    };
+    row.append(ok, no);
+    c.append(row);
+  }
   c.onclick = () => openDrawer(t.id);
   return c;
 }
+
+const review = (id, verdict, reason) =>
+  api(`/api/tasks/${id}/review`, {
+    method: 'POST',
+    headers: userJson,
+    body: JSON.stringify({ verdict, ...(reason ? { reason } : {}) }),
+  }).catch((err) => toast(`review failed: ${err.message}`));
 
 // --- inbox ------------------------------------------------------------------
 function renderInbox() {

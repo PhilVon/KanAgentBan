@@ -660,6 +660,60 @@ export class Repo {
   }
 
   /**
+   * The review gate: resolve a task sitting in `Review`. `approve` moves it to
+   * Done, `reject` kicks it back to `In Progress` — via the same `task.moved`
+   * event the rework/kickback stats already derive from, extended with
+   * `{review: verdict, reason?}`. A reject **requires a reason** (a recorded
+   * kickback is the point) and drops it on the task as a comment so the next
+   * agent session sees *why* it bounced. Only a `Review` task can be reviewed;
+   * approving a parent with open subtasks fails like any Done move.
+   */
+  reviewTask(
+    id: string,
+    verdict: 'approve' | 'reject',
+    opts: { reason?: string; actor?: ActorType; by?: string } = {},
+  ): Task {
+    const actor = opts.actor ?? 'user';
+    const reason = opts.reason?.trim();
+    if (verdict !== 'approve' && verdict !== 'reject')
+      throw new ValidationError(`review verdict must be approve or reject`);
+    if (verdict === 'reject' && !reason)
+      throw new ValidationError('review reject requires a reason (the kickback is recorded)');
+    return this.mutate((rec) => {
+      const t = this.requireTask(id);
+      if (t.status !== 'Review')
+        throw new ValidationError(`${id} is ${t.status}, not Review — the gate only applies there`);
+      const to: WorkflowStatus = verdict === 'approve' ? 'Done' : 'In Progress';
+      const open = this.openChildCount(id);
+      if (to === 'Done' && open > 0)
+        throw new ValidationError(`cannot approve ${id}: ${open} open subtask(s) remain`);
+      this.db
+        .prepare('UPDATE task SET status = ?, version = version + 1, updated_at = ? WHERE id = ?')
+        .run(to, now(), id);
+      rec({
+        type: 'task.moved',
+        task_id: id,
+        actor_type: actor,
+        payload: {
+          from: 'Review',
+          to,
+          review: verdict === 'approve' ? 'approved' : 'rejected',
+          ...(reason ? { reason } : {}),
+        },
+      });
+      if (reason)
+        this.addCommentTx(
+          rec,
+          id,
+          `review ${verdict === 'approve' ? 'approved' : 'rejected'}: ${reason}`,
+          actor,
+          opts.by ?? 'review',
+        );
+      return this.requireTask(id);
+    });
+  }
+
+  /**
    * Sweep: release every claim whose lease is past due (`task.released` with
    * `expired: true`, actor `system`) so a dead agent never wedges a task.
    * Called on the server's low-frequency sweep timer; cheap when nothing leases.
@@ -867,16 +921,26 @@ export class Repo {
   // comments / criteria / artifacts / labels ------------------------------
 
   addComment(taskId: string, body: string, author_type: ActorType, author_name: string): Comment {
-    return this.mutate((rec) => {
-      this.requireTask(taskId);
-      const id = nextCommentId(this.db);
-      const ts = now();
-      this.db
-        .prepare('INSERT INTO comment(id,task_id,body,author_type,author_name,created_at) VALUES(?,?,?,?,?,?)')
-        .run(id, taskId, body, author_type, author_name, ts);
-      rec({ type: 'comment.added', task_id: taskId, actor_type: author_type, payload: { id } });
-      return { id, task_id: taskId, body, author_type, author_name, created_at: ts };
-    });
+    return this.mutate((rec) => this.addCommentTx(rec, taskId, body, author_type, author_name));
+  }
+
+  /** Comment body shared with `reviewTask` (which records the kickback reason
+   *  inside its own transaction — nesting `mutate()` would double-publish). */
+  private addCommentTx(
+    rec: any,
+    taskId: string,
+    body: string,
+    author_type: ActorType,
+    author_name: string,
+  ): Comment {
+    this.requireTask(taskId);
+    const id = nextCommentId(this.db);
+    const ts = now();
+    this.db
+      .prepare('INSERT INTO comment(id,task_id,body,author_type,author_name,created_at) VALUES(?,?,?,?,?,?)')
+      .run(id, taskId, body, author_type, author_name, ts);
+    rec({ type: 'comment.added', task_id: taskId, actor_type: author_type, payload: { id } });
+    return { id, task_id: taskId, body, author_type, author_name, created_at: ts };
   }
 
   private addCriterionTx(rec: any, taskId: string, text: string, actor: ActorType): string {

@@ -284,4 +284,36 @@ describe('web UI (real app.js against a real server)', () => {
     const tiles = await until(() => document.querySelector('#metrics-body .tiles'));
     expect(tiles.querySelectorAll('.tile').length).toBeGreaterThan(0);
   });
+
+  it('Review cards carry approve/reject buttons; approve moves to Done, reject records the reason', async () => {
+    const a = h.repo.createTask({ title: 'Sign me off', status: 'Review', priority: 'P2' });
+    const b = h.repo.createTask({ title: 'Bounce me', status: 'Review', priority: 'P2' });
+    h.repo.createTask({ title: 'No buttons here', status: 'Ready', priority: 'P2' });
+    (globalThis as any).prompt = () => 'missing error handling';
+    loadApp();
+
+    const approveBtn = await until(() =>
+      [...document.querySelectorAll('.card')]
+        .find((c) => c.querySelector('.title')?.textContent === 'Sign me off')
+        ?.querySelector('.review-approve') as HTMLElement | undefined,
+    );
+    // Only Review-column cards get the gate.
+    const readyCard = [...document.querySelectorAll('.card')].find(
+      (c) => c.querySelector('.title')?.textContent === 'No buttons here',
+    );
+    expect(readyCard?.querySelector('.review-actions')).toBeFalsy();
+
+    approveBtn.click();
+    await until(() => h.repo.getTask(a.id)!.status === 'Done');
+
+    const rejectBtn = await until(() =>
+      [...document.querySelectorAll('.card')]
+        .find((c) => c.querySelector('.title')?.textContent === 'Bounce me')
+        ?.querySelector('.review-reject') as HTMLElement | undefined,
+    );
+    rejectBtn.click();
+    await until(() => h.repo.getTask(b.id)!.status === 'In Progress');
+    const comments = h.repo.getComments(b.id);
+    expect(comments.some((c) => c.body.includes('review rejected: missing error handling'))).toBe(true);
+  });
 });
