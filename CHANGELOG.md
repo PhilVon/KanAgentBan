@@ -52,6 +52,8 @@ Unreleased section describing its change.
   description/summary search (#15)
 - `kanban completion bash|zsh|pwsh`: static scripts introspected from the live
   CLI (#16)
+- `kanban watch/changes --follow`: NDJSON streaming over the WebSocket with
+  reconnect + never-silent reset passthrough (#17)
 
 ### Fixed
 - Repeated `--label`/`--depends` on `kanban add` and `--options` on

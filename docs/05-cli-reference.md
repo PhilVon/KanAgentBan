@@ -10,8 +10,9 @@
 > are cheap and tiered; the agent is steered to the narrowest one that answers its
 > question.
 >
-> **Open questions:** Whether `watch`/`await` should support `--json` streaming
-> (NDJSON) in v1 or v2.
+> **Resolved:** `watch`/`changes` now stream NDJSON with `--follow` (a WebSocket
+> client of `/ws` — no polling). `await` streaming remains out of scope (it is a
+> bounded long-poll by design).
 
 Related: [03-token-efficiency](03-token-efficiency.md) ·
 [04-human-in-the-loop](04-human-in-the-loop.md) ·
@@ -96,14 +97,23 @@ The flagship. Full curated working set in fixed section order with per-section
 truncation footers. Budgets to a **default `2000`-token ceiling**; `--full` or
 `--max-tokens 0` opts out. Spec and sample output: [03-token-efficiency](03-token-efficiency.md).
 
-### `kanban watch <id> --since <seq> [--json]`
+### `kanban watch <id> [--since <seq>] [--follow] [--json]`
 Scoped delta: events touching `<id>` and its **direct** deps since `seq`. Cheap
-mid-task refresh. Returns the new high-water `seq`.
+mid-task refresh. Returns the new high-water `seq`. `--since` is required for the
+one-shot read; with `--follow` it defaults to the current board `seq`.
 
-### `kanban changes --since <seq> [--json]`
+### `kanban changes [--since <seq>] [--follow] [--json]`
 Board-wide delta since `seq`. When the cursor predates the compaction floor the
 response is `{reset:true, floor, cursor}` (exit `0`) — a full re-list is needed;
 otherwise `{events, cursor, floor}`. `watch` shares these reset semantics.
+
+**`--follow` (both commands):** stream events as **NDJSON** (one JSON event per
+line) until Ctrl-C (exit `0`), over the server's WebSocket — no polling. The
+stream reconnects from the last-seen `seq` after a server restart (a stderr
+`reconnecting…` note; duplicates deduped by seq) and passes `reset` frames
+through verbatim when compaction outruns the cursor (never silent). `watch
+--follow` client-side filters to the task + its direct deps and refreshes that
+set when a dep edge on the task changes.
 
 ### `kanban inbox [--since <seq>] [--json]`
 Resume entry point. Terse one-line-per-request plaintext (resolutions first — the

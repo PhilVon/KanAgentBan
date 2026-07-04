@@ -185,7 +185,7 @@ The full surface — nothing here is off-limits. Any read takes `--json` and
 `--max-tokens N`/`--full`; global flags `--board <path>` and `--as <id>` (or
 `KANBAN_AGENT`) apply everywhere. Full flag detail: `docs/05-cli-reference.md`.
 
-- Read: `next [--context|--n N|--mine]`, `list [--status|--label|--limit]`, `show <id>`, `context <id>`, `watch <id> --since <seq>`, `changes --since <seq>`, `inbox [--since]`, `compact [--keep N]`
+- Read: `next [--context|--n N|--mine]`, `list [--status|--label|--limit]`, `show <id>`, `context <id>`, `watch <id> --since <seq> [--follow]`, `changes --since <seq> [--follow]` (`--follow` streams NDJSON until Ctrl-C — for humans/scripts, not agent turns), `inbox [--since]`, `compact [--keep N]`
 - Write: `add [--parent T-1|--depends|--label|--ac|--prio|--status]`, `update [--expect-version N]`, `move <id> <col>`, `done`, `archive`, `claim [--force]`, `release [--force]`, `dep add/rm --on <id>`, `parent <id> --to <pid>|--clear`, `comment <id> "…"`, `criterion add/check [--off]`, `label --add/--rm`, `artifact --kind --title --uri`, `summarize`
 - HITL: `ask [--options|--freeform|--expires-at]`, `await [qid|--task|--any] [--timeout S]`, `answer`, `cancel`
 - Lifecycle: `board init/show/nudge`, `serve [--port]`, `export [--out FILE]`, `open`
