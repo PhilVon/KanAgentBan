@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { makeRepo, sleep, startTestServer, stopTestServer, client } from './helpers';
-import { boardStats, taskTiming, buildSegments } from '../src/server/stats';
+import { boardStats, computeTrend, taskTiming, buildSegments } from '../src/server/stats';
 import { renderStats, renderTaskStats } from '../src/server/render';
 
 describe('stats: per-task timing', () => {
@@ -493,8 +493,150 @@ describe('stats: rendering + REST', () => {
 
       const missing = await c('GET', '/api/tasks/T-999/stats');
       expect(missing.status).toBe(404);
+
+      // v8 fields present on the JSON envelope.
+      expect(board.body).toHaveProperty('dwell');
+      expect(board.body).toHaveProperty('bottleneck');
+      expect(board.body.throughput).toHaveProperty('trend');
     } finally {
       await stopTestServer(h);
     }
+  });
+});
+
+describe('stats: dwell + bottleneck (T-12)', () => {
+  it('aggregates closed stints per status; open segments do not count', async () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 'x', status: 'Ready' });
+    await sleep(30);
+    repo.moveTask(t.id, 'In Progress'); // closes the Ready stint (~30ms)
+    await sleep(5);
+    repo.moveTask(t.id, 'Done'); // closes the In Progress stint (~5ms); Done stays open
+
+    const s = boardStats(repo);
+    const by = (st: string) => s.dwell.find((d) => d.status === st)!;
+    expect(by('Ready').closed.n).toBe(1);
+    expect(by('In Progress').closed.n).toBe(1);
+    expect(by('Done').closed.n).toBe(0); // still open — excluded
+    expect(by('Ready').closed.avg).toBeGreaterThanOrEqual(by('In Progress').closed.avg);
+    expect(s.bottleneck!.status).toBe('Ready');
+    expect(s.bottleneck!.avg_ms).toBe(by('Ready').closed.avg);
+  });
+
+  it('Backlog never wins the bottleneck flag; null when nothing closed', async () => {
+    const repo = makeRepo();
+    expect(boardStats(repo).bottleneck).toBeNull();
+
+    const t = repo.createTask({ title: 'x' }); // Backlog
+    await sleep(30);
+    repo.moveTask(t.id, 'Ready'); // closes a long Backlog stint
+    await sleep(5);
+    repo.moveTask(t.id, 'Done'); // closes a short Ready stint
+
+    const s = boardStats(repo);
+    expect(s.dwell.find((d) => d.status === 'Backlog')!.closed.n).toBe(1);
+    expect(s.bottleneck!.status).toBe('Ready'); // Backlog excluded despite longer dwell
+  });
+
+  it('excludes partial-history tasks from dwell aggregates', async () => {
+    const repo = makeRepo();
+    const early = repo.createTask({ title: 'early', status: 'Ready' });
+    await sleep(5);
+    repo.moveTask(early.id, 'Done'); // one closed Ready stint
+    for (let i = 0; i < 10; i++) repo.createTask({ title: `t${i}` });
+    repo.compact(3); // floor advances past early's creation
+
+    const s = boardStats(repo);
+    expect(s.excluded_partial).toContain(early.id);
+    expect(s.dwell.find((d) => d.status === 'Ready')!.closed.n).toBe(0);
+  });
+});
+
+describe('stats: velocity trend (T-13)', () => {
+  const series = (vals: number[]) =>
+    vals.map((completed, i) => ({ date: `2026-01-${String(i + 1).padStart(2, '0')}`, completed }));
+
+  it('rising series trends up with a delta', () => {
+    const t = computeTrend(series([0, 1, 2, 3]));
+    expect(t.direction).toBe('up');
+    expect(t.prior_per_day).toBe(0.5);
+    expect(t.recent_per_day).toBe(2.5);
+    expect(t.delta_pct).toBe(400);
+  });
+
+  it('falling series trends down', () => {
+    const t = computeTrend(series([3, 2, 1, 0]));
+    expect(t.direction).toBe('down');
+    expect(t.delta_pct).toBe(-80);
+  });
+
+  it('steady series is flat with a 0% delta', () => {
+    const t = computeTrend(series([1, 1, 1, 1]));
+    expect(t.direction).toBe('flat');
+    expect(t.delta_pct).toBe(0);
+  });
+
+  it('all-zero series is flat with a null delta', () => {
+    const t = computeTrend(series([0, 0, 0, 0]));
+    expect(t.direction).toBe('flat');
+    expect(t.delta_pct).toBeNull();
+  });
+
+  it('windows under 4 days are always flat (halves too small)', () => {
+    const t = computeTrend(series([0, 3, 9]));
+    expect(t.direction).toBe('flat');
+    expect(t.delta_pct).toBeNull();
+  });
+
+  it('zero prior with recent activity is up with a null delta', () => {
+    const t = computeTrend(series([0, 0, 2, 2]));
+    expect(t.direction).toBe('up');
+    expect(t.delta_pct).toBeNull();
+  });
+
+  it('odd windows drop the middle day', () => {
+    const t = computeTrend(series([0, 0, 9, 2, 2]));
+    expect(t.prior_per_day).toBe(0);
+    expect(t.recent_per_day).toBe(2);
+    expect(t.direction).toBe('up');
+  });
+});
+
+describe('stats: v8 rendering', () => {
+  it('renders the dwell line with a bottleneck flag and sheds it under budget', async () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 'x', status: 'Ready' });
+    await sleep(5);
+    repo.moveTask(t.id, 'In Progress');
+    repo.moveTask(t.id, 'Done');
+
+    const s = boardStats(repo);
+    const full = renderStats(s, { full: true });
+    expect(full).toContain('dwell (closed stints):');
+    expect(full).toContain('⚠ bottleneck:');
+
+    const tiny = renderStats(s, { maxTokens: 5 });
+    expect(tiny).not.toContain('dwell (closed stints):');
+    expect(tiny).toContain('hidden for token budget');
+  });
+
+  it('omits the dwell line when nothing has closed a stint', () => {
+    const repo = makeRepo();
+    repo.createTask({ title: 'x' }); // one open Backlog segment
+    expect(renderStats(boardStats(repo), { full: true })).not.toContain('dwell (closed stints):');
+  });
+
+  it('the velocity line carries the trend annotation', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 'x' });
+    repo.moveTask(t.id, 'Done');
+    const s = boardStats(repo);
+    s.throughput.trend = { recent_per_day: 1.2, prior_per_day: 0.86, delta_pct: 40, direction: 'up' };
+    expect(renderStats(s, { full: true })).toContain('trend ↑ +40% (1.2/d vs 0.86/d)');
+
+    // A young board (window < 4 days) has nothing to compare — no suffix.
+    const fresh = boardStats(repo);
+    expect(fresh.throughput.trend.direction).toBe('flat');
+    expect(renderStats(fresh, { full: true })).not.toContain('· trend');
   });
 });

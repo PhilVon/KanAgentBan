@@ -809,7 +809,16 @@ async function loadStats() {
   }
 
   const tiles = el('div', 'tiles');
-  tiles.append(tile('done / window', String(s.throughput.total), `${s.throughput.rolling_avg_per_day}/day · ${s.throughput.per_week}/wk`));
+  // Velocity trend: recent half of the window vs the prior half.
+  const tr = s.throughput.trend || { direction: 'flat', delta_pct: null };
+  const trendTxt =
+    tr.direction === 'flat' && tr.delta_pct === null
+      ? ''
+      : ` · ${tr.direction === 'up' ? '↑' : tr.direction === 'down' ? '↓' : '→'}${tr.delta_pct !== null ? ` ${tr.delta_pct > 0 ? '+' : ''}${tr.delta_pct}%` : ''} vs prior half`;
+  const tpTile = tile('done / window', String(s.throughput.total), `${s.throughput.rolling_avg_per_day}/day · ${s.throughput.per_week}/wk${trendTxt}`);
+  if (tr.direction === 'up') tpTile.classList.add('tile-good');
+  else if (tr.direction === 'down') tpTile.classList.add('tile-warn');
+  tiles.append(tpTile);
   tiles.append(tile('lead p50', fmtDur(s.timing_summary.lead_ms.p50), `p90 ${fmtDur(s.timing_summary.lead_ms.p90)} · n=${s.timing_summary.lead_ms.n}`));
   tiles.append(tile('cycle p50', fmtDur(s.timing_summary.cycle_ms.p50), `p90 ${fmtDur(s.timing_summary.cycle_ms.p90)} · n=${s.timing_summary.cycle_ms.n}`));
   tiles.append(tile('flow efficiency', pctVal(s.timing_summary.flow_efficiency.p50), `avg ${pctVal(s.timing_summary.flow_efficiency.avg)} · n=${s.timing_summary.flow_efficiency.n}`));
@@ -868,6 +877,21 @@ async function loadStats() {
   if (s.by_agent.length) {
     const rows = s.by_agent.map((a) => [a.agent_id, String(a.completed), fmtDur(a.cycle.p50), String(a.active_wip)]);
     grid.append(metricCard('By agent', metricTable(['agent', 'done', 'cycle p50', 'wip'], rows)));
+  }
+
+  // Dwell by status — closed-stint time per column; the slowest active-flow
+  // status is flagged as the bottleneck.
+  if (s.dwell && s.dwell.some((d) => d.closed.n > 0)) {
+    const rows = s.dwell
+      .filter((d) => d.closed.n > 0)
+      .map((d) => [
+        (s.bottleneck && s.bottleneck.status === d.status ? '⚠ ' : '') + d.status,
+        fmtDur(d.closed.p50),
+        fmtDur(d.closed.p90),
+        String(d.closed.n),
+      ]);
+    const title = s.bottleneck ? `Dwell by status · bottleneck: ${s.bottleneck.status}` : 'Dwell by status';
+    grid.append(metricCard(title, metricTable(['status', 'p50', 'p90', 'n'], rows)));
   }
 
   if (grid.children.length) body.append(grid);
@@ -975,6 +999,233 @@ function toggleMetrics() {
 }
 $('#metrics-btn').addEventListener('click', toggleMetrics);
 $('#metrics-close').addEventListener('click', () => $('#metrics-panel').classList.add('hidden'));
+
+// --- dependency graph ---------------------------------------------------------
+// Hand-rolled layered DAG layout over /api/ui/graph (no chart library, like the
+// burndown/CFD SVGs). Longest-path layering terminates because the server
+// rejects dependency cycles; barycenter ordering untangles rows within a layer.
+
+const NODE_W = 130, NODE_H = 34, COL_W = 180, ROW_H = 48, GRAPH_PAD = 12;
+
+function graphLayout(nodes, edges) {
+  const shown = new Set();
+  for (const e of edges) {
+    shown.add(e.from);
+    shown.add(e.to);
+  }
+  const byId = new Map(nodes.filter((n) => shown.has(n.id)).map((n) => [n.id, n]));
+  const preds = new Map([...byId.keys()].map((id) => [id, []]));
+  for (const e of edges) if (byId.has(e.from) && byId.has(e.to)) preds.get(e.to).push(e.from);
+
+  const layer = new Map();
+  const layerOf = (id, seen) => {
+    if (layer.has(id)) return layer.get(id);
+    if (seen.has(id)) return 0; // cycle guard — belt and braces, server rejects these
+    seen.add(id);
+    const ps = preds.get(id);
+    const l = ps.length ? 1 + Math.max(...ps.map((p) => layerOf(p, seen))) : 0;
+    layer.set(id, l);
+    return l;
+  };
+  for (const id of byId.keys()) layerOf(id, new Set());
+
+  const cols = [];
+  for (const [id, l] of layer) (cols[l] = cols[l] || []).push(id);
+  const row = new Map();
+  const bary = (id) => {
+    const ps = preds.get(id).filter((p) => row.has(p));
+    return ps.length ? ps.reduce((a, p) => a + row.get(p), 0) / ps.length : 0;
+  };
+  cols.forEach((ids, l) => {
+    if (l > 0) ids.sort((a, b) => bary(a) - bary(b));
+    ids.forEach((id, i) => row.set(id, i));
+  });
+  return { byId, layer, row, layers: cols.length };
+}
+
+function renderGraph(nodes, edges) {
+  const { byId, layer, row, layers } = graphLayout(nodes, edges);
+  if (!byId.size) return el('div', 'graph-empty', 'no dependencies on the board');
+
+  const pos = (id) => ({ x: GRAPH_PAD + layer.get(id) * COL_W, y: GRAPH_PAD + row.get(id) * ROW_H });
+  const W = GRAPH_PAD * 2 + (layers - 1) * COL_W + NODE_W;
+  const H = GRAPH_PAD * 2 + Math.max(...row.values()) * ROW_H + NODE_H;
+  const svg = svgEl('svg', { class: 'dep-graph', viewBox: `0 0 ${W} ${H}` });
+
+  const defs = svgEl('defs');
+  const marker = svgEl('marker', {
+    id: 'dep-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5,
+    markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse',
+  });
+  marker.append(svgEl('path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: C.muted }));
+  defs.append(marker);
+  svg.append(defs);
+
+  for (const e of edges) {
+    if (!byId.has(e.from) || !byId.has(e.to)) continue;
+    const a = pos(e.from), b = pos(e.to);
+    const x1 = a.x + NODE_W, y1 = a.y + NODE_H / 2, x2 = b.x, y2 = b.y + NODE_H / 2;
+    const bend = Math.max(30, (x2 - x1) / 2);
+    svg.append(svgEl('path', {
+      class: 'graph-edge',
+      d: `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`,
+      fill: 'none', stroke: C.line, 'stroke-width': 1.5, 'marker-end': 'url(#dep-arrow)',
+    }));
+  }
+
+  for (const n of byId.values()) {
+    const { x, y } = pos(n.id);
+    const g = svgEl('g', { class: 'graph-node', transform: `translate(${x},${y})` });
+    const color = CFD_COLORS[n.status] || C.line;
+    const rect = svgEl('rect', { width: NODE_W, height: NODE_H, rx: 6, fill: color + '22', stroke: color, 'stroke-width': 1.5 });
+    if (n.blocked) rect.setAttribute('stroke-dasharray', '4 3');
+    const tip = svgEl('title');
+    tip.textContent = `${n.id} ${n.title} [${n.status}${n.blocked ? ' · blocked' : ''}]`;
+    const idText = svgEl('text', { x: 8, y: 14, 'font-size': 10, fill: color, 'font-weight': 600 });
+    idText.textContent = `${n.id} ${n.priority}`;
+    const titleText = svgEl('text', { x: 8, y: 27, 'font-size': 10, fill: C.muted });
+    titleText.textContent = n.title.length > 20 ? n.title.slice(0, 19) + '…' : n.title;
+    g.append(rect, tip, idText, titleText);
+    g.addEventListener('click', () => openDrawer(n.id));
+    svg.append(g);
+  }
+  return svg;
+}
+
+async function loadGraph() {
+  const body = $('#graph-body');
+  let g;
+  try {
+    g = await api('/api/ui/graph');
+  } catch (e) {
+    body.replaceChildren(el('div', 'metrics-banner', `graph failed: ${e.message}`));
+    return;
+  }
+  body.replaceChildren(renderGraph(g.nodes, g.edges));
+}
+
+let graphTimer = null;
+const GRAPH_EVENTS = new Set(['dep.added', 'dep.removed', 'task.moved', 'task.created', 'task.archived', 'task.updated', 'reset']);
+function scheduleGraph() {
+  if (graphTimer || $('#graph-panel').classList.contains('hidden')) return;
+  graphTimer = setTimeout(() => {
+    graphTimer = null;
+    loadGraph();
+  }, 300);
+}
+
+function toggleGraph() {
+  const p = $('#graph-panel');
+  p.classList.toggle('hidden');
+  if (!p.classList.contains('hidden')) loadGraph();
+}
+$('#graph-btn').addEventListener('click', toggleGraph);
+$('#graph-close').addEventListener('click', () => $('#graph-panel').classList.add('hidden'));
+
+// --- activity log -------------------------------------------------------------
+// Newest-first page over /api/ui/activity; live events prepend while the panel is
+// open (the WS frame IS the event — no refetch). `floor` renders a never-silent
+// banner when history is bounded by compaction.
+const activity = { oldest: null };
+
+const truncStr = (s, n = 80) => (s && s.length > n ? s.slice(0, n - 1) + '…' : s || '');
+
+/** One human phrase per EventType; falls back to `type + payload` for anything
+ *  unmapped so future event types render terse instead of vanishing. */
+function fmtEvent(ev) {
+  const p = ev.payload || {};
+  const M = {
+    'task.created': () => `created${p.title ? ` "${truncStr(p.title)}"` : ''}${p.parent_id ? ` (subtask of ${p.parent_id})` : ''}`,
+    'task.updated': () => `updated ${(p.fields || []).join(', ')}`,
+    'task.moved': () => `moved ${p.from} → ${p.to}`,
+    'task.archived': () => 'archived',
+    'task.claimed': () => `claimed by ${p.assignee}${p.stolen_from ? ` (stolen from ${p.stolen_from})` : ''}`,
+    'task.released': () => `released${p.released_from ? ` (was ${p.released_from})` : ''}`,
+    'task.reparented': () => (p.to ? `nested under ${p.to}` : `detached from ${p.from}`),
+    'dep.added': () => `now blocked by ${p.to}`,
+    'dep.removed': () => `no longer blocked by ${p.to}`,
+    'comment.added': () => `comment ${p.id} added`,
+    'criterion.added': () => `criterion ${p.id} added`,
+    'criterion.checked': () => `criterion ${p.id} checked`,
+    'criterion.unchecked': () => `criterion ${p.id} unchecked`,
+    'label.added': () => `label +${p.name}`,
+    'label.removed': () => `label −${p.name}`,
+    'artifact.added': () => `artifact ${p.id} (${p.kind}) attached`,
+    'input.requested': () => `asked ${p.request_id}: ${truncStr(p.question)}`,
+    'input.answered': () => `${p.request_id} answered: ${truncStr(p.answer)}`,
+    'input.cancelled': () => `${p.request_id} cancelled`,
+    'input.expired': () => `${p.request_id} expired`,
+  };
+  const f = M[ev.type];
+  return f ? f() : `${ev.type} ${truncStr(JSON.stringify(p))}`;
+}
+
+function activityRow(ev) {
+  const row = el('div', 'activity-row');
+  const t = new Date(ev.ts);
+  const hhmm = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+  row.append(el('span', 'activity-time', hhmm));
+  row.append(el('span', `activity-actor ${ev.actor_type || ''}`, ev.actor_type || ''));
+  if (ev.task_id) {
+    const link = el('a', 'activity-task', ev.task_id);
+    link.href = '#';
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      openDrawer(ev.task_id);
+    });
+    row.append(link);
+  }
+  row.append(el('span', 'activity-text', fmtEvent(ev)));
+  return row;
+}
+
+function matchesActivityFilter(ev) {
+  const q = $('#activity-filter').value.trim().toLowerCase();
+  return !q || (ev.task_id || '').toLowerCase() === q;
+}
+
+async function loadActivity({ append = false } = {}) {
+  const body = $('#activity-body');
+  const params = new URLSearchParams();
+  const q = $('#activity-filter').value.trim();
+  if (q) params.set('task', q);
+  if (append && activity.oldest !== null) params.set('before', String(activity.oldest));
+  let r;
+  try {
+    r = await api(`/api/ui/activity${params.toString() ? `?${params}` : ''}`);
+  } catch (e) {
+    body.replaceChildren(el('div', 'metrics-banner', `activity failed: ${e.message}`));
+    return;
+  }
+  if (!append) {
+    body.replaceChildren();
+    activity.oldest = null;
+    if (r.floor > 0)
+      body.append(el('div', 'metrics-banner', `history starts at seq ${r.floor + 1} — older events compacted`));
+    body.append(el('div', 'activity-list'));
+    const more = el('button', 'ghost activity-more', 'Load more');
+    more.addEventListener('click', () => loadActivity({ append: true }));
+    body.append(more);
+  }
+  const list = body.querySelector('.activity-list');
+  for (const ev of r.events) list.append(activityRow(ev));
+  if (r.events.length) activity.oldest = r.events[r.events.length - 1].seq;
+  else if (!append) list.append(el('div', 'activity-empty', 'no activity yet'));
+  // Nothing older to page once we get a short page or reach the floor.
+  const more = body.querySelector('.activity-more');
+  if (more) more.disabled = !r.events.length || (activity.oldest !== null && activity.oldest <= r.floor + 1);
+}
+
+function toggleActivity() {
+  const p = $('#activity-panel');
+  p.classList.toggle('hidden');
+  if (!p.classList.contains('hidden')) loadActivity();
+}
+$('#activity-btn').addEventListener('click', toggleActivity);
+$('#activity-close').addEventListener('click', () => $('#activity-panel').classList.add('hidden'));
+$('#activity-filter').addEventListener('input', () => {
+  if (!$('#activity-panel').classList.contains('hidden')) loadActivity();
+});
 
 // --- create task modal ------------------------------------------------------
 (() => {
@@ -1173,10 +1424,17 @@ function applyEvent(ev) {
   // reset-loop, then reseed from full state.
   if (ev.type === 'reset') {
     lastSeq = Math.max(lastSeq, ev.cursor || ev.floor || 0);
+    if (!$('#activity-panel').classList.contains('hidden')) loadActivity();
     return void refresh();
   }
   if (ev.seq) lastSeq = Math.max(lastSeq, ev.seq);
   if (ev.type === 'input.requested') notify(ev);
+
+  // Live-prepend into the open activity panel — the WS frame IS the event.
+  if (ev.seq && !$('#activity-panel').classList.contains('hidden') && matchesActivityFilter(ev)) {
+    const list = document.querySelector('#activity-panel .activity-list');
+    if (list) list.prepend(activityRow(ev));
+  }
 
   const id = ev.task_id;
   if (ev.type === 'task.archived') return removeCard(id);
@@ -1209,6 +1467,7 @@ function connectWs() {
     }
     applyEvent(ev);
     scheduleStats(); // keep the metrics panel current while it's open
+    if (GRAPH_EVENTS.has(ev.type)) scheduleGraph(); // and the graph panel
   };
 }
 

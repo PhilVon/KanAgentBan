@@ -123,6 +123,59 @@ describe('web UI realtime + write surfaces', () => {
     expect(c.text).toBe('ships green');
   });
 
+  it('the Graph panel lays a chain out in layers with clickable nodes', async () => {
+    const t1 = h.repo.createTask({ title: 'first', status: 'Done', priority: 'P2' });
+    const t2 = h.repo.createTask({ title: 'second', status: 'Ready', priority: 'P2' });
+    const t3 = h.repo.createTask({ title: 'third', status: 'Backlog', priority: 'P2' });
+    h.repo.addDep(t2.id, t1.id); // t2 waits on t1
+    h.repo.addDep(t3.id, t2.id); // t3 waits on t2
+    loadApp();
+    await until(() => document.querySelector('.card'));
+
+    $('#graph-btn').click();
+    await until(() => document.querySelectorAll('#graph-panel .graph-node').length === 3);
+    expect(document.querySelectorAll('#graph-panel .graph-edge').length).toBe(2);
+
+    // Chain -> three distinct layers (x positions strictly increase t1 -> t2 -> t3).
+    const xOf = (id: string) => {
+      const g = [...document.querySelectorAll('#graph-panel .graph-node')].find(
+        (n) => n.querySelector('text')?.textContent?.startsWith(id),
+      )!;
+      return Number(/translate\((\d+(?:\.\d+)?),/.exec(g.getAttribute('transform')!)![1]);
+    };
+    expect(xOf(t1.id)).toBeLessThan(xOf(t2.id));
+    expect(xOf(t2.id)).toBeLessThan(xOf(t3.id));
+
+    // Clicking a node opens its drawer.
+    ([...document.querySelectorAll('#graph-panel .graph-node')][0] as HTMLElement).dispatchEvent(
+      new Event('click', { bubbles: true }),
+    );
+    await until(() => $('#drawer').classList.contains('open'));
+  });
+
+  it('the Activity panel lists events and live-prepends WS frames', async () => {
+    const t = h.repo.createTask({ title: 'Logged', status: 'Ready', priority: 'P2' });
+    loadApp();
+    await until(() => document.querySelector('.card'));
+
+    $('#activity-btn').click();
+    await until(() => document.querySelectorAll('#activity-panel .activity-row').length > 0);
+    const texts = () => [...document.querySelectorAll('#activity-panel .activity-text')].map((e) => e.textContent);
+    expect(texts().some((s) => s?.includes('created'))).toBe(true);
+
+    // A live frame prepends without a refetch (the frame IS the event).
+    h.repo.moveTask(t.id, 'In Progress', 'user');
+    emit({
+      type: 'task.moved',
+      seq: 999,
+      ts: new Date().toISOString(),
+      task_id: t.id,
+      actor_type: 'user',
+      payload: { from: 'Ready', to: 'In Progress' },
+    });
+    await until(() => texts()[0]?.includes('moved Ready → In Progress'));
+  });
+
   it('the filter box hides non-matching cards', async () => {
     h.repo.createTask({ title: 'alpha widget', status: 'Ready', priority: 'P2' });
     h.repo.createTask({ title: 'beta gadget', status: 'Ready', priority: 'P2' });

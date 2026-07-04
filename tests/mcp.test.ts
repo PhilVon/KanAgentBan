@@ -111,6 +111,27 @@ describe('mcp HITL: ask -> (answer) -> inbox', () => {
   });
 });
 
+describe('mcp stats', () => {
+  it('board stats render token-budgeted text with the est_tokens meter', async () => {
+    const id = idOf(await ok('add', { title: 'measurable', status: 'Ready' }));
+    await ok('move', { id, status: 'Done' });
+    const text = await ok('stats', {});
+    expect(text).toContain('board stats · window');
+    expect(text).toContain('[est_tokens:');
+  });
+
+  it('per-task timing when id is given; 404 maps to isError', async () => {
+    const id = idOf(await ok('add', { title: 'timed', status: 'In Progress' }));
+    await ok('move', { id, status: 'Done' });
+    const text = await ok('stats', { id });
+    expect(text).toContain(id);
+    expect(text).toContain('lead');
+
+    const missing = await runTool(conn, 'stats', { id: 'T-999' });
+    expect(missing.isError).toBe(true);
+  });
+});
+
 describe('mcp error mapping', () => {
   it('returns an isError result (not a throw) for a missing task', async () => {
     const r = await runTool(conn, 'show', { id: 'T-999' });
