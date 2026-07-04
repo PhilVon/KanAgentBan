@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { makeRepo, startTestServer, stopTestServer, client } from './helpers';
+import { makeRepo, sleep, startTestServer, stopTestServer, client } from './helpers';
 import { runDoctor } from '../src/server/doctor';
 import { renderDoctor } from '../src/server/render';
 
@@ -68,9 +68,10 @@ describe('doctor: hygiene checks', () => {
     expect(f[0].detail).toContain('ancient?');
   });
 
-  it('flags a stale summary', () => {
+  it('flags a stale summary', async () => {
     const repo = makeRepo();
     const t = repo.createTask({ title: 'a', summary: 's', description: 'd' });
+    await sleep(5); // staleness is a strict > on ISO timestamps — avoid a same-ms tie
     repo.updateTask(t.id, { description: 'd2' }); // description now newer than summary
     const f = runDoctor(repo).findings.filter((x) => x.check === 'stale-summary');
     expect(f.map((x) => x.id)).toEqual([t.id]);
