@@ -79,7 +79,8 @@ const state = {
   tasksById: new Map(),
   inboxByTask: new Map(), // task_id -> open InputRequest[]
   openDrawerId: null,
-  filter: '',
+  filter: '', // raw filter text (for empty-state copy)
+  query: [], // parsed predicates — see parseQuery
 };
 let colListEls = new Map(); // column name -> its .col-list element
 let colCountEls = new Map(); // column name -> its .col-count badge element
@@ -97,12 +98,56 @@ function markSeen(id, count) {
   } catch {}
 }
 
+// --- filter query grammar -----------------------------------------------------
+// Space-separated tokens, ALL must match (AND):
+//   status:<prefix> / col:<prefix> — display column, incl. derived Blocked
+//   p0..p3                         — priority equals
+//   label:<x>                      — label substring
+//   @name                          — assignee substring
+//   is:blocked|input|claimed|subtask
+//   anything else                  — substring over id/title/description/summary/labels/assignee
+// Unknown is:/status: values match nothing (predictable, not silently text).
+function parseQuery(raw) {
+  return raw
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((tok) => {
+      const m = /^(status|col|label|is):(.*)$/.exec(tok);
+      if (m) return { kind: m[1] === 'col' ? 'status' : m[1], value: m[2] };
+      if (/^p[0-3]$/.test(tok)) return { kind: 'prio', value: tok };
+      if (tok.startsWith('@')) return { kind: 'assignee', value: tok.slice(1) };
+      return { kind: 'text', value: tok };
+    });
+}
+
 function matchesFilter(t) {
-  const q = state.filter;
-  if (!q) return true;
-  const hay =
-    `${t.id} ${t.title} ${t.assignee ? '@' + t.assignee : ''} ${(t.labels || []).join(' ')} ${t.priority}`.toLowerCase();
-  return hay.includes(q);
+  if (!state.query.length) return true;
+  const labels = (t.labels || []).map((l) => String(l).toLowerCase());
+  const assignee = (t.assignee || '').toLowerCase();
+  return state.query.every((p) => {
+    switch (p.kind) {
+      case 'status':
+        return p.value !== '' && String(t.column || t.status).toLowerCase().startsWith(p.value);
+      case 'prio':
+        return String(t.priority).toLowerCase() === p.value;
+      case 'label':
+        return labels.some((l) => l.includes(p.value));
+      case 'assignee':
+        return assignee.includes(p.value);
+      case 'is':
+        if (p.value === 'blocked') return !!(t.blocked_by_deps || t.blocked_by_children);
+        if (p.value === 'input') return !!t.needs_input;
+        if (p.value === 'claimed') return t.assignee != null;
+        if (p.value === 'subtask') return t.parent_id != null;
+        return false;
+      default:
+        return `${t.id} ${t.title} ${t.description || ''} ${t.summary || ''} ${labels.join(' ')} ${assignee}`
+          .toLowerCase()
+          .includes(p.value);
+    }
+  });
 }
 
 // --- project identity -------------------------------------------------------
@@ -651,6 +696,7 @@ document.addEventListener('keydown', (e) => {
 // --- filter -----------------------------------------------------------------
 $('#filter').addEventListener('input', (e) => {
   state.filter = e.target.value.trim().toLowerCase();
+  state.query = parseQuery(e.target.value);
   renderBoard();
 });
 

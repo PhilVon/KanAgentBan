@@ -104,6 +104,25 @@ parked `kanban await` resolves off the same emitter
 Constrained answers are validated server-side (answer ∈ `options`); the UI
 mirrors the constraint by offering buttons, but the server is authoritative.
 
+### Filter grammar
+
+The header filter box takes space-separated tokens that must **all** match
+(AND), evaluated client-side over the already-loaded board:
+
+- `status:<prefix>` (alias `col:`) — display column, case-insensitive prefix, so
+  `status:blocked` matches the derived Blocked projection and `status:rev`
+  matches Review.
+- Bare `p0`…`p3` — priority equals.
+- `label:<x>` — label substring; `@name` — assignee substring.
+- `is:blocked` (dep- or child-blocked), `is:input` (open input request),
+  `is:claimed`, `is:subtask`.
+- Any other bare token — substring over id, title, **description, summary**,
+  labels, and assignee.
+
+Unknown `is:`/`status:` values match nothing rather than degrading to text.
+Comment-body search is out of scope (would need a server round-trip; comments
+arrive as counts on cards).
+
 ### Metrics / burndown panel
 
 A **📊 Metrics** toggle in the header opens a panel backed by `GET /api/stats?json`

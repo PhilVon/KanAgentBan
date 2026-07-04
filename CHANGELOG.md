@@ -48,6 +48,8 @@ Unreleased section describing its change.
 - Web activity-log panel: paged `/api/ui/activity`, live prepend,
   compaction-floor banner (#13)
 - Web dependency-graph panel: layered SVG over `/api/ui/graph` (#14)
+- Web filter token grammar: `status:`/`p0`–`p3`/`label:`/`@`/`is:` +
+  description/summary search (#15)
 
 ### Fixed
 - Repeated `--label`/`--depends` on `kanban add` and `--options` on
