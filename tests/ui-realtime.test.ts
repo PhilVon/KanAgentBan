@@ -136,4 +136,50 @@ describe('web UI realtime + write surfaces', () => {
     await until(() => document.querySelectorAll('.card').length === 1);
     expect(($('.card .title') as HTMLElement).textContent).toBe('alpha widget');
   });
+
+  it('the filter grammar matches priority, status, label, is:, description, and ANDs tokens', async () => {
+    const urgent = h.repo.createTask({
+      title: 'urgent fix', status: 'Review', priority: 'P0', labels: ['api'],
+      description: 'flux capacitor misfires',
+    });
+    h.repo.claimTask(urgent.id, 'alice');
+    const blocker = h.repo.createTask({ title: 'prereq', status: 'Ready', priority: 'P2' });
+    const blocked = h.repo.createTask({ title: 'waits', status: 'Ready', priority: 'P2' });
+    h.repo.addDep(blocked.id, blocker.id);
+    loadApp();
+    await until(() => document.querySelectorAll('.card').length === 3);
+
+    const filter = $('#filter') as HTMLInputElement;
+    const setQuery = (q: string) => {
+      filter.value = q;
+      filter.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    const visible = () =>
+      [...document.querySelectorAll('.card .title')].map((e) => e.textContent);
+
+    setQuery('p0');
+    await until(() => visible().length === 1);
+    expect(visible()).toEqual(['urgent fix']);
+
+    setQuery('status:rev'); // prefix match on the display column
+    await until(() => visible().length === 1 && visible()[0] === 'urgent fix');
+
+    setQuery('status:blocked'); // derived column matches too
+    await until(() => visible().length === 1 && visible()[0] === 'waits');
+
+    setQuery('is:blocked');
+    await until(() => visible().length === 1 && visible()[0] === 'waits');
+
+    setQuery('label:ap @ali'); // AND across tokens
+    await until(() => visible().length === 1 && visible()[0] === 'urgent fix');
+
+    setQuery('capacitor'); // bare text now reaches the description
+    await until(() => visible().length === 1 && visible()[0] === 'urgent fix');
+
+    setQuery('is:frobnicate'); // unknown is: matches nothing, not treated as text
+    await until(() => visible().length === 0);
+
+    setQuery('');
+    await until(() => visible().length === 3);
+  });
 });
