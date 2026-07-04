@@ -357,6 +357,50 @@ program
     }
   });
 
+// ---- templates (reusable blueprints: criteria set, labels, subtasks) ------
+const tpl = program.command('template').description('reusable task blueprints: save a task\'s shape once, apply it many times');
+tpl
+  .command('save <name>')
+  .requiredOption('--from <tid>', 'task to snapshot (priority, labels, criteria, subtask skeleton)')
+  .action(async (name, o) => {
+    const t = await api(await conn(), 'PUT', `/api/templates/${name}`, { from: o.from });
+    const bp = t.blueprint;
+    out(`template "${t.name}" saved  (${bp.criteria.length} criteria · ${bp.labels.length} labels · ${bp.subtasks.length} subtasks)`);
+  });
+tpl
+  .command('apply <name> <title>')
+  .option('--prio <p>', 'override the blueprint priority')
+  .option('--status <s>')
+  .option('--parent <tid>', 'create as a subtask of this task')
+  .action(async (name, title, o) => {
+    const r = await api(await conn(), 'POST', `/api/templates/${name}/apply`, {
+      title,
+      priority: o.prio,
+      status: o.status,
+      parent: o.parent,
+    });
+    out(`${r.task.id}  created from "${name}"${r.children.length ? `  subtasks: ${r.children.join(', ')}` : ''}`);
+  });
+tpl.command('list').option('--json').action(async (o) => {
+  const r = await api(await conn(), 'GET', '/api/templates');
+  if (o.json) return out(JSON.stringify(r, null, 2));
+  if (!r.templates.length) return out('(no templates — kanban template save <name> --from T-n)');
+  for (const t of r.templates)
+    out(`${t.name}  ${t.blueprint.criteria.length} criteria · ${t.blueprint.labels.length} labels · ${t.blueprint.subtasks.length} subtasks`);
+});
+tpl.command('show <name>').option('--json').action(async (name, o) => {
+  const t = await api(await conn(), 'GET', `/api/templates/${name}`);
+  if (o.json) return out(JSON.stringify(t, null, 2));
+  const bp = t.blueprint;
+  out(`${t.name}${bp.priority ? `  [${bp.priority}]` : ''}${bp.labels.length ? `  labels: ${bp.labels.join(', ')}` : ''}`);
+  for (const c of bp.criteria) out(`  [ ] ${c}`);
+  for (const s of bp.subtasks) out(`  ⤷ ${s.title}${s.criteria.length ? `  (${s.criteria.length} criteria)` : ''}`);
+});
+tpl.command('delete <name>').action(async (name) => {
+  await api(await conn(), 'DELETE', `/api/templates/${name}`);
+  out(`template "${name}" deleted`);
+});
+
 // ---- docs (board-native knowledge: design docs / ADRs / research) ---------
 const doc = program.command('doc').description('board-native documents: design | adr | spike | research | note');
 doc

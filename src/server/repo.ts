@@ -29,6 +29,8 @@ import type {
   Priority,
   SearchResult,
   Task,
+  TaskTemplate,
+  TemplateBlueprint,
   WorkflowStatus,
 } from '../shared/types';
 
@@ -900,6 +902,109 @@ export class Repo {
         }
       }
       return { archived, skipped: [...remaining] };
+    });
+  }
+
+  // templates (reusable blueprints — criteria, labels, subtask skeleton) ---
+
+  getTemplate(name: string): TaskTemplate | undefined {
+    const r = this.db.prepare('SELECT * FROM template WHERE name = ?').get(name) as any;
+    return (
+      r && { name: r.name, blueprint: JSON.parse(r.body), created_at: r.created_at, updated_at: r.updated_at }
+    );
+  }
+
+  requireTemplate(name: string): TaskTemplate {
+    const t = this.getTemplate(name);
+    if (!t) throw new NotFoundError(`template "${name}" not found`);
+    return t;
+  }
+
+  listTemplates(): TaskTemplate[] {
+    return (this.db.prepare('SELECT name FROM template ORDER BY name').all() as { name: string }[]).map(
+      (r) => this.getTemplate(r.name)!,
+    );
+  }
+
+  /**
+   * Snapshot a task as a reusable blueprint: priority, labels, criteria texts,
+   * and the direct-children skeleton (titles + their criteria). The title is
+   * deliberately NOT captured — `apply` names each instance. Same name = upsert
+   * (a template is config, not history; the event log keeps the trail).
+   */
+  saveTemplateFromTask(name: string, taskId: string, actor: ActorType = 'agent'): TaskTemplate {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(name))
+      throw new ValidationError('template name must be 1-64 chars: letters, digits, - or _ (no spaces)');
+    const t = this.requireTask(taskId);
+    const blueprint: TemplateBlueprint = {
+      ...(t.description ? { description: t.description } : {}),
+      priority: t.priority,
+      labels: this.getLabels(taskId),
+      criteria: this.getCriteria(taskId).map((c) => c.text),
+      subtasks: this.getChildren(taskId).map((c) => ({
+        title: c.title,
+        criteria: this.getCriteria(c.id).map((x) => x.text),
+      })),
+    };
+    this.mutate((rec) => {
+      const ts = now();
+      this.db
+        .prepare(
+          `INSERT INTO template(name, body, created_at, updated_at) VALUES(?,?,?,?)
+           ON CONFLICT(name) DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at`,
+        )
+        .run(name, JSON.stringify(blueprint), ts, ts);
+      rec({ type: 'template.saved', task_id: null, actor_type: actor, payload: { name, from: taskId } });
+    });
+    return this.getTemplate(name)!;
+  }
+
+  deleteTemplate(name: string, actor: ActorType = 'agent'): void {
+    this.requireTemplate(name);
+    this.mutate((rec) => {
+      this.db.prepare('DELETE FROM template WHERE name = ?').run(name);
+      rec({ type: 'template.deleted', task_id: null, actor_type: actor, payload: { name } });
+    });
+  }
+
+  /**
+   * Instantiate a blueprint: one transaction creating the task (labels +
+   * criteria from the blueprint; explicit overrides win) and its subtask
+   * skeleton, plus a `template.applied` provenance event on the new task.
+   */
+  applyTemplate(
+    name: string,
+    overrides: { title: string; status?: WorkflowStatus; priority?: Priority; parent?: string },
+    actor: ActorType = 'agent',
+  ): { task: Task; children: string[] } {
+    const tpl = this.requireTemplate(name);
+    if (!overrides.title?.trim()) throw new ValidationError('apply needs a task title');
+    if (overrides.status !== undefined) assertWritableStatus(overrides.status);
+    return this.mutate((rec) => {
+      const bp = tpl.blueprint;
+      const task = this.createTaskTx(
+        rec,
+        {
+          title: overrides.title,
+          description: bp.description,
+          status: overrides.status,
+          priority: overrides.priority ?? bp.priority,
+          parent: overrides.parent,
+          labels: bp.labels,
+          criteria: bp.criteria,
+        },
+        actor,
+      );
+      const children = (bp.subtasks ?? []).map(
+        (s) => this.createTaskTx(rec, { title: s.title, parent: task.id, criteria: s.criteria }, actor).id,
+      );
+      rec({
+        type: 'template.applied',
+        task_id: task.id,
+        actor_type: actor,
+        payload: { name, task_id: task.id, children },
+      });
+      return { task: this.requireTask(task.id), children };
     });
   }
 

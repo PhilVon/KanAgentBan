@@ -147,6 +147,18 @@ endpoints: all git/`gh` execution is CLI-side.
 | `GET` | `/api/doctor?max_tokens=&full=&json=` | `doctor` | read-only hygiene report; `{text, healthy}`, `?json` adds `findings[]` (`{check, id, detail}`) + `checks[]` + `est_tokens` |
 | `GET` | `/api/standup?since=&days=&max_tokens=&full=&json=` | `standup` | narrative diff since a seq (or last N days, default 1); `{text, cursor}`, `?json` adds the full `StandupReport`; cursor below the floor clamps with `floor_clamped: true` |
 
+## Templates
+
+| Method | Path | CLI |
+|--------|------|-----|
+| `GET` / `PUT` / `DELETE` | `/api/templates/:name` (`PUT` body `{from: T-n}`) | `template show/save/delete` |
+| `GET` | `/api/templates` | `template list` |
+| `POST` | `/api/templates/:name/apply` (`{title, status?, priority?, parent?}`) | `template apply` |
+
+`apply` creates the whole tree in one transaction and returns `{task, children}`;
+`template.saved` / `template.deleted` are board-scoped events, `template.applied`
+lands on the new task with `{name, task_id, children}`.
+
 ## Search
 
 | Method | Path | CLI | Notes |

@@ -385,6 +385,49 @@ export const TOOLS: ToolDef[] = [
 
   // ---- search --------------------------------------------------------------
   {
+    name: 'template',
+    description: 'Reusable task blueprints. op=save snapshots task `from` (priority, labels, criteria, subtask skeleton) under `name`; op=apply instantiates it with `title` (overrides win); op=list/show/delete manage them. Use for repeated shapes like a PR checklist or spike.',
+    inputSchema: {
+      op: z.enum(['save', 'apply', 'list', 'show', 'delete']),
+      name: z.string().optional().describe('template name (all ops except list)'),
+      from: z.string().optional().describe('task to snapshot (op=save)'),
+      title: z.string().optional().describe('new task title (op=apply)'),
+      priority: z.string().optional(),
+      status: z.string().optional(),
+      parent: z.string().optional(),
+    },
+    run: async (c, a) => {
+      if (a.op === 'list') {
+        const r = await api(c, 'GET', '/api/templates');
+        return r.templates.length
+          ? r.templates.map((t: any) => `${t.name}  ${t.blueprint.criteria.length} criteria · ${t.blueprint.subtasks.length} subtasks`).join('\n')
+          : '(no templates)';
+      }
+      if (!a.name) throw new CliError(`template ${a.op} needs a name`, 1);
+      if (a.op === 'save') {
+        if (!a.from) throw new CliError('template save needs `from` (a task id)', 1);
+        const t = await api(c, 'PUT', `/api/templates/${a.name}`, { from: a.from });
+        return `template "${t.name}" saved (${t.blueprint.criteria.length} criteria · ${t.blueprint.subtasks.length} subtasks)`;
+      }
+      if (a.op === 'apply') {
+        if (!a.title) throw new CliError('template apply needs a title', 1);
+        const r = await api(c, 'POST', `/api/templates/${a.name}/apply`, {
+          title: a.title,
+          priority: a.priority,
+          status: a.status,
+          parent: a.parent,
+        });
+        return `${r.task.id} created from "${a.name}"${r.children.length ? ` with subtasks ${r.children.join(', ')}` : ''}`;
+      }
+      if (a.op === 'delete') {
+        await api(c, 'DELETE', `/api/templates/${a.name}`);
+        return `template "${a.name}" deleted`;
+      }
+      const t = await api(c, 'GET', `/api/templates/${a.name}`);
+      return JSON.stringify(t, null, 2);
+    },
+  },
+  {
     name: 'search',
     description:
       'Board-wide search over tasks (title/description/summary), docs (title/summary/body), and comments. Ranked matches with a snippet, one line each. Use before re-researching or re-deciding something — prior findings and ADRs surface here.',
