@@ -103,6 +103,11 @@ Unreleased section describing its change.
   reason, recorded on the `task.moved` event (`{review, reason}`) and as a
   task comment; feeds existing kickback stats unchanged; REST
   `/api/tasks/:id/review`, MCP `review` tool (#26)
+- Standup digest: `kanban standup [--since seq|--days N]` — narrative board
+  diff (completed incl. review approvals, kickbacks with reasons, net moves,
+  new tasks, question traffic incl. defaulted answers, aging list) for
+  cold-start orientation; floor-clamped never-silently; REST `/api/standup`,
+  MCP `standup` tool (FORMAT_VERSION 16→17) (#27)
 
 ### Fixed
 - Repeated `--label`/`--depends` on `kanban add` and `--options` on

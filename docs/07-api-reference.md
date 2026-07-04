@@ -134,11 +134,12 @@ duplicate reference returns the existing artifact with no new event (safe for
 and `branch` (`branch:<name>`). The `kanban git …` commands themselves have no
 endpoints: all git/`gh` execution is CLI-side.
 
-## Doctor
+## Doctor & standup
 
 | Method | Path | CLI | Notes |
 |--------|------|-----|-------|
 | `GET` | `/api/doctor?max_tokens=&full=&json=` | `doctor` | read-only hygiene report; `{text, healthy}`, `?json` adds `findings[]` (`{check, id, detail}`) + `checks[]` + `est_tokens` |
+| `GET` | `/api/standup?since=&days=&max_tokens=&full=&json=` | `standup` | narrative diff since a seq (or last N days, default 1); `{text, cursor}`, `?json` adds the full `StandupReport`; cursor below the floor clamps with `floor_clamped: true` |
 
 ## Search
 

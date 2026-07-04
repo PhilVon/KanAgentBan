@@ -148,6 +148,23 @@ program
   });
 
 program
+  .command('standup')
+  .description('narrative board diff: completed, kickbacks, moves, new tasks, question traffic, aging (default: last 1 day)')
+  .option('--since <seq>', 'start from this event seq (e.g. your last saved cursor)')
+  .option('--days <n>', 'window in days instead of a cursor (default 1)')
+  .option('--max-tokens <n>', 'token budget (sheds trailing sections)')
+  .option('--full', 'ignore the token budget')
+  .option('--json')
+  .action(async (o) => {
+    const q = new URLSearchParams(
+      clean({ since: o.since, days: o.days, max_tokens: o.maxTokens, full: o.full, json: o.json }),
+    );
+    const qs = q.toString();
+    const r = await api(await conn(), 'GET', `/api/standup${qs ? `?${qs}` : ''}`);
+    out(o.json ? JSON.stringify(r, null, 2) : r.text);
+  });
+
+program
   .command('doctor')
   .description('board hygiene report (stale claims, criteria-less WIP, aging tasks, ancient asks, stale summaries, closable parents) — exit 2 when findings')
   .option('--max-tokens <n>', 'token budget (sheds trailing blocks)')

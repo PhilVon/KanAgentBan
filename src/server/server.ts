@@ -16,6 +16,7 @@ import {
   renderNext,
   renderSearch,
   renderShow,
+  renderStandup,
   renderStats,
   renderTaskStats,
   estimateTokens,
@@ -23,6 +24,7 @@ import {
 } from './render';
 import { recommend } from './recommend';
 import { runDoctor } from './doctor';
+import { standup } from './standup';
 import { boardStats, taskTiming } from './stats';
 import { childProgress, deriveState } from './derive';
 import { ensureBoard, readToken, readBoardMeta } from '../shared/board-paths';
@@ -320,6 +322,18 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
       res.json({ text });
     }),
   );
+
+  // Standup digest — narrative diff since ?since= (event seq) or over ?days=N.
+  app.get('/api/standup', (req, res) => {
+    const report = standup(repo, { since: num(req.query.since), days: num(req.query.days) });
+    const text = renderStandup(report, {
+      full: req.query.full !== undefined,
+      maxTokens: num(req.query.max_tokens),
+    });
+    if (req.query.json !== undefined)
+      return res.json({ ...report, text, est_tokens: estimateTokens(text) });
+    res.json({ text, cursor: report.cursor });
+  });
 
   // Hygiene report — read-only sweep over live rows (no event-log derivation).
   app.get('/api/doctor', (req, res) => {
