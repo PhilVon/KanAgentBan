@@ -864,6 +864,45 @@ export class Repo {
     });
   }
 
+  /**
+   * Auto-archive policy sweep ([server.ts]; `board autoarchive --days N`):
+   * archive Done tasks whose last touch is older than `days`. Same bottom-up
+   * fixpoint as [archiveDoneTasks] — a task archives only once it has no live
+   * children, so an aged fully-Done subtree collapses while a young child
+   * keeps its parent alive (skipped, not errored). Events carry `auto: true`
+   * so a policy archive is distinguishable from a manual one.
+   */
+  archiveDoneOlderThan(days: number, actor: ActorType = 'system'): { archived: number; skipped: string[] } {
+    if (!Number.isFinite(days) || days <= 0)
+      throw new ValidationError('auto-archive threshold must be a positive number of days');
+    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+    return this.mutate((rec) => {
+      const remaining = new Set(
+        (
+          this.db
+            .prepare(
+              `SELECT id FROM task WHERE status = 'Done' AND archived_at IS NULL AND updated_at <= ?`,
+            )
+            .all(cutoff) as { id: string }[]
+        ).map((r) => r.id),
+      );
+      let archived = 0;
+      let progressed = true;
+      while (progressed) {
+        progressed = false;
+        for (const id of [...remaining]) {
+          if (this.childCount(id) > 0) continue; // live children remain — revisit next pass
+          this.db.prepare('UPDATE task SET archived_at = ? WHERE id = ?').run(now(), id);
+          rec({ type: 'task.archived', task_id: id, actor_type: actor, payload: { auto: true } });
+          remaining.delete(id);
+          archived++;
+          progressed = true;
+        }
+      }
+      return { archived, skipped: [...remaining] };
+    });
+  }
+
   // dependencies ----------------------------------------------------------
 
   private reachable(start: string, target: string): boolean {

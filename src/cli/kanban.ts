@@ -675,6 +675,39 @@ board.command('show').action(async () => {
   out(JSON.stringify({ ...r, nudge: meta.nudge ? redactNudge(meta.nudge) : null }, null, 2));
 });
 
+// Auto-archive policy config — local board.json edit; the server reads it at
+// each sweep (≤5 min), so no restart is needed. KANBAN_AUTO_ARCHIVE_DAYS overrides.
+board
+  .command('autoarchive')
+  .description('auto-archive Done tasks untouched for N days (server sweep; --off disables)')
+  .option('--days <n>', 'age threshold in days')
+  .option('--off', 'disable the policy')
+  .action((o) => {
+    const root = program.opts().board ?? findBoardRoot(process.cwd());
+    if (!root) throw new CliError('no board here — run `kanban board init` first', 3);
+    const paths = boardPaths(root);
+    const meta = readBoardMeta(paths);
+    if (o.off) {
+      delete meta.auto_archive_days;
+      writeBoardMeta(paths, meta);
+      out('auto-archive disabled');
+      return;
+    }
+    if (o.days) {
+      const days = Number(o.days);
+      if (!Number.isFinite(days) || days <= 0) throw new CliError('--days must be a positive number', 1);
+      meta.auto_archive_days = days;
+      writeBoardMeta(paths, meta);
+      out(`auto-archive: Done tasks untouched ${days}d now archive on the server sweep (≤5 min lag)`);
+      return;
+    }
+    out(
+      meta.auto_archive_days
+        ? `auto-archive: ${meta.auto_archive_days}d`
+        : 'auto-archive off (set with --days N)',
+    );
+  });
+
 // External-nudge auto-resume config (docs/04 §3C). Local board.json edit — no
 // server round-trip. Env (KANBAN_NUDGE_URL / KANBAN_NUDGE_CMD) overrides at runtime.
 board
