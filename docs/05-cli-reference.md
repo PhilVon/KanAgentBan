@@ -195,6 +195,15 @@ conventions: `commit` → `uri: git:<sha>`, `branch` → `uri: branch:<name>`,
 Sets a fresh `summary` (clears the stale-summary flag). Server never
 auto-summarizes — this is the manual refresh path.
 
+### `kanban checkpoint <id> ["did X, next Y, watch Z"] [--clear]`
+The **one-slot resume pointer** for cross-session continuity: set it whenever you
+pause or yield a task; the next session (any agent) reads it *first* — it renders
+directly under the task head in `show`/`context`, is flagged on `next`'s
+recommendation line, and is never shed under token budget. Latest wins (no
+history — the event log keeps the trail as `task.checkpointed`). With no text,
+prints the current pointer; `--clear` removes it. Capped at 1000 chars: it is a
+pointer, not a log — detail belongs in comments or docs.
+
 ### `kanban done <id>` / `kanban archive <id>`
 `done` moves to Done (recomputes dependents' readiness); `archive` soft-deletes.
 

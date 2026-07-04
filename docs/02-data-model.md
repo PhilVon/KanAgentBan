@@ -69,6 +69,9 @@ each sequence under the write transaction.
 | `position` | REAL | manual ordering within a column |
 | `assignee` | TEXT NULL | agent identity holding the task (`kanban claim`/`release`, [09 §9](09-concurrency.md)) |
 | `parent_id` | TEXT NULL | parent task (`T-n`) when this is a subtask; null at the top level (§6) |
+| `checkpoint` | TEXT NULL | one-slot resume pointer ("did X, next Y, watch Z"); latest wins, renders first in `show`/`context` |
+| `checkpoint_at` | TEXT NULL | when the checkpoint was written |
+| `checkpoint_by` | TEXT NULL | agent identity that wrote it (`X-Agent`) |
 | `version` | INTEGER | optimistic-concurrency token, bumped per mutation |
 | `created_at` / `updated_at` | TEXT | |
 | `archived_at` | TEXT NULL | soft delete; non-null = archived |
@@ -226,7 +229,7 @@ Every mutation appends exactly one event. This list is the shared contract for
 
 ```
 task.created      task.updated      task.moved        task.archived
-task.claimed      task.released     task.reparented
+task.claimed      task.released     task.reparented   task.checkpointed
 dep.added         dep.removed
 comment.added
 criterion.added   criterion.checked criterion.unchecked
@@ -246,6 +249,10 @@ payloads are `{assignee, stolen_from?}` and `{released_from}` respectively — s
 null) when a task is nested under, or detached from, a parent (§6). A subtask
 created with a parent records its `parent_id` directly in the `task.created`
 payload rather than emitting a separate event.
+
+`task.checkpointed` carries `{text}` on set and `{cleared: true}` on clear. The
+task row holds only the *latest* checkpoint (one slot, latest wins); the event
+log is the history.
 
 Doc events carry `doc_id` in the payload. `doc.created` / `doc.updated` are
 board-scoped (`task_id` null); `doc.linked` / `doc.unlinked` set `task_id` to the

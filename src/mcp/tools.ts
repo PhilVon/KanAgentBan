@@ -252,6 +252,24 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'checkpoint',
+    description: 'Set (or clear) a task\'s one-slot resume pointer — "did X, next Y, watch Z". Latest wins; it renders first in show/context so a cold session resumes from it. Set one whenever you pause or yield a task.',
+    inputSchema: {
+      id: z.string(),
+      text: z.string().optional().describe('the resume pointer (omit with clear=true)'),
+      clear: z.boolean().optional(),
+    },
+    run: async (c, a) => {
+      if (a.clear) {
+        await api(c, 'POST', `/api/tasks/${a.id}/checkpoint`, { clear: true });
+        return `${a.id} checkpoint cleared`;
+      }
+      if (typeof a.text !== 'string') throw new CliError('checkpoint needs `text` (or clear=true)', 1);
+      await api(c, 'POST', `/api/tasks/${a.id}/checkpoint`, { text: a.text });
+      return `${a.id} checkpoint set`;
+    },
+  },
+  {
     name: 'criterion',
     description: 'Manage acceptance criteria: op=add (needs id + text) appends a criterion; op=check (needs acid; checked defaults true) ticks/unticks one.',
     inputSchema: {

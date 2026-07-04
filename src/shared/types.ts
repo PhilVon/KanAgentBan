@@ -58,6 +58,13 @@ export interface Task {
   assignee: string | null;
   /** Parent task id (`T-n`) when this is a subtask; null at the top level. */
   parent_id: string | null;
+  /** Resume pointer — one per task, latest wins ("did X, next Y, watch Z").
+   *  Rendered first in show/context so a cold session reads it before anything
+   *  else. Null when never set (or cleared). */
+  checkpoint: string | null;
+  checkpoint_at: string | null;
+  /** Agent identity that wrote the checkpoint (x-agent / KANBAN_AGENT). */
+  checkpoint_by: string | null;
   version: number;
   created_at: string;
   updated_at: string;
@@ -199,6 +206,7 @@ export type EventType =
   | 'task.claimed'
   | 'task.released'
   | 'task.reparented'
+  | 'task.checkpointed'
   | 'dep.added'
   | 'dep.removed'
   | 'comment.added'

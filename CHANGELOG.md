@@ -77,6 +77,11 @@ Unreleased section describing its change.
   (live PR/CI via `gh` on demand, never stored), `git install-hooks`
   (prepare-commit-msg + fire-and-forget post-commit); no schema change
   (FORMAT_VERSION 11→12) (#21)
+- Checkpoint resume pointer: `kanban checkpoint T-n "did X, next Y, watch Z"`
+  — one slot per task, latest wins, rendered first in `show`/`context` and
+  flagged on `next`; never shed under token budget; `task.checkpointed` events;
+  REST `/api/tasks/:id/checkpoint`, MCP `checkpoint` tool
+  (SCHEMA_VERSION 6→7, FORMAT_VERSION 12→13) (#22)
 
 ### Fixed
 - Repeated `--label`/`--depends` on `kanban add` and `--options` on

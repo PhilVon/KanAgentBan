@@ -42,7 +42,10 @@ import {
 // v12: git linkage — artifact kinds extended with `commit` (`git:<sha>`) and
 //     `branch` (`branch:<name>`); `kanban git status` renders a CLI-side view
 //     merging board artifacts with live repo/PR state (ADR 0008).
-export const FORMAT_VERSION = 12;
+// v13: checkpoint — the one-slot resume pointer renders first in `show`/`context`
+//     (right under the task head, above all comments) and is never shed under
+//     budget; `next` flags a waiting checkpoint on its recommendation line.
+export const FORMAT_VERSION = 13;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;
@@ -103,6 +106,17 @@ function rel(iso: string): string {
 
 function fmtComment(c: Comment): string {
   return `  ${c.author_type}/${c.author_name} ${rel(c.created_at)}  "${c.body}"`;
+}
+
+/**
+ * The resume pointer — the first thing a cold session should read, so it
+ * renders directly under the task head in `show`/`context` and is never shed
+ * under token budget (one line, and "where was I" is the whole point).
+ */
+function checkpointLine(t: Task): string | null {
+  if (!t.checkpoint) return null;
+  const by = t.checkpoint_by && t.checkpoint_by !== 'agent' ? ` by ${t.checkpoint_by}` : '';
+  return `checkpoint (${rel(t.checkpoint_at!)} ago${by}): ${t.checkpoint}`;
 }
 
 /**
@@ -178,7 +192,8 @@ export function renderNext(
   }
   const blocks = r.map((rec) => {
     const callout = userCommentCallout(repo, rec.task.id);
-    return `${renderRecLine(rec.task)}\nwhy: ${rec.why}${callout ? `\n${callout}` : ''}`;
+    const cp = checkpointLine(rec.task);
+    return `${renderRecLine(rec.task)}\nwhy: ${rec.why}${cp ? `\n  ↳ ${cp}` : ''}${callout ? `\n${callout}` : ''}`;
   });
   const body = budgetBlocks(blocks, opts, '\n\n', (n) => `[+${n} candidates hidden for token budget — kanban next --full]`);
   return body.concat('\n(use: kanban context <id>  ·  kanban next --context)');
@@ -218,6 +233,8 @@ function buildShow(repo: Repo, id: string, t: Task, fid: ShowFidelity): string {
   const open = repo.getOpenRequests(id);
   const kids = childProgress(repo.db, id);
   const lines: string[] = [`${t.id} [${t.priority}] ${t.status}  "${t.title}"`];
+  const cp = checkpointLine(t);
+  if (cp) lines.push(cp);
   if (t.parent_id) lines.push(`parent: ${t.parent_id}`);
   if (t.summary)
     lines.push(
@@ -306,8 +323,10 @@ interface Fidelity {
 function buildContextSections(repo: Repo, id: string, t: Task, fid: Fidelity): string[] {
   const sections: string[] = [];
 
-  // 1. task line + summary
+  // 1. task line + checkpoint (the resume pointer reads first) + summary
   sections.push(`${t.id} [${t.priority}] ${t.status}  "${t.title}"`);
+  const cp = checkpointLine(t);
+  if (cp) sections.push(cp);
   if (t.parent_id) sections.push(`parent: ${t.parent_id}`);
   if (t.assignee) sections.push(`assignee: ${t.assignee}`);
   if (t.summary) {

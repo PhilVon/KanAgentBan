@@ -39,6 +39,10 @@ const now = () => new Date().toISOString();
  *  and stays well inside the server's 1 MB JSON body limit. */
 export const MAX_DOC_BODY_BYTES = 64 * 1024;
 
+/** Ceiling on a checkpoint. It is a resume *pointer* ("did X, next Y, watch Z"),
+ *  not a progress log — real detail belongs in comments or docs. */
+export const MAX_CHECKPOINT_CHARS = 1000;
+
 /** Append a comment-author filter to a WHERE clause, pushing any bound param. */
 function commentAuthorClause(author: ActorType | 'non-user' | undefined, params: any[]): string {
   if (!author) return '';
@@ -527,6 +531,43 @@ export class Repo {
         (sets.push('priority = @priority'), (params.priority = fields.priority));
       this.db.prepare(`UPDATE task SET ${sets.join(', ')} WHERE id = @id`).run(params);
       rec({ type: 'task.updated', task_id: id, actor_type: actor, payload: { fields: Object.keys(fields) } });
+      return this.requireTask(id);
+    });
+  }
+
+  /**
+   * Set (or clear, with `null`) a task's checkpoint — the one-slot resume
+   * pointer for cross-session continuity. Latest wins; there is no history
+   * (the event log keeps the trail). Clearing an already-clear checkpoint is
+   * an idempotent no-op (no event).
+   */
+  setCheckpoint(
+    id: string,
+    text: string | null,
+    opts: { actor?: ActorType; by?: string } = {},
+  ): Task {
+    const actor = opts.actor ?? 'agent';
+    if (text !== null && !text.trim()) throw new ValidationError('checkpoint text cannot be empty (use clear)');
+    if (text !== null && text.length > MAX_CHECKPOINT_CHARS)
+      throw new ValidationError(
+        `checkpoint too long (${text.length} > ${MAX_CHECKPOINT_CHARS} chars) — it is a resume pointer, not a log; put detail in a comment or doc`,
+      );
+    return this.mutate((rec) => {
+      const t = this.requireTask(id);
+      if (text === null && t.checkpoint === null) return t; // idempotent: nothing to clear
+      const ts = now();
+      this.db
+        .prepare(
+          `UPDATE task SET checkpoint = ?, checkpoint_at = ?, checkpoint_by = ?,
+             version = version + 1, updated_at = ? WHERE id = ?`,
+        )
+        .run(text, text === null ? null : ts, text === null ? null : (opts.by ?? 'agent'), ts, id);
+      rec({
+        type: 'task.checkpointed',
+        task_id: id,
+        actor_type: actor,
+        payload: text === null ? { cleared: true } : { text },
+      });
       return this.requireTask(id);
     });
   }

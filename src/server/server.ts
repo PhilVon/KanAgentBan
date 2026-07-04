@@ -534,6 +534,17 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
   app.post('/api/tasks/:id/summary', wrap((req, res) =>
     res.json(repo.updateTask(req.params.id, { summary: req.body.summary }, { actor: actor(req) })),
   ));
+  // Checkpoint resume pointer: `{text}` sets (latest wins), `{clear:true}` clears.
+  // A body with neither is rejected — a malformed set must never silently clear.
+  app.post('/api/tasks/:id/checkpoint', wrap((req, res) => {
+    const clear = !!req.body?.clear;
+    const text = req.body?.text;
+    if (!clear && typeof text !== 'string')
+      return res.status(400).json(errBody('validation', 'checkpoint needs {text} or {clear:true}'));
+    res.json(
+      repo.setCheckpoint(req.params.id, clear ? null : text, { actor: actor(req), by: agentId(req) }),
+    );
+  }));
 
   // --- human-in-the-loop ------------------------------------------------
   app.post('/api/tasks/:id/input-requests', wrap((req, res) =>
