@@ -218,9 +218,14 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'move',
-    description: 'Move a task to a workflow column (Backlog | Ready | In Progress | Review | Done). Moving to Done is refused while the task has open subtasks.',
-    inputSchema: { id: z.string(), status: z.string().describe('target column') },
+    description: 'Move a task to a workflow column (Backlog | Ready | In Progress | Review | Done). Moving to Done is refused while the task has open subtasks. `id` accepts a comma-separated list (T-1,T-2) — applied in one all-or-nothing transaction.',
+    inputSchema: { id: z.string().describe('task id, or comma-separated ids for a bulk move'), status: z.string().describe('target column') },
     run: async (c, a) => {
+      if (a.id.includes(',')) {
+        const ids = a.id.split(',').map((s: string) => s.trim()).filter(Boolean);
+        const r = await api(c, 'POST', '/api/tasks/bulk', { op: 'move', ids, status: a.status });
+        return `${r.count} task(s) -> ${a.status}`;
+      }
       const t = await api(c, 'POST', `/api/tasks/${a.id}/move`, { status: a.status });
       return `${t.id} -> ${t.status}`;
     },
@@ -246,9 +251,14 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'archive',
-    description: 'Archive (soft-delete) a task. Refused while it has live (non-archived) children.',
-    inputSchema: { id: z.string() },
+    description: 'Archive (soft-delete) a task. Refused while it has live (non-archived) children. `id` accepts a comma-separated list — one all-or-nothing transaction.',
+    inputSchema: { id: z.string().describe('task id, or comma-separated ids for a bulk archive') },
     run: async (c, a) => {
+      if (a.id.includes(',')) {
+        const ids = a.id.split(',').map((s: string) => s.trim()).filter(Boolean);
+        const r = await api(c, 'POST', '/api/tasks/bulk', { op: 'archive', ids });
+        return `${r.count} task(s) archived`;
+      }
       await api(c, 'POST', `/api/tasks/${a.id}/archive`);
       return `${a.id} archived`;
     },

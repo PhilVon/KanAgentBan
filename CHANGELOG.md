@@ -108,6 +108,10 @@ Unreleased section describing its change.
   new tasks, question traffic incl. defaulted answers, aging list) for
   cold-start orientation; floor-clamped never-silently; REST `/api/standup`,
   MCP `standup` tool (FORMAT_VERSION 16→17) (#27)
+- Bulk ops: `kanban move/done/archive/label` accept `T-1,T-2,…` — one
+  server-side transaction, one event per task, all-or-nothing rollback on any
+  bad id or guard failure; REST `POST /api/tasks/bulk`; MCP move/archive
+  accept comma lists (#28)
 
 ### Fixed
 - Repeated `--label`/`--depends` on `kanban add` and `--options` on

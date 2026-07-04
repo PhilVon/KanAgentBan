@@ -575,24 +575,62 @@ export class Repo {
   /** Set the workflow status (the UI "Blocked" column is derived, never set here). */
   moveTask(id: string, status: WorkflowStatus, actor: ActorType = 'agent'): Task {
     assertWritableStatus(status);
-    return this.mutate((rec) => {
-      const t = this.requireTask(id);
-      if (status === 'Done') {
-        const open = this.openChildCount(id);
-        if (open > 0)
-          throw new ValidationError(`cannot complete ${id}: ${open} open subtask(s) remain`);
-      }
-      this.db
-        .prepare('UPDATE task SET status = ?, version = version + 1, updated_at = ? WHERE id = ?')
-        .run(status, now(), id);
-      rec({
-        type: 'task.moved',
-        task_id: id,
-        actor_type: actor,
-        payload: { from: t.status, to: status },
-      });
-      return this.requireTask(id);
+    return this.mutate((rec) => this.moveTaskTx(rec, id, status, actor));
+  }
+
+  /** Move body shared with `bulk` (which runs many in one transaction). */
+  private moveTaskTx(rec: any, id: string, status: WorkflowStatus, actor: ActorType): Task {
+    const t = this.requireTask(id);
+    if (status === 'Done') {
+      const open = this.openChildCount(id);
+      if (open > 0)
+        throw new ValidationError(`cannot complete ${id}: ${open} open subtask(s) remain`);
+    }
+    this.db
+      .prepare('UPDATE task SET status = ?, version = version + 1, updated_at = ? WHERE id = ?')
+      .run(status, now(), id);
+    rec({
+      type: 'task.moved',
+      task_id: id,
+      actor_type: actor,
+      payload: { from: t.status, to: status },
     });
+    return this.requireTask(id);
+  }
+
+  /**
+   * Bulk workflow ops: the same move/label/archive bodies, many ids, **one
+   * transaction, one event per task**. All-or-nothing — any invalid id or
+   * guard failure (open subtasks, live children) rolls the whole batch back,
+   * so a cleanup sweep never half-applies. Ids are de-duplicated.
+   */
+  bulk(
+    op: 'move' | 'label' | 'unlabel' | 'archive',
+    ids: string[],
+    args: { status?: string; name?: string } = {},
+    actor: ActorType = 'agent',
+  ): { count: number; ids: string[] } {
+    if (!['move', 'label', 'unlabel', 'archive'].includes(op))
+      throw new ValidationError(`bulk op must be move | label | unlabel | archive (got "${op}")`);
+    const unique = [...new Set(ids)];
+    if (!unique.length) throw new ValidationError('bulk needs at least one task id');
+    if (op === 'move') assertWritableStatus(args.status ?? '');
+    if ((op === 'label' || op === 'unlabel') && !args.name)
+      throw new ValidationError(`bulk ${op} needs a label name`);
+    this.mutate((rec) => {
+      for (const id of unique) {
+        if (op === 'move') this.moveTaskTx(rec, id, args.status as WorkflowStatus, actor);
+        else if (op === 'archive') this.archiveTaskTx(rec, id, actor);
+        else if (op === 'label') {
+          this.requireTask(id);
+          this.addLabelTx(rec, id, args.name!, actor);
+        } else {
+          this.requireTask(id);
+          this.removeLabelTx(rec, id, args.name!, actor);
+        }
+      }
+    });
+    return { count: unique.length, ids: unique };
   }
 
   /**
@@ -777,16 +815,19 @@ export class Repo {
   }
 
   archiveTask(id: string, actor: ActorType = 'agent'): void {
-    this.mutate((rec) => {
-      this.requireTask(id);
-      const open = this.childCount(id);
-      if (open > 0)
-        throw new ValidationError(
-          `cannot archive ${id}: ${open} subtask(s) still attached — archive or reparent them first`,
-        );
-      this.db.prepare('UPDATE task SET archived_at = ? WHERE id = ?').run(now(), id);
-      rec({ type: 'task.archived', task_id: id, actor_type: actor, payload: {} });
-    });
+    this.mutate((rec) => this.archiveTaskTx(rec, id, actor));
+  }
+
+  /** Archive body shared with `bulk`. */
+  private archiveTaskTx(rec: any, id: string, actor: ActorType): void {
+    this.requireTask(id);
+    const open = this.childCount(id);
+    if (open > 0)
+      throw new ValidationError(
+        `cannot archive ${id}: ${open} subtask(s) still attached — archive or reparent them first`,
+      );
+    this.db.prepare('UPDATE task SET archived_at = ? WHERE id = ?').run(now(), id);
+    rec({ type: 'task.archived', task_id: id, actor_type: actor, payload: {} });
   }
 
   /**
@@ -1025,10 +1066,12 @@ export class Repo {
   }
 
   removeLabel(taskId: string, name: string, actor: ActorType = 'agent'): void {
-    this.mutate((rec) => {
-      this.db.prepare('DELETE FROM task_label WHERE task_id=? AND label_name=?').run(taskId, name);
-      rec({ type: 'label.removed', task_id: taskId, actor_type: actor, payload: { name } });
-    });
+    this.mutate((rec) => this.removeLabelTx(rec, taskId, name, actor));
+  }
+
+  private removeLabelTx(rec: any, taskId: string, name: string, actor: ActorType): void {
+    this.db.prepare('DELETE FROM task_label WHERE task_id=? AND label_name=?').run(taskId, name);
+    rec({ type: 'label.removed', task_id: taskId, actor_type: actor, payload: { name } });
   }
 
   // docs (board-native knowledge: design docs / ADRs / research — ADR 0007) --

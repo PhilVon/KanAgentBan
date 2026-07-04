@@ -115,6 +115,12 @@ is derived, never stored ([02-data-model §5-6](02-data-model.md)).
 | `POST` | `/api/tasks/:id/artifacts` | `artifact` / `git link` |
 | `POST` | `/api/tasks/:id/summary` | `summarize` |
 | `POST` | `/api/tasks/:id/checkpoint` | `checkpoint` |
+| `POST` | `/api/tasks/bulk` | `move`/`done`/`archive`/`label` with `T-1,T-2,…` |
+
+`POST /api/tasks/bulk` takes `{op: move|label|unlabel|archive, ids: [...],
+status?, name?}` — one transaction, one event per task, all-or-nothing (any
+invalid id or guard failure rolls the batch back); returns `{count, ids}`
+(de-duplicated).
 
 `POST /api/tasks/:id/deps` rejects cycles/self/duplicate with `409`/`400`.
 

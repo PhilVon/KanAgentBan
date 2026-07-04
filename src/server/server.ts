@@ -485,6 +485,14 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
   // Bulk-archive the Done column. Registered before the `:id` routes so the
   // literal `archive-done` segment is never captured as a task id.
   app.post('/api/tasks/archive-done', wrap((req, res) => res.json(repo.archiveDoneTasks(actor(req)))));
+  // Bulk move/label/unlabel/archive: one transaction, one event per task,
+  // all-or-nothing. Registered before the `:id` routes like archive-done.
+  app.post('/api/tasks/bulk', wrap((req, res) => {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
+    res.json(
+      repo.bulk(req.body?.op, ids, { status: str(req.body?.status), name: str(req.body?.name) }, actor(req)),
+    );
+  }));
   app.patch(
     '/api/tasks/:id',
     wrap((req, res) => {
