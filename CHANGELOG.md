@@ -87,6 +87,11 @@ Unreleased section describing its change.
   with `task.released {expired:true}`, so a dead agent never wedges a task;
   holder re-claim = heartbeat renewal (no event); lease state on `context`'s
   assignee line (SCHEMA_VERSION 7→8, FORMAT_VERSION 13→14) (#23)
+- Board doctor: `kanban doctor` — one read-only hygiene report (stale claims,
+  criteria-less WIP, aging WIP, ancient open questions, stale summaries,
+  Done-eligible parents), each finding naming its fix; exit 2 signals findings
+  for session-start automation; REST `/api/doctor`, MCP `doctor` tool
+  (FORMAT_VERSION 14→15) (#24)
 
 ### Fixed
 - Repeated `--label`/`--depends` on `kanban add` and `--options` on

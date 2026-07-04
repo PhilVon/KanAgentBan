@@ -11,6 +11,7 @@ import {
   renderContext,
   renderDoc,
   renderDocList,
+  renderDoctor,
   renderList,
   renderNext,
   renderSearch,
@@ -21,6 +22,7 @@ import {
   FORMAT_VERSION,
 } from './render';
 import { recommend } from './recommend';
+import { runDoctor } from './doctor';
 import { boardStats, taskTiming } from './stats';
 import { childProgress, deriveState } from './derive';
 import { ensureBoard, readToken, readBoardMeta } from '../shared/board-paths';
@@ -318,6 +320,18 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
       res.json({ text });
     }),
   );
+
+  // Hygiene report — read-only sweep over live rows (no event-log derivation).
+  app.get('/api/doctor', (req, res) => {
+    const report = runDoctor(repo);
+    const text = renderDoctor(report, {
+      full: req.query.full !== undefined,
+      maxTokens: num(req.query.max_tokens),
+    });
+    if (req.query.json !== undefined)
+      return res.json({ ...report, text, est_tokens: estimateTokens(text) });
+    res.json({ text, healthy: report.healthy });
+  });
 
   // Delta reads carry the compaction floor for transparency. A cursor predating
   // the floor gets `{reset:true}` instead of a silently-truncated delta — the
