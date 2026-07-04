@@ -44,6 +44,7 @@ Unreleased section describing its change.
   (node 20) (#9)
 - Per-status dwell/bottleneck + velocity trend in `stats` (FORMAT_VERSION 8)
   (#11)
+- `stats` MCP tool: board analytics + per-task timing in the read ladder (#12)
 
 ### Fixed
 - Repeated `--label`/`--depends` on `kanban add` and `--options` on
