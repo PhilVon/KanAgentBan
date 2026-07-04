@@ -255,6 +255,11 @@ payload rather than emitting a separate event.
 task row holds only the *latest* checkpoint (one slot, latest wins); the event
 log is the history.
 
+A default-on-expiry resolution (`ask --default`) records `input.answered` with
+`{request_id, answer, defaulted: true}` and actor `system` — not `input.expired`
+— so consumers can distinguish a human answer from an applied default
+([04 §2](04-human-in-the-loop.md)).
+
 Doc events carry `doc_id` in the payload. `doc.created` / `doc.updated` are
 board-scoped (`task_id` null); `doc.linked` / `doc.unlinked` set `task_id` to the
 linked task so `watch` and the UI drawer refresh on link changes. Archiving a doc

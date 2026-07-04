@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS input_request (
   answered_by TEXT,
   created_at TEXT NOT NULL,
   answered_at TEXT,
-  expires_at TEXT
+  expires_at TEXT,
+  default_answer TEXT
 );
 
 CREATE TABLE IF NOT EXISTS acceptance_criterion (
@@ -329,6 +330,11 @@ function migrate(db: DB): void {
   // v7 -> v8: claim leases — one nullable expiry column beside `assignee`.
   if (current > 0 && current < 8) {
     addColumnIfMissing(db, 'task', 'claim_expires_at', 'TEXT');
+  }
+
+  // v8 -> v9: default-on-expiry answers — one nullable column on input_request.
+  if (current > 0 && current < 9) {
+    addColumnIfMissing(db, 'input_request', 'default_answer', 'TEXT');
   }
 
   if (current < SCHEMA_VERSION) {

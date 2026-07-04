@@ -92,6 +92,12 @@ Unreleased section describing its change.
   Done-eligible parents), each finding naming its fix; exit 2 signals findings
   for session-start automation; REST `/api/doctor`, MCP `doctor` tool
   (FORMAT_VERSION 14→15) (#24)
+- Default-on-expiry answers: `kanban ask --default X --expires-at ISO`
+  resolves as `answered` at expiry (`answered_by: system:default`,
+  `input.answered {defaulted:true}`, actor `system`) instead of dead-ending —
+  agent stays unblocked when the human is away; flagged in `inbox`, `await`,
+  and `context`'s open-input lines; human answer before the deadline wins
+  (SCHEMA_VERSION 8→9, FORMAT_VERSION 15→16) (#25)
 
 ### Fixed
 - Repeated `--label`/`--depends` on `kanban add` and `--options` on

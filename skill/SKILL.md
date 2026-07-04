@@ -187,7 +187,10 @@ kanban await Q-7 --timeout 60                                     # try a short 
 
 `ask` also takes `--expires-at <ISO>` to auto-expire a stale request, and
 `kanban cancel Q-7` withdraws an open request you no longer need (clears the task's
-needs-input).
+needs-input). Add `--default X` (with `--expires-at`) when there's a safe fallback:
+at expiry the request resolves as `answered (defaulted)` instead of dead-ending, so
+you stay unblocked when the human is away — use it for reversible choices, never
+for destructive ones.
 
 **Write the question so the human can answer it cold.** They see only the board —
 not your chat or your reasoning. So make each `ask` count:
@@ -251,6 +254,6 @@ The full surface — nothing here is off-limits. Any read takes `--json` and
 - Search: `search "<query>" [--type task|doc|comment|idea] [--limit N]` — ranked hits with snippets across the whole board
 - Brainstorm: `brainstorm start "<topic>" [--task T-n]`, `brainstorm add <B-n> "<idea>" [--cluster N]`, `brainstorm show/list/close`, `idea score <I-n> <0-10>`, `idea cluster <I-n> <name>`, `idea promote <I-n> [--title|--prio|--parent]`, `idea drop <I-n>`
 - Git: `git branch T-n [--checkout]`, `git link [T-n] [--depth N]`, `git status [T-n]`, `git install-hooks [--force]`
-- HITL: `ask [--options|--freeform|--expires-at]`, `await [qid|--task|--any] [--timeout S]`, `answer`, `cancel`
+- HITL: `ask [--options|--freeform|--expires-at|--default X]`, `await [qid|--task|--any] [--timeout S]`, `answer`, `cancel`
 - Lifecycle: `board init/show/nudge`, `serve [--port]`, `export [--out FILE]`, `open`
 - Reporting (not the work loop): `stats [id] [--window N]` — board analytics / per-task timing, read-only; `doctor` — hygiene report, exit 2 on findings.

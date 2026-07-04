@@ -494,6 +494,7 @@ export const TOOLS: ToolDef[] = [
       options: z.array(z.string()).optional().describe('constrained choices'),
       freeform: z.boolean().optional(),
       expires_at: z.string().optional().describe('ISO timestamp; the request auto-expires after this'),
+      default: z.string().optional().describe('auto-answer applied at expiry (requires expires_at) — keeps you unblocked when the human is away; the resolution is flagged "defaulted"'),
     },
     run: async (c, a) => {
       const r = await api(c, 'POST', `/api/tasks/${a.id}/input-requests`, {
@@ -501,8 +502,9 @@ export const TOOLS: ToolDef[] = [
         options: a.options,
         freeform: !!a.freeform,
         expires_at: a.expires_at,
+        default: a.default,
       });
-      return `${r.id} created on ${a.id} (task now needs input). Durable: don't block — await briefly, otherwise yield this turn and resume via inbox.`;
+      return `${r.id} created on ${a.id} (task now needs input)${r.default_answer ? ` [defaults to "${r.default_answer}" at expiry]` : ''}. Durable: don't block — await briefly, otherwise yield this turn and resume via inbox.`;
     },
   },
   {
@@ -524,7 +526,7 @@ export const TOOLS: ToolDef[] = [
       if (r.__status === 204) return `pending — no answer within ${timeout}s. Not an error: yield this turn and resume later via inbox.`;
       if (r.status === 'none') return 'no open questions';
       const id = r.request_id ?? a.qid;
-      return r.status === 'answered' ? `${id} answered: ${r.answer}` : `${id} ${r.status}`;
+      return r.status === 'answered' ? `${id} answered${r.defaulted ? ' (defaulted)' : ''}: ${r.answer}` : `${id} ${r.status}`;
     },
   },
   {

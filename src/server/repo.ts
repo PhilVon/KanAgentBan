@@ -1446,17 +1446,34 @@ export class Repo {
   ask(
     taskId: string,
     question: string,
-    opts: { options?: string[]; freeform?: boolean; expiresAt?: string; actor?: ActorType } = {},
+    opts: {
+      options?: string[];
+      freeform?: boolean;
+      expiresAt?: string;
+      defaultAnswer?: string;
+      actor?: ActorType;
+    } = {},
   ): InputRequest {
     const actor = opts.actor ?? 'agent';
+    // A default only ever applies at expiry — without a deadline it would be
+    // unreachable dead state, so require the pairing up front.
+    if (opts.defaultAnswer !== undefined && !opts.expiresAt)
+      throw new ValidationError('a default answer needs --expires-at (it is applied at expiry)');
+    if (
+      opts.defaultAnswer !== undefined &&
+      opts.options &&
+      !opts.freeform &&
+      !opts.options.includes(opts.defaultAnswer)
+    )
+      throw new ValidationError(`default must be one of: ${opts.options.join(', ')}`);
     return this.mutate((rec) => {
       this.requireTask(taskId);
       const id = nextRequestId(this.db);
       const ts = now();
       this.db
         .prepare(
-          `INSERT INTO input_request(id,task_id,question,options,answer_freeform,status,created_at,expires_at)
-           VALUES(?,?,?,?,?, 'open', ?, ?)`,
+          `INSERT INTO input_request(id,task_id,question,options,answer_freeform,status,created_at,expires_at,default_answer)
+           VALUES(?,?,?,?,?, 'open', ?, ?, ?)`,
         )
         .run(
           id,
@@ -1466,6 +1483,7 @@ export class Repo {
           opts.freeform ? 1 : 0,
           ts,
           opts.expiresAt ?? null,
+          opts.defaultAnswer ?? null,
         );
       rec({ type: 'input.requested', task_id: taskId, actor_type: actor, payload: { request_id: id, question } });
       return this.getRequest(id)!;
@@ -1513,13 +1531,17 @@ export class Repo {
   }
 
   /**
-   * Resolve every open request whose `expires_at` has passed: mark it `expired`
-   * and fire `input.expired`. The `rec` collector batches all of them into one
-   * transaction + one broadcast. `nowTs` is injectable so tests drive expiry
-   * deterministically. Called by the server's low-frequency sweep (server.ts);
-   * inert when no open request carries an `expires_at`.
+   * Resolve every open request whose `expires_at` has passed. A request carrying
+   * a `default_answer` resolves as **answered** (`answered_by: 'system:default'`,
+   * `input.answered` flagged `defaulted: true`) — the agent stays unblocked when
+   * the human is away, never silently: the flag rides the event and the
+   * answered_by. Requests without a default expire as before (`input.expired`).
+   * The `rec` collector batches all of them into one transaction + one
+   * broadcast. `nowTs` is injectable so tests drive expiry deterministically.
+   * Called by the server's low-frequency sweep (server.ts); inert when no open
+   * request carries an `expires_at`.
    */
-  expireDue(nowTs: string = now()): { expired: number } {
+  expireDue(nowTs: string = now()): { expired: number; defaulted: number } {
     return this.mutate((rec) => {
       const due = this.db
         .prepare(
@@ -1527,12 +1549,29 @@ export class Repo {
         )
         .all(nowTs)
         .map(this.mapRequest);
-      const upd = this.db.prepare(`UPDATE input_request SET status='expired', answered_at=? WHERE id=?`);
+      const expire = this.db.prepare(`UPDATE input_request SET status='expired', answered_at=? WHERE id=?`);
+      const applyDefault = this.db.prepare(
+        `UPDATE input_request SET status='answered', answer=?, answered_by='system:default', answered_at=? WHERE id=?`,
+      );
+      let expired = 0;
+      let defaulted = 0;
       for (const r of due) {
-        upd.run(nowTs, r.id);
-        rec({ type: 'input.expired', task_id: r.task_id, actor_type: 'system', payload: { request_id: r.id } });
+        if (r.default_answer !== null) {
+          applyDefault.run(r.default_answer, nowTs, r.id);
+          rec({
+            type: 'input.answered',
+            task_id: r.task_id,
+            actor_type: 'system',
+            payload: { request_id: r.id, answer: r.default_answer, defaulted: true },
+          });
+          defaulted++;
+        } else {
+          expire.run(nowTs, r.id);
+          rec({ type: 'input.expired', task_id: r.task_id, actor_type: 'system', payload: { request_id: r.id } });
+          expired++;
+        }
       }
-      return { expired: due.length };
+      return { expired, defaulted };
     });
   }
 }
