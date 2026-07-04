@@ -47,6 +47,7 @@ Unreleased section describing its change.
 - `stats` MCP tool: board analytics + per-task timing in the read ladder (#12)
 - Web activity-log panel: paged `/api/ui/activity`, live prepend,
   compaction-floor banner (#13)
+- Web dependency-graph panel: layered SVG over `/api/ui/graph` (#14)
 
 ### Fixed
 - Repeated `--label`/`--depends` on `kanban add` and `--options` on

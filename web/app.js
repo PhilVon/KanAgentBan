@@ -954,6 +954,128 @@ function toggleMetrics() {
 $('#metrics-btn').addEventListener('click', toggleMetrics);
 $('#metrics-close').addEventListener('click', () => $('#metrics-panel').classList.add('hidden'));
 
+// --- dependency graph ---------------------------------------------------------
+// Hand-rolled layered DAG layout over /api/ui/graph (no chart library, like the
+// burndown/CFD SVGs). Longest-path layering terminates because the server
+// rejects dependency cycles; barycenter ordering untangles rows within a layer.
+
+const NODE_W = 130, NODE_H = 34, COL_W = 180, ROW_H = 48, GRAPH_PAD = 12;
+
+function graphLayout(nodes, edges) {
+  const shown = new Set();
+  for (const e of edges) {
+    shown.add(e.from);
+    shown.add(e.to);
+  }
+  const byId = new Map(nodes.filter((n) => shown.has(n.id)).map((n) => [n.id, n]));
+  const preds = new Map([...byId.keys()].map((id) => [id, []]));
+  for (const e of edges) if (byId.has(e.from) && byId.has(e.to)) preds.get(e.to).push(e.from);
+
+  const layer = new Map();
+  const layerOf = (id, seen) => {
+    if (layer.has(id)) return layer.get(id);
+    if (seen.has(id)) return 0; // cycle guard — belt and braces, server rejects these
+    seen.add(id);
+    const ps = preds.get(id);
+    const l = ps.length ? 1 + Math.max(...ps.map((p) => layerOf(p, seen))) : 0;
+    layer.set(id, l);
+    return l;
+  };
+  for (const id of byId.keys()) layerOf(id, new Set());
+
+  const cols = [];
+  for (const [id, l] of layer) (cols[l] = cols[l] || []).push(id);
+  const row = new Map();
+  const bary = (id) => {
+    const ps = preds.get(id).filter((p) => row.has(p));
+    return ps.length ? ps.reduce((a, p) => a + row.get(p), 0) / ps.length : 0;
+  };
+  cols.forEach((ids, l) => {
+    if (l > 0) ids.sort((a, b) => bary(a) - bary(b));
+    ids.forEach((id, i) => row.set(id, i));
+  });
+  return { byId, layer, row, layers: cols.length };
+}
+
+function renderGraph(nodes, edges) {
+  const { byId, layer, row, layers } = graphLayout(nodes, edges);
+  if (!byId.size) return el('div', 'graph-empty', 'no dependencies on the board');
+
+  const pos = (id) => ({ x: GRAPH_PAD + layer.get(id) * COL_W, y: GRAPH_PAD + row.get(id) * ROW_H });
+  const W = GRAPH_PAD * 2 + (layers - 1) * COL_W + NODE_W;
+  const H = GRAPH_PAD * 2 + Math.max(...row.values()) * ROW_H + NODE_H;
+  const svg = svgEl('svg', { class: 'dep-graph', viewBox: `0 0 ${W} ${H}` });
+
+  const defs = svgEl('defs');
+  const marker = svgEl('marker', {
+    id: 'dep-arrow', viewBox: '0 0 10 10', refX: 9, refY: 5,
+    markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse',
+  });
+  marker.append(svgEl('path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: C.muted }));
+  defs.append(marker);
+  svg.append(defs);
+
+  for (const e of edges) {
+    if (!byId.has(e.from) || !byId.has(e.to)) continue;
+    const a = pos(e.from), b = pos(e.to);
+    const x1 = a.x + NODE_W, y1 = a.y + NODE_H / 2, x2 = b.x, y2 = b.y + NODE_H / 2;
+    const bend = Math.max(30, (x2 - x1) / 2);
+    svg.append(svgEl('path', {
+      class: 'graph-edge',
+      d: `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`,
+      fill: 'none', stroke: C.line, 'stroke-width': 1.5, 'marker-end': 'url(#dep-arrow)',
+    }));
+  }
+
+  for (const n of byId.values()) {
+    const { x, y } = pos(n.id);
+    const g = svgEl('g', { class: 'graph-node', transform: `translate(${x},${y})` });
+    const color = CFD_COLORS[n.status] || C.line;
+    const rect = svgEl('rect', { width: NODE_W, height: NODE_H, rx: 6, fill: color + '22', stroke: color, 'stroke-width': 1.5 });
+    if (n.blocked) rect.setAttribute('stroke-dasharray', '4 3');
+    const tip = svgEl('title');
+    tip.textContent = `${n.id} ${n.title} [${n.status}${n.blocked ? ' · blocked' : ''}]`;
+    const idText = svgEl('text', { x: 8, y: 14, 'font-size': 10, fill: color, 'font-weight': 600 });
+    idText.textContent = `${n.id} ${n.priority}`;
+    const titleText = svgEl('text', { x: 8, y: 27, 'font-size': 10, fill: C.muted });
+    titleText.textContent = n.title.length > 20 ? n.title.slice(0, 19) + '…' : n.title;
+    g.append(rect, tip, idText, titleText);
+    g.addEventListener('click', () => openDrawer(n.id));
+    svg.append(g);
+  }
+  return svg;
+}
+
+async function loadGraph() {
+  const body = $('#graph-body');
+  let g;
+  try {
+    g = await api('/api/ui/graph');
+  } catch (e) {
+    body.replaceChildren(el('div', 'metrics-banner', `graph failed: ${e.message}`));
+    return;
+  }
+  body.replaceChildren(renderGraph(g.nodes, g.edges));
+}
+
+let graphTimer = null;
+const GRAPH_EVENTS = new Set(['dep.added', 'dep.removed', 'task.moved', 'task.created', 'task.archived', 'task.updated', 'reset']);
+function scheduleGraph() {
+  if (graphTimer || $('#graph-panel').classList.contains('hidden')) return;
+  graphTimer = setTimeout(() => {
+    graphTimer = null;
+    loadGraph();
+  }, 300);
+}
+
+function toggleGraph() {
+  const p = $('#graph-panel');
+  p.classList.toggle('hidden');
+  if (!p.classList.contains('hidden')) loadGraph();
+}
+$('#graph-btn').addEventListener('click', toggleGraph);
+$('#graph-close').addEventListener('click', () => $('#graph-panel').classList.add('hidden'));
+
 // --- activity log -------------------------------------------------------------
 // Newest-first page over /api/ui/activity; live events prepend while the panel is
 // open (the WS frame IS the event — no refetch). `floor` renders a never-silent
@@ -1299,6 +1421,7 @@ function connectWs() {
     }
     applyEvent(ev);
     scheduleStats(); // keep the metrics panel current while it's open
+    if (GRAPH_EVENTS.has(ev.type)) scheduleGraph(); // and the graph panel
   };
 }
 

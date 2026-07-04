@@ -69,6 +69,11 @@ page** of retained events for the activity-log panel (`limit` default 100, max
 500; `task` scopes to one task; `before` pages older than a seq). The response
 `{events, floor, cursor}` always carries the compaction `floor` so bounded
 history is never silent (a page read, not a delta cursor — no reset semantics).
+`GET /api/ui/graph` returns `{nodes, edges}` for the dependency-graph panel —
+light nodes (`id, title, status, priority, blocked`) for every non-archived
+task, and `blocks` edges pointing **prerequisite → dependent** (the reverse of
+the stored `from_task is blocked by to_task` rows) so a drawing reads
+left-to-right in execution order.
 
 **Analytics** (read-only, derived from the event log — [13-analytics](13-analytics.md)).
 `GET /api/stats` returns `{text}` (token-budgeted) or, with `json`, the full

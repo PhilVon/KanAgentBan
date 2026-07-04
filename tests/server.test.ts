@@ -229,6 +229,32 @@ describe('server: scoped await (--task / --any)', () => {
   });
 });
 
+describe('server: dependency graph (/api/ui/graph)', () => {
+  it('emits prerequisite->dependent edges and excludes archived tasks', async () => {
+    const a = (await api('POST', '/api/tasks', { title: 'a' })).body;
+    const b = (await api('POST', '/api/tasks', { title: 'b' })).body;
+    const c = (await api('POST', '/api/tasks', { title: 'c' })).body;
+    await api('POST', `/api/tasks/${a.id}/deps`, { on: b.id }); // a waits on b
+    await api('POST', `/api/tasks/${c.id}/deps`, { on: a.id }); // c waits on a
+
+    let g = (await api('GET', '/api/ui/graph')).body;
+    expect(g.nodes.map((n: any) => n.id).sort()).toEqual([a.id, b.id, c.id].sort());
+    // Execution order: b -> a -> c.
+    expect(g.edges).toContainEqual({ from: b.id, to: a.id });
+    expect(g.edges).toContainEqual({ from: a.id, to: c.id });
+    const na = g.nodes.find((n: any) => n.id === a.id);
+    expect(na.blocked).toBe(true); // b not Done yet
+    expect(g.nodes.find((n: any) => n.id === b.id).blocked).toBe(false);
+
+    // Archiving an endpoint task removes it and its edges.
+    await api('DELETE', `/api/tasks/${c.id}/deps?on=${a.id}`);
+    await api('POST', `/api/tasks/${c.id}/archive`);
+    g = (await api('GET', '/api/ui/graph')).body;
+    expect(g.nodes.some((n: any) => n.id === c.id)).toBe(false);
+    expect(g.edges).toEqual([{ from: b.id, to: a.id }]);
+  });
+});
+
 describe('server: activity log (/api/ui/activity)', () => {
   it('pages newest-first, filters by task, clamps limit', async () => {
     const a = (await api('POST', '/api/tasks', { title: 'a' })).body;
