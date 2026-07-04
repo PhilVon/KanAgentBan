@@ -355,7 +355,7 @@ input {
 .comment-input { width: 70%; margin-top: 0.5rem; }
 .close { position: absolute; top: 0.6rem; right: 0.8rem; background: transparent; color: var(--muted); font-size: 1.4rem; }
 .artifact { display: flex; gap: 0.5rem; padding: 0.2rem 0; }
-.artifact .kind { color: var(--muted); font-size: 0.8rem; }
+.artifact .kind { color: var(--muted); font-size: 0.8rem; border: 1px solid var(--line); border-radius: 4px; padding: 0 0.3rem; }
 .artifact a { color: var(--accent); }
 
 .drawer-head { display: flex; align-items: flex-start; gap: 0.5rem; }

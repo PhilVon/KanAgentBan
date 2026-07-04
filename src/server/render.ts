@@ -39,7 +39,10 @@ import {
 //     ideas (sheds lowest clusters first); `brainstorm list` one line per
 //     session; `context` gains a one-line open-session anchor; search hits
 //     cover ideas.
-export const FORMAT_VERSION = 11;
+// v12: git linkage — artifact kinds extended with `commit` (`git:<sha>`) and
+//     `branch` (`branch:<name>`); `kanban git status` renders a CLI-side view
+//     merging board artifacts with live repo/PR state (ADR 0008).
+export const FORMAT_VERSION = 12;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;

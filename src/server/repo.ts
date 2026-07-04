@@ -812,6 +812,11 @@ export class Repo {
     });
   }
 
+  /**
+   * Idempotent on (task_id, kind, uri): re-attaching the same reference returns
+   * the existing artifact and emits no duplicate event — `kanban git link`
+   * re-scans a repo safely (docs/07). The title is not part of the identity.
+   */
   addArtifact(
     taskId: string,
     kind: Artifact['kind'],
@@ -821,6 +826,10 @@ export class Repo {
   ): Artifact {
     return this.mutate((rec) => {
       this.requireTask(taskId);
+      const existing = this.db
+        .prepare('SELECT * FROM artifact WHERE task_id = ? AND kind = ? AND uri = ?')
+        .get(taskId, kind, uri) as Artifact | undefined;
+      if (existing) return existing;
       const id = nextArtifactId(this.db);
       const ts = now();
       this.db

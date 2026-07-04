@@ -288,10 +288,11 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'artifact',
-    description: 'Attach an artifact reference to a task (a link/file/pr/output). Store references, never blob contents (ADR 0005).',
+    description:
+      'Attach an artifact reference to a task (a link/file/pr/output, or a git commit/branch). Store references, never blob contents (ADR 0005). Conventions: commit uri `git:<sha>`, branch uri `branch:<name>`, pr uri = the PR URL. Idempotent on (task, kind, uri).',
     inputSchema: {
       id: z.string(),
-      kind: z.enum(['link', 'file', 'pr', 'output']),
+      kind: z.enum(['link', 'file', 'pr', 'output', 'commit', 'branch']),
       title: z.string(),
       uri: z.string(),
     },
