@@ -228,6 +228,39 @@ describe('server: scoped await (--task / --any)', () => {
   });
 });
 
+describe('server: activity log (/api/ui/activity)', () => {
+  it('pages newest-first, filters by task, clamps limit', async () => {
+    const a = (await api('POST', '/api/tasks', { title: 'a' })).body;
+    const b = (await api('POST', '/api/tasks', { title: 'b' })).body;
+    await api('POST', `/api/tasks/${a.id}/move`, { status: 'Ready' });
+
+    const all = (await api('GET', '/api/ui/activity')).body;
+    expect(all.floor).toBe(0);
+    expect(all.cursor).toBeGreaterThan(0);
+    expect(all.events).toHaveLength(3);
+    const seqs = all.events.map((e: any) => e.seq);
+    expect(seqs).toEqual([...seqs].sort((x: number, y: number) => y - x)); // newest first
+    expect(all.events[0].type).toBe('task.moved');
+
+    const page = (await api('GET', '/api/ui/activity?limit=1')).body;
+    expect(page.events).toHaveLength(1);
+    const older = (await api('GET', `/api/ui/activity?limit=1&before=${page.events[0].seq}`)).body;
+    expect(older.events[0].seq).toBeLessThan(page.events[0].seq);
+
+    const scoped = (await api('GET', `/api/ui/activity?task=${b.id}`)).body;
+    expect(scoped.events).toHaveLength(1);
+    expect(scoped.events[0].task_id).toBe(b.id);
+  });
+
+  it('carries the compaction floor (never-silent bounded history)', async () => {
+    for (let i = 0; i < 6; i++) await api('POST', '/api/tasks', { title: `t${i}` });
+    h.repo.compact(2);
+    const r = (await api('GET', '/api/ui/activity')).body;
+    expect(r.floor).toBeGreaterThan(0);
+    expect(r.events).toHaveLength(2);
+  });
+});
+
 describe('server: export', () => {
   it('snapshots tasks + events with a format_version', async () => {
     await api('POST', '/api/tasks', { title: 'keep me', priority: 'P1' });

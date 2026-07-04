@@ -113,6 +113,18 @@ vs created over the window — no external chart library). It refetches on each
 WebSocket frame while open, and shows a bounded-history banner when
 `partial_history` (some tasks predate the compaction floor).
 
+### Activity log panel
+
+An **Activity** toggle in the header opens a newest-first audit trail backed by
+`GET /api/ui/activity` ([07](07-api-reference.md)): one human-readable line per
+event (`HH:MM · actor · phrase`, all 20 event types mapped, terse
+`type + payload` fallback for anything unmapped), with the task id clickable to
+its drawer. A task-id filter input scopes the list; **Load more** pages older
+events (`before=` the oldest loaded seq). While the panel is open, live
+WebSocket frames **prepend** without a refetch. When the event log has been
+compacted (`floor > 0`) the panel shows a never-silent
+`history starts at seq N` banner.
+
 ---
 
 ## 4. Card detail drawer

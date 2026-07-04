@@ -62,6 +62,14 @@ Related: [02-data-model](02-data-model.md) · [05-cli-reference](05-cli-referenc
 footers) defined in [03-token-efficiency](03-token-efficiency.md). `PATCH` with a
 stale `If-Match` returns `409` → exit `4`.
 
+**UI endpoints** (consumed by the web app, not the CLI): `GET /api/ui/board`
+(cards + inbox + `seq`), `GET /api/ui/tasks/:id[/card]` (drawer / single-card
+refresh), and `GET /api/ui/activity?limit=&task=&before=` — a **newest-first
+page** of retained events for the activity-log panel (`limit` default 100, max
+500; `task` scopes to one task; `before` pages older than a seq). The response
+`{events, floor, cursor}` always carries the compaction `floor` so bounded
+history is never silent (a page read, not a delta cursor — no reset semantics).
+
 **Analytics** (read-only, derived from the event log — [13-analytics](13-analytics.md)).
 `GET /api/stats` returns `{text}` (token-budgeted) or, with `json`, the full
 `BoardStats` (`window`, `compaction_floor`, `partial_history`, `excluded_partial`,
