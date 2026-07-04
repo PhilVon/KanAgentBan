@@ -573,6 +573,7 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
         options: req.body.options,
         freeform: req.body.freeform,
         expiresAt: req.body.expires_at,
+        defaultAnswer: str(req.body.default),
         actor: actor(req),
       }),
     ),
@@ -593,14 +594,22 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
       const existing = repo.getRequest(qid);
       if (!existing) return res.status(404).json(errBody('not_found', 'no such request'));
       if (existing.status !== 'open')
-        return res.json({ status: existing.status, answer: existing.answer });
+        return res.json({
+          status: existing.status,
+          answer: existing.answer,
+          ...(existing.answered_by === 'system:default' ? { defaulted: true } : {}),
+        });
       const timeoutMs = (num(req.query.timeout) ?? 60) * 1000;
       const ev = await repo.bus.waitFor(
         (e) => INPUT_RESOLVED.has(e.type) && (e.payload as any).request_id === qid,
         timeoutMs,
       );
       if (!ev) return res.status(204).end(); // pending -> CLI exit 2
-      res.json({ status: ev.type.slice('input.'.length), answer: (ev.payload as any).answer });
+      res.json({
+        status: ev.type.slice('input.'.length),
+        answer: (ev.payload as any).answer,
+        ...((ev.payload as any).defaulted ? { defaulted: true } : {}),
+      });
     }),
   );
   // Scoped long-poll await: wait for the next answer to any open request on a
@@ -627,6 +636,7 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
               status: e.type.slice('input.'.length),
               request_id: e.payload.request_id,
               answer: e.payload.answer,
+              ...(e.payload.defaulted ? { defaulted: true } : {}),
             });
             resolve();
           };

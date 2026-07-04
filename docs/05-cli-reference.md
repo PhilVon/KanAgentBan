@@ -377,10 +377,17 @@ $ kanban brainstorm close B-2
 
 ## Human-in-the-loop commands
 
-### `kanban ask <id> "<question>" [--options a,b,c] [--freeform] [--expires-at ISO]`
+### `kanban ask <id> "<question>" [--options a,b,c] [--freeform] [--expires-at ISO] [--default X]`
 Creates a durable input request, moves the task to needs-input, broadcasts to the
 UI, and **returns `Q-n` immediately (non-blocking)**. `--options` is repeatable
 and each occurrence may be comma-separated.
+
+`--default X` (requires `--expires-at`; must be one of `--options` for closed
+sets) auto-answers the request with `X` at expiry instead of dead-ending it as
+`expired` — the agent stays unblocked when the human is away. The resolution is
+flagged everywhere (`answered_by: system:default`, `input.answered` with
+`defaulted: true`, `inbox`/`await` print `(defaulted)`); a human answer before
+the deadline always wins.
 
 ```
 $ kanban ask T-12 "Which auth provider?" --options Auth0,Cognito

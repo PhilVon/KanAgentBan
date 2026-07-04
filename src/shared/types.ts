@@ -102,6 +102,10 @@ export interface InputRequest {
   created_at: string;
   answered_at: string | null;
   expires_at: string | null;
+  /** Auto-answer applied at expiry (`ask --default`, requires `expires_at`).
+   *  A defaulted resolution is `answered` with `answered_by: 'system:default'`
+   *  and an `input.answered` event flagged `defaulted: true` — never silent. */
+  default_answer: string | null;
 }
 
 export interface AcceptanceCriterion {

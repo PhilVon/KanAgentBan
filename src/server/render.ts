@@ -50,7 +50,9 @@ import {
 //     (`lease expires in 42m` / `lease expired`) when a claim has a TTL.
 // v15: doctor tier — `kanban doctor` renders the hygiene report (findings
 //     grouped by check, healthy = one line); CLI exit 2 signals findings.
-export const FORMAT_VERSION = 15;
+// v16: default-on-expiry answers — `context` open-input lines carry
+//     `[default on expiry: X]`; `inbox` marks defaulted answers.
+export const FORMAT_VERSION = 16;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;
@@ -394,7 +396,10 @@ function buildContextSections(repo: Repo, id: string, t: Task, fid: Fidelity): s
     sections.push(
       `open input (${open.length}):\n` +
         open
-          .map((q) => `  ${q.id} "${q.question}"${q.options ? `  options: ${q.options.join(' | ')}` : ''}`)
+          .map(
+            (q) =>
+              `  ${q.id} "${q.question}"${q.options ? `  options: ${q.options.join(' | ')}` : ''}${q.default_answer ? `  [default on expiry: ${q.default_answer}]` : ''}`,
+          )
           .join('\n'),
     );
 

@@ -29,7 +29,9 @@ export function renderInbox(v: InboxView): string {
   }
   const lines: string[] = [];
   for (const q of v.answered ?? []) {
-    lines.push(`${q.id}  answered: ${q.answer ?? ''}   (task ${q.task_id})`);
+    // A default applied at expiry is still an answer — but never silently so.
+    const defaulted = q.answered_by === 'system:default' ? ' (defaulted)' : '';
+    lines.push(`${q.id}  answered${defaulted}: ${q.answer ?? ''}   (task ${q.task_id})`);
   }
   for (const q of v.resolved ?? []) {
     lines.push(`${q.id}  ${q.status}: ${q.question}   (task ${q.task_id})`);

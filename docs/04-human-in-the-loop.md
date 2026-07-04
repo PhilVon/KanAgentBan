@@ -66,6 +66,17 @@ the task's `needs_input`, resolves any parked `await` (with that status), and sh
 up in `inbox`'s `resolved` bucket so the resolution is never silent to a resuming
 agent.
 
+**Default-on-expiry.** `ask --default X --expires-at ISO` changes the expiry exit:
+instead of dead-ending as `expired`, the sweep resolves the request as **answered**
+with the default — the agent stays unblocked when the human is away. Never silent:
+`answered_by` is `system:default`, the `input.answered` event carries
+`defaulted: true` (actor `system`), and every surface flags it — `await` prints
+`answered (defaulted)`, `inbox` shows `answered (defaulted)`, and the open request
+renders `[default on expiry: X]` in `context` so the human can see what will happen
+if they don't respond. A default requires `--expires-at` (it only applies at
+expiry) and, for closed option sets, must be one of the options. A human answer
+before the deadline always wins — the default never overwrites it.
+
 ---
 
 ## 3. Three resume strategies
@@ -135,7 +146,8 @@ Because the request is durable, nothing is lost when a turn or session ends.
   branch without parsing: `0`=answered, `2`=timeout-pending, `1`=error
   ([05-cli-reference](05-cli-reference.md)).
 - **No hard request expiry by default** (humans are slow). Optional
-  `--expires-at ISO` auto-cancels or applies a default answer.
+  `--expires-at ISO` expires the request — or, with `--default X`, resolves it
+  as a flagged `answered (defaulted)` instead (§2).
 - **Multiple open questions** are allowed per board and per task. A task is
   `needs_input` if *any* open request targets it. Wait variants:
   - `kanban await Q-7` — one specific request

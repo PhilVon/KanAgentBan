@@ -578,9 +578,10 @@ git
 
 // ---- human-in-the-loop ---------------------------------------------------
 program.command('ask <id> <question>').option('--options <o>', 'answer option (repeatable or comma-separated)', collectList).option('--freeform').option('--expires-at <iso>')
+  .option('--default <answer>', 'auto-answer applied at expiry (requires --expires-at; flagged "defaulted")')
   .action(async (id, question, o) => {
-    const r = await api(await conn(), 'POST', `/api/tasks/${id}/input-requests`, { question, options: o.options, freeform: !!o.freeform, expires_at: o.expiresAt });
-    out(`${r.id}  created on ${id} (task now needs input)`);
+    const r = await api(await conn(), 'POST', `/api/tasks/${id}/input-requests`, { question, options: o.options, freeform: !!o.freeform, expires_at: o.expiresAt, default: o.default });
+    out(`${r.id}  created on ${id} (task now needs input)${r.default_answer ? `  [defaults to "${r.default_answer}" at expiry]` : ''}`);
   });
 
 program
@@ -597,7 +598,7 @@ program
     if (r.__status === 204) { out('pending'); process.exitCode = 2; return; }
     if (r.status === 'none') { out('no open questions'); return; }
     const id = r.request_id ?? qid;
-    out(r.status === 'answered' ? `${id} answered: ${r.answer}` : `${id} ${r.status}`);
+    out(r.status === 'answered' ? `${id} answered${r.defaulted ? ' (defaulted)' : ''}: ${r.answer}` : `${id} ${r.status}`);
   });
 
 program.command('answer <qid> <text>').action(async (qid, text) => { const r = await api(await conn(), 'POST', `/api/input-requests/${qid}/answer`, { answer: text, answered_by: 'cli' }); out(`${qid} -> ${r.answer}`); });
