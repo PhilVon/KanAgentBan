@@ -227,6 +227,12 @@ pointer, not a log — detail belongs in comments or docs.
 ### `kanban done <id>` / `kanban archive <id>`
 `done` moves to Done (recomputes dependents' readiness); `archive` soft-deletes.
 
+**Bulk ids.** `move`, `done`, `archive`, and `label` accept a comma-separated id
+list (`kanban move T-1,T-2,T-3 Ready`) — applied server-side as **one
+transaction, one event per task, all-or-nothing**: a single bad id or guard
+failure (open subtasks, live children) rolls the whole batch back. Ids are
+de-duplicated.
+
 ### `kanban review approve <id> [--reason T]` / `kanban review reject <id> --reason T`
 The Review-column sign-off gate — normally the **human's** verb (the web UI puts
 Approve/Reject buttons on Review cards). `approve` moves the task to Done (same

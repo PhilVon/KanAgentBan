@@ -232,15 +232,38 @@ program
     out(`${t.id}  updated (v${t.version})`);
   });
 
-program.command('move <id> <column>').action(async (id, column) => {
+// Comma-separated ids fan into one atomic bulk call (one event per task).
+const splitIds = (id: string): string[] => id.split(',').map((s) => s.trim()).filter(Boolean);
+program.command('move <id> <column>').description('move a task (or T-1,T-2,… — one transaction) to a column').action(async (id, column) => {
+  const ids = splitIds(id);
+  if (ids.length > 1) {
+    const r = await api(await conn(), 'POST', '/api/tasks/bulk', { op: 'move', ids, status: column });
+    out(`${r.count} task(s) -> ${column}`);
+    return;
+  }
   const t = await api(await conn(), 'POST', `/api/tasks/${id}/move`, { status: column });
   out(`${t.id} -> ${t.status}`);
 });
-program.command('done <id>').action(async (id) => {
+program.command('done <id>').description('move a task (or T-1,T-2,…) to Done').action(async (id) => {
+  const ids = splitIds(id);
+  if (ids.length > 1) {
+    const r = await api(await conn(), 'POST', '/api/tasks/bulk', { op: 'move', ids, status: 'Done' });
+    out(`${r.count} task(s) -> Done`);
+    return;
+  }
   const t = await api(await conn(), 'POST', `/api/tasks/${id}/move`, { status: 'Done' });
   out(`${t.id} -> Done`);
 });
-program.command('archive <id>').action(async (id) => { await api(await conn(), 'POST', `/api/tasks/${id}/archive`); out(`${id} archived`); });
+program.command('archive <id>').description('archive a task (or T-1,T-2,… — one transaction)').action(async (id) => {
+  const ids = splitIds(id);
+  if (ids.length > 1) {
+    const r = await api(await conn(), 'POST', '/api/tasks/bulk', { op: 'archive', ids });
+    out(`${r.count} task(s) archived`);
+    return;
+  }
+  await api(await conn(), 'POST', `/api/tasks/${id}/archive`);
+  out(`${id} archived`);
+});
 
 program.command('claim <id>')
   .option('--force', 'steal a claim held by another agent')
@@ -299,8 +322,14 @@ const crit = program.command('criterion');
 crit.command('add <id> <text>').action(async (id, text) => { const r = await api(await conn(), 'POST', `/api/tasks/${id}/criteria`, { text }); out(`${r.id} added`); });
 crit.command('check <acid>').option('--off').action(async (acid, o) => { await api(await conn(), 'PATCH', `/api/criteria/${acid}`, { checked: !o.off }); out(`${acid} ${o.off ? 'unchecked' : 'checked'}`); });
 
-program.command('label <id>').option('--add <l>').option('--rm <l>').action(async (id, o) => {
+program.command('label <id>').description('add/remove a label on a task (or T-1,T-2,… — one transaction)').option('--add <l>').option('--rm <l>').action(async (id, o) => {
   const c = await conn();
+  const ids = splitIds(id);
+  if (ids.length > 1) {
+    if (o.add) { const r = await api(c, 'POST', '/api/tasks/bulk', { op: 'label', ids, name: o.add }); out(`+${o.add} on ${r.count} task(s)`); }
+    if (o.rm) { const r = await api(c, 'POST', '/api/tasks/bulk', { op: 'unlabel', ids, name: o.rm }); out(`-${o.rm} on ${r.count} task(s)`); }
+    return;
+  }
   if (o.add) { await api(c, 'POST', `/api/tasks/${id}/labels`, { name: o.add }); out(`+${o.add}`); }
   if (o.rm) { await api(c, 'DELETE', `/api/tasks/${id}/labels?name=${o.rm}`); out(`-${o.rm}`); }
 });
