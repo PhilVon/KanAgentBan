@@ -37,6 +37,7 @@ use. These read tiers just help you pull the *narrowest* view that answers the
 question, so you don't burn tokens dumping the board when one task's working set
 would do:
 
+- `kanban standup [--since seq|--days N]` — cold-start catch-up: everything that happened since your last session (completed, kickbacks + reasons, moves, new tasks, question traffic, aging) in one call. Save the printed cursor; pass it next time.
 - `kanban doctor` — session-start hygiene sweep (exit `2` = findings, each naming its fix: stale claims, criteria-less WIP, aging tasks, ancient questions, closable parents). Run it when you sit down at a board; act on what it reports.
 - `kanban next` — "what should I work on?" (~5 lines; flags any waiting user comment)
 - `kanban next --context` — cold start: the task to do **and** its full working set, one call
@@ -256,4 +257,4 @@ The full surface — nothing here is off-limits. Any read takes `--json` and
 - Git: `git branch T-n [--checkout]`, `git link [T-n] [--depth N]`, `git status [T-n]`, `git install-hooks [--force]`
 - HITL: `ask [--options|--freeform|--expires-at|--default X]`, `await [qid|--task|--any] [--timeout S]`, `answer`, `cancel`
 - Lifecycle: `board init/show/nudge`, `serve [--port]`, `export [--out FILE]`, `open`
-- Reporting (not the work loop): `stats [id] [--window N]` — board analytics / per-task timing, read-only; `doctor` — hygiene report, exit 2 on findings.
+- Reporting (not the work loop): `stats [id] [--window N]` — board analytics / per-task timing, read-only; `doctor` — hygiene report, exit 2 on findings; `standup [--since seq|--days N]` — narrative catch-up diff.

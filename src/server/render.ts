@@ -1,5 +1,6 @@
 import type { Repo } from './repo';
 import type { DoctorFinding, DoctorReport } from './doctor';
+import type { StandupReport } from './standup';
 import { childProgress, deriveState, remainingBlockerCount } from './derive';
 import { recommend, type BlockedSummary } from './recommend';
 import { LABEL_TOP_N, type BoardStats, type MetricSummary, type TaskTiming, type VelocityTrend } from './stats';
@@ -52,7 +53,10 @@ import {
 //     grouped by check, healthy = one line); CLI exit 2 signals findings.
 // v16: default-on-expiry answers — `context` open-input lines carry
 //     `[default on expiry: X]`; `inbox` marks defaulted answers.
-export const FORMAT_VERSION = 16;
+// v17: standup tier — `kanban standup` renders the narrative board diff
+//     (completed / kickbacks / moved / new / question traffic / aging) since a
+//     cursor or over a day window, floor-clamped never-silently.
+export const FORMAT_VERSION = 17;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;
@@ -655,6 +659,67 @@ export function renderSearch(
     return `${r.id} ${badge}${title} — ${r.snippet}`;
   });
   return budgetBlocks(rows, opts, '\n', (n) => `[+${n} hits hidden for token budget — search --full]`);
+}
+
+// ---- standup tier (FORMAT_VERSION 17) --------------------------------------
+
+/**
+ * `kanban standup` — the narrative board diff. Head line first, then sections
+ * in catch-up priority order (what finished, what bounced, what's stuck);
+ * empty sections render nothing. Budgeted: trailing sections shed first.
+ */
+export function renderStandup(
+  r: StandupReport,
+  opts: { full?: boolean; maxTokens?: number } = {},
+): string {
+  const windowLabel =
+    r.window_days !== null ? `last ${r.window_days}d` : `since seq ${r.since}`;
+  const head = `standup · ${windowLabel} · cursor ${r.cursor}`;
+  const blocks: string[] = [head];
+
+  if (r.completed.length)
+    blocks.push(
+      `completed (${r.completed.length}):\n` +
+        r.completed.map((c) => `  ${c.id} ${c.title}${c.via_review ? '  [review approved]' : ''}`).join('\n'),
+    );
+  if (r.rejected.length)
+    blocks.push(
+      `review kickbacks (${r.rejected.length}):\n` +
+        r.rejected.map((k) => `  ${k.id} ${k.title} — "${k.reason}"`).join('\n'),
+    );
+  if (r.moved.length)
+    blocks.push(
+      `moved (${r.moved.length}):\n` + r.moved.map((m) => `  ${m.id} ${m.title}  ${m.from} → ${m.to}`).join('\n'),
+    );
+  if (r.created.length)
+    blocks.push(
+      `new (${r.created.length}):\n` + r.created.map((c) => `  ${c.id} ${c.title} [${c.status}]`).join('\n'),
+    );
+  if (r.answered.length)
+    blocks.push(
+      `answered (${r.answered.length}):\n` +
+        r.answered.map((a) => `  ${a.id} on ${a.task_id}: "${a.answer}"${a.defaulted ? ' (defaulted)' : ''}`).join('\n'),
+    );
+  if (r.asked.length)
+    blocks.push(
+      `asked (${r.asked.length}):\n` + r.asked.map((q) => `  ${q.id} on ${q.task_id}: "${q.question}"`).join('\n'),
+    );
+  if (r.resolved.length)
+    blocks.push(
+      `question resolutions (${r.resolved.length}):\n` +
+        r.resolved.map((q) => `  ${q.id} ${q.status} (task ${q.task_id})`).join('\n'),
+    );
+  if (r.aging.length)
+    blocks.push(
+      `aging >7d (${r.aging.length}):\n` +
+        r.aging.map((a) => `  ${a.id} ${a.title} [${a.status}] ${a.age_days}d`).join('\n'),
+    );
+
+  if (blocks.length === 1) blocks.push('(quiet — nothing happened in the window)');
+  if (r.floor_clamped)
+    blocks.push(`[history bounded: events below seq ${r.floor} compacted — digest starts there]`);
+
+  return budgetBlocks(blocks, opts, '\n', (n) => `[+${n} section(s) hidden for token budget — standup --full]`);
 }
 
 // ---- doctor tier (FORMAT_VERSION 15) --------------------------------------

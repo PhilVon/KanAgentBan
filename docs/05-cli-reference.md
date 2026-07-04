@@ -195,6 +195,16 @@ conventions: `commit` → `uri: git:<sha>`, `branch` → `uri: branch:<name>`,
 Sets a fresh `summary` (clears the stale-summary flag). Server never
 auto-summarizes — this is the manual refresh path.
 
+### `kanban standup [--since <seq> | --days N] [--json] [--max-tokens N | --full]`
+The narrative board diff — one call to catch up (agent cold-start or human
+coffee-in-hand): completed (approvals flagged), review kickbacks with reasons,
+net moves (first→last column per task, no noise), new tasks, question traffic
+(asked / answered incl. `(defaulted)` / cancelled / expired), and the current
+aging (>7d) list. Default window: last 1 day; pass `--since <seq>` to diff from
+a saved cursor (the head line prints the cursor to save next). A cursor below
+the compaction floor clamps to it with an explicit `[history bounded…]` note.
+Read-only; reuses the event log + stats internals.
+
 ### `kanban doctor [--json] [--max-tokens N | --full]`
 One read-only hygiene sweep, findings grouped by check: `stale-claim` (expired
 lease, or an indefinite claim untouched >24h), `wip-no-criteria` (In Progress
