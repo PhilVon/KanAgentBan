@@ -65,7 +65,8 @@ stale `If-Match` returns `409` → exit `4`.
 **Analytics** (read-only, derived from the event log — [13-analytics](13-analytics.md)).
 `GET /api/stats` returns `{text}` (token-budgeted) or, with `json`, the full
 `BoardStats` (`window`, `compaction_floor`, `partial_history`, `excluded_partial`,
-`throughput`, `wip`, `burndown`, `timing_summary`) plus `est_tokens`.
+`throughput` — incl. a `trend` half-window comparison —, `wip`, `burndown`,
+`timing_summary`, `dwell`, `bottleneck`) plus `est_tokens`.
 `GET /api/tasks/:id/stats` returns the per-task `TaskTiming` (unknown id → `404`).
 Both stamp the compaction floor so bounded history is never silent.
 
