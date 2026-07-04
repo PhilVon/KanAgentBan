@@ -31,6 +31,8 @@ Related: [03-token-efficiency](03-token-efficiency.md) ·
 | Acceptance criterion | `AC-<n>` | rowid | per-board monotonic |
 | Artifact | `A-<n>` | rowid | per-board monotonic |
 | Doc | `D-<n>` | rowid | per-board monotonic |
+| Brainstorm session | `B-<n>` | rowid | per-board monotonic |
+| Idea | `I-<n>` | rowid | per-board monotonic |
 | Label | name (string) | rowid | unique per board |
 | Event | `seq` (integer) | seq | per-board monotonic, gap-free |
 
@@ -164,7 +166,34 @@ default to `draft`; research/notes default to `active`.
 `doc_link(doc_id, task_id)` joins docs to tasks **many-to-many** (an ADR governs
 several tasks; a research note informs many). Linking is idempotent.
 
-### search_index (FTS5, v5)
+### brainstorm_session / idea (v6)
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | TEXT (`B-n`) | |
+| `topic` | TEXT | required |
+| `status` | TEXT | `open` \| `closed` |
+| `task_id` | TEXT NULL | optional anchor task (session shows in its context) |
+| `created_at` / `closed_at` | TEXT | |
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | TEXT (`I-n`) | |
+| `session_id` | TEXT | owning session |
+| `text` | TEXT | ≤ 2000 chars (bigger material belongs in a doc) |
+| `cluster` | TEXT NULL | free-form grouping name — no cluster table |
+| `score` | INTEGER NULL | 0–10 |
+| `status` | TEXT | `open` \| `promoted` \| `discarded` (one-way once terminal) |
+| `promoted_task_id` | TEXT NULL | the task the idea became |
+| `created_at` | TEXT | |
+
+Structured ideation: capture ideas on an open session, cluster/score them, then
+**promote** winners — one transaction creates the task (provenance line in its
+description), stamps `promoted_task_id`, and fires `idea.promoted`, so the task
+exists iff the idea is marked promoted. Ideas stay searchable in any status (a
+discarded idea is still prior art).
+
+### search_index (FTS5, v5; ideas joined in v6)
 
 A self-contained FTS5 virtual table `search_index(type UNINDEXED, ref_id
 UNINDEXED, title, body)` spanning tasks (title/description/summary), docs
@@ -205,6 +234,8 @@ label.added       label.removed
 artifact.added
 input.requested   input.answered    input.cancelled   input.expired
 doc.created       doc.updated       doc.linked        doc.unlinked
+brainstorm.started brainstorm.closed
+idea.added        idea.updated      idea.promoted
 ```
 
 `task.claimed` / `task.released` carry the multi-agent `assignee` change; their
@@ -220,6 +251,11 @@ Doc events carry `doc_id` in the payload. `doc.created` / `doc.updated` are
 board-scoped (`task_id` null); `doc.linked` / `doc.unlinked` set `task_id` to the
 linked task so `watch` and the UI drawer refresh on link changes. Archiving a doc
 records `doc.updated` with `fields: ['archived_at']`.
+
+Brainstorm/idea events carry `session_id` / `idea_id` in the payload; their
+`task_id` is the session's anchor task (null when unanchored) — except
+`idea.promoted`, whose `task_id` is the **newly created task** so a `watch` on it
+sees its own birth.
 
 All three terminal transitions — `input.answered`, `input.cancelled` (the agent
 withdraws a question via `kanban cancel`), and `input.expired` (a server sweep

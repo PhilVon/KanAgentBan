@@ -264,6 +264,52 @@ T-12 [task/In Progress] "Wire up OAuth callback" — …the token exchange handl
 
 ---
 
+## Brainstorm commands (ideation)
+
+Structured ideation: capture ideas fast on a session, then cluster, score, and
+promote the winners to tasks. Use when exploring more than ~3 candidate
+approaches — otherwise just `add` tasks.
+
+### `kanban brainstorm start "<topic>" [--task T-1]`
+Opens a session (B-n). `--task` anchors it to the task that prompted it — the
+session then surfaces as a one-line `brainstorm:` anchor in that task's `context`.
+
+### `kanban brainstorm add <B-id> "<text>" [--cluster NAME]`
+Captures an idea (I-n, ≤2000 chars — bigger material belongs in a doc). Rejected
+on a closed session (exit `1`).
+
+### `kanban brainstorm show <B-id> [--max-tokens N] [--full] [--json]`
+Ideas grouped by cluster — clusters ranked by their best idea, ideas score-desc
+within — with `→ T-n` on promoted and `✕` on discarded ones. Budgeted: the
+lowest-ranked cluster blocks shed first, never silently.
+
+### `kanban brainstorm list [--status open|closed] [--task T-1] [--json]` / `kanban brainstorm close <B-id>`
+One line per session (idea/promoted counts). `close` ends capture (idempotent);
+closed sessions keep their ideas readable and searchable.
+
+### `kanban idea score <I-id> <0-10>` / `kanban idea cluster <I-id> <name>`
+Shape the pool. Scores are integers 0–10; clusters are free-form names.
+
+### `kanban idea promote <I-id> [--title T] [--prio P] [--status S] [--parent T-n]`
+Turns an idea into a real task **atomically** — task created (title defaults to
+the idea text; description carries a provenance line), idea marked `promoted`
+with `promoted_task_id`, `idea.promoted` fired: the task exists iff the idea is
+promoted. Promoted ideas are frozen.
+
+### `kanban idea drop <I-id>`
+Discards an idea (one-way; re-add if it was wrong). Discarded ideas stay
+searchable — they are prior art, not deletions.
+
+```
+$ kanban brainstorm start "cache strategy" --task T-12      # → B-2
+$ kanban brainstorm add B-2 "write-through" --cluster safe  # → I-4
+$ kanban idea score I-4 8
+$ kanban idea promote I-4 --prio P1                          # → T-31, atomically
+$ kanban brainstorm close B-2
+```
+
+---
+
 ## Human-in-the-loop commands
 
 ### `kanban ask <id> "<question>" [--options a,b,c] [--freeform] [--expires-at ISO]`

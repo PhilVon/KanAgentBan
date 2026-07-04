@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -112,6 +112,26 @@ CREATE TABLE IF NOT EXISTS doc_link (
   PRIMARY KEY (doc_id, task_id)
 );
 
+CREATE TABLE IF NOT EXISTS brainstorm_session (
+  id TEXT PRIMARY KEY,
+  topic TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open',
+  task_id TEXT,
+  created_at TEXT NOT NULL,
+  closed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS idea (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  text TEXT NOT NULL,
+  cluster TEXT,
+  score INTEGER,
+  status TEXT NOT NULL DEFAULT 'open',
+  promoted_task_id TEXT,
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS event (
   seq INTEGER PRIMARY KEY,
   ts TEXT NOT NULL,
@@ -131,6 +151,7 @@ CREATE INDEX IF NOT EXISTS idx_task_status ON task(status);
 CREATE INDEX IF NOT EXISTS idx_doc_kind ON doc(kind);
 CREATE INDEX IF NOT EXISTS idx_doclink_task ON doc_link(task_id);
 CREATE INDEX IF NOT EXISTS idx_doclink_doc ON doc_link(doc_id);
+CREATE INDEX IF NOT EXISTS idx_idea_session ON idea(session_id);
 `;
 
 // Search index (v5): one self-contained FTS5 table spanning tasks, docs, and
@@ -180,6 +201,23 @@ CREATE TRIGGER IF NOT EXISTS trg_fts_comment_ad AFTER DELETE ON comment BEGIN
 END;
 `;
 
+// Idea search triggers (v6). Split from FTS_SQL because a board that upgraded to
+// v5 already has `fts_enabled` set and skips FTS_SQL — these idempotent CREATEs
+// run on every open while FTS is on. Ideas of any status stay searchable (a
+// discarded idea is still prior art); text edits reinsert via the update trigger.
+const IDEA_FTS_SQL = `
+CREATE TRIGGER IF NOT EXISTS trg_fts_idea_ai AFTER INSERT ON idea BEGIN
+  INSERT INTO search_index(type, ref_id, title, body) VALUES('idea', new.id, '', new.text);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_fts_idea_au AFTER UPDATE ON idea BEGIN
+  DELETE FROM search_index WHERE type = 'idea' AND ref_id = old.id;
+  INSERT INTO search_index(type, ref_id, title, body) VALUES('idea', new.id, '', new.text);
+END;
+CREATE TRIGGER IF NOT EXISTS trg_fts_idea_ad AFTER DELETE ON idea BEGIN
+  DELETE FROM search_index WHERE type = 'idea' AND ref_id = old.id;
+END;
+`;
+
 /** One-time index seed for a board that predates v5 (or a fresh board — its
  *  tables are empty, so this is a no-op there). */
 function backfillSearchIndex(db: Database.Database): void {
@@ -193,6 +231,8 @@ function backfillSearchIndex(db: Database.Database): void {
         FROM doc WHERE archived_at IS NULL;
     INSERT INTO search_index(type, ref_id, title, body)
       SELECT 'comment', id, '', body FROM comment;
+    INSERT INTO search_index(type, ref_id, title, body)
+      SELECT 'idea', id, '', text FROM idea;
   `);
 }
 
@@ -257,6 +297,21 @@ function migrate(db: DB): void {
       enabled = '0';
     }
     db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)').run('fts_enabled', enabled);
+  }
+
+  // v5 -> v6: brainstorm sessions + ideas (additive tables from SCHEMA_SQL). The
+  // idea search triggers run separately here because a v5 board skips FTS_SQL
+  // (flag already set); idempotent, and the new `idea` table is empty on upgrade
+  // so no backfill is needed.
+  const fts = db.prepare("SELECT value FROM meta WHERE key = 'fts_enabled'").get() as
+    | { value: string }
+    | undefined;
+  if (fts?.value === '1') {
+    try {
+      db.exec(IDEA_FTS_SQL);
+    } catch {
+      /* FTS vanished from the build — search simply won't cover ideas */
+    }
   }
 
   if (current < SCHEMA_VERSION) {

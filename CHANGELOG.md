@@ -64,6 +64,12 @@ Unreleased section describing its change.
   (`meta.fts_enabled`); bm25-ranked snippets via `kanban search`, REST
   `/api/search`, MCP `search` tool, and a web Search panel
   (SCHEMA_VERSION 4→5, FORMAT_VERSION 9→10) (#19)
+- Brainstorm sessions: capture ideas (B-n/I-n) with free-form clusters and 0–10
+  scores, promote winners to tasks atomically (provenance recorded), one-way
+  discard; `kanban brainstorm`/`idea` CLI, REST `/api/brainstorms` +
+  `/api/ideas`, grouped MCP `brainstorm` tool, `context` open-session anchor,
+  web Brainstorm panel with human scoring/promote; ideas join board search
+  (SCHEMA_VERSION 5→6, FORMAT_VERSION 10→11) (#20)
 
 ### Fixed
 - Repeated `--label`/`--depends` on `kanban add` and `--options` on

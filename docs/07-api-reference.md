@@ -131,6 +131,18 @@ is derived, never stored ([02-data-model §5-6](02-data-model.md)).
 Task detail (`GET /api/ui/tasks/:id`, `context ?json`) includes a `docs` array of
 linked docs **without bodies** — a body loads only via `GET /api/docs/:id`.
 
+## Brainstorms & ideas
+
+| Method | Path | CLI | Notes |
+|--------|------|-----|-------|
+| `GET` | `/api/brainstorms?status=&task=` | `brainstorm list` | |
+| `POST` | `/api/brainstorms` | `brainstorm start` | `{topic, task?}` |
+| `GET` | `/api/brainstorms/:id` | `brainstorm show` | clustered render; `?json` carries `ideas` |
+| `POST` | `/api/brainstorms/:id/close` | `brainstorm close` | idempotent |
+| `POST` | `/api/brainstorms/:id/ideas` | `brainstorm add` | `{text, cluster?}`; `400` on a closed session |
+| `PATCH` | `/api/ideas/:id` | `idea score/cluster/drop` | `{score?, cluster?, text?, discard?}`; `400` once promoted/discarded |
+| `POST` | `/api/ideas/:id/promote` | `idea promote` | `{task?: {title?, priority?, …}}` → `{idea, task}`, atomic |
+
 ## Human-in-the-loop
 
 | Method | Path | CLI | Notes |

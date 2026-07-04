@@ -2,9 +2,11 @@ import type { DB } from './db';
 import { Bus } from './bus';
 import {
   nextArtifactId,
+  nextBrainstormId,
   nextCommentId,
   nextCriterionId,
   nextDocId,
+  nextIdeaId,
   nextRequestId,
   nextSeq,
   nextTaskId,
@@ -15,12 +17,14 @@ import type {
   Artifact,
   ActorType,
   BoardEvent,
+  BrainstormSession,
   Comment,
   Dependency,
   Doc,
   DocKind,
   DocStatus,
   EventType,
+  Idea,
   InputRequest,
   Priority,
   SearchResult,
@@ -445,7 +449,13 @@ export class Repo {
   createTask(input: NewTaskInput): Task {
     const actor = input.actor ?? 'agent';
     if (input.status !== undefined) assertWritableStatus(input.status);
-    return this.mutate((rec) => {
+    return this.mutate((rec) => this.createTaskTx(rec, input, actor));
+  }
+
+  /** Task-creation body, shared with `promoteIdea` (which must create the task
+   *  inside its own transaction — nesting `mutate()` would double-publish). */
+  private createTaskTx(rec: any, input: NewTaskInput, actor: ActorType): Task {
+    {
       const parentId = input.parent ?? null;
       if (parentId !== null) {
         const parent = this.requireTask(parentId);
@@ -486,7 +496,7 @@ export class Repo {
       for (const text of input.criteria ?? []) this.addCriterionTx(rec, id, text, actor);
 
       return this.requireTask(id);
-    });
+    }
   }
 
   updateTask(
@@ -1017,6 +1027,195 @@ export class Repo {
     });
   }
 
+  // brainstorm (structured ideation: capture -> cluster/score -> promote) ---
+
+  getBrainstorm(id: string): BrainstormSession | undefined {
+    return this.db.prepare('SELECT * FROM brainstorm_session WHERE id = ?').get(id) as
+      | BrainstormSession
+      | undefined;
+  }
+
+  requireBrainstorm(id: string): BrainstormSession {
+    const s = this.getBrainstorm(id);
+    if (!s) throw new NotFoundError(`brainstorm ${id} not found`);
+    return s;
+  }
+
+  listBrainstorms(opts: { status?: string; task?: string } = {}): BrainstormSession[] {
+    const where: string[] = [];
+    const params: any[] = [];
+    if (opts.status) {
+      where.push('status = ?');
+      params.push(opts.status);
+    }
+    if (opts.task) {
+      where.push('task_id = ?');
+      params.push(opts.task);
+    }
+    const sql =
+      'SELECT * FROM brainstorm_session' +
+      (where.length ? ` WHERE ${where.join(' AND ')}` : '') +
+      ' ORDER BY created_at DESC';
+    return this.db.prepare(sql).all(...params) as BrainstormSession[];
+  }
+
+  getIdea(id: string): Idea | undefined {
+    return this.db.prepare('SELECT * FROM idea WHERE id = ?').get(id) as Idea | undefined;
+  }
+
+  requireIdea(id: string): Idea {
+    const i = this.getIdea(id);
+    if (!i) throw new NotFoundError(`idea ${id} not found`);
+    return i;
+  }
+
+  /** Ideas of a session, best first (scored desc, then unscored, oldest first). */
+  getIdeas(sessionId: string): Idea[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM idea WHERE session_id = ?
+          ORDER BY score IS NULL, score DESC, created_at ASC`,
+      )
+      .all(sessionId) as Idea[];
+  }
+
+  startBrainstorm(topic: string, opts: { task?: string; actor?: ActorType } = {}): BrainstormSession {
+    const actor = opts.actor ?? 'agent';
+    return this.mutate((rec) => {
+      const taskId = opts.task ?? null;
+      if (taskId !== null) this.requireTask(taskId);
+      const id = nextBrainstormId(this.db);
+      const ts = now();
+      this.db
+        .prepare(`INSERT INTO brainstorm_session(id,topic,status,task_id,created_at) VALUES(?,?,'open',?,?)`)
+        .run(id, topic, taskId, ts);
+      rec({
+        type: 'brainstorm.started',
+        task_id: taskId,
+        actor_type: actor,
+        payload: { session_id: id, topic },
+      });
+      return this.requireBrainstorm(id);
+    });
+  }
+
+  closeBrainstorm(id: string, actor: ActorType = 'agent'): BrainstormSession {
+    return this.mutate((rec) => {
+      const s = this.requireBrainstorm(id);
+      if (s.status === 'closed') return s; // idempotent, no event
+      this.db
+        .prepare(`UPDATE brainstorm_session SET status='closed', closed_at=? WHERE id=?`)
+        .run(now(), id);
+      rec({ type: 'brainstorm.closed', task_id: s.task_id, actor_type: actor, payload: { session_id: id } });
+      return this.requireBrainstorm(id);
+    });
+  }
+
+  addIdea(sessionId: string, text: string, opts: { cluster?: string; actor?: ActorType } = {}): Idea {
+    const actor = opts.actor ?? 'agent';
+    if (!text.trim()) throw new ValidationError('an idea needs text');
+    if (text.length > 2000) throw new ValidationError('idea text exceeds 2000 chars — write a doc instead');
+    return this.mutate((rec) => {
+      const s = this.requireBrainstorm(sessionId);
+      if (s.status !== 'open') throw new ValidationError(`brainstorm ${sessionId} is closed`);
+      const id = nextIdeaId(this.db);
+      this.db
+        .prepare(`INSERT INTO idea(id,session_id,text,cluster,status,created_at) VALUES(?,?,?,?,'open',?)`)
+        .run(id, sessionId, text, opts.cluster ?? null, now());
+      rec({
+        type: 'idea.added',
+        task_id: s.task_id,
+        actor_type: actor,
+        payload: { idea_id: id, session_id: sessionId },
+      });
+      return this.requireIdea(id);
+    });
+  }
+
+  /**
+   * Edit an idea: score (0–10, null clears), cluster (null clears), text, or
+   * discard (status -> discarded). Promoted/discarded ideas are frozen — the
+   * lifecycle is one-way; re-add the idea if a discard was wrong.
+   */
+  updateIdea(
+    id: string,
+    fields: { score?: number | null; cluster?: string | null; text?: string; discard?: boolean },
+    actor: ActorType = 'agent',
+  ): Idea {
+    if (fields.score !== undefined && fields.score !== null) {
+      if (!Number.isInteger(fields.score) || fields.score < 0 || fields.score > 10)
+        throw new ValidationError('score must be an integer 0–10');
+    }
+    if (fields.text !== undefined && !fields.text.trim()) throw new ValidationError('an idea needs text');
+    return this.mutate((rec) => {
+      const i = this.requireIdea(id);
+      if (i.status !== 'open') throw new ValidationError(`idea ${id} is ${i.status} and can no longer change`);
+      const sets: string[] = [];
+      const params: any = { id };
+      const changed: string[] = [];
+      if (fields.score !== undefined) (sets.push('score = @score'), (params.score = fields.score), changed.push('score'));
+      if (fields.cluster !== undefined)
+        (sets.push('cluster = @cluster'), (params.cluster = fields.cluster), changed.push('cluster'));
+      if (fields.text !== undefined) (sets.push('text = @text'), (params.text = fields.text), changed.push('text'));
+      if (fields.discard) (sets.push(`status = 'discarded'`), changed.push('status'));
+      if (!sets.length) return i;
+      this.db.prepare(`UPDATE idea SET ${sets.join(', ')} WHERE id = @id`).run(params);
+      const s = this.getBrainstorm(i.session_id);
+      rec({
+        type: 'idea.updated',
+        task_id: s?.task_id ?? null,
+        actor_type: actor,
+        payload: {
+          idea_id: id,
+          fields: changed,
+          ...(fields.score !== undefined ? { score: fields.score } : {}),
+          ...(fields.discard ? { status: 'discarded' } : {}),
+        },
+      });
+      return this.requireIdea(id);
+    });
+  }
+
+  /**
+   * Promote an idea to a real task — one transaction: the task exists iff the
+   * idea is marked promoted. Defaults: title = idea text, description carries
+   * provenance; `task` options (priority/parent/status/labels…) pass through to
+   * task creation.
+   */
+  promoteIdea(
+    id: string,
+    taskInput: Partial<NewTaskInput> = {},
+    actor: ActorType = 'agent',
+  ): { idea: Idea; task: Task } {
+    return this.mutate((rec) => {
+      const i = this.requireIdea(id);
+      if (i.status !== 'open') throw new ValidationError(`idea ${id} is already ${i.status}`);
+      const s = this.requireBrainstorm(i.session_id);
+      const task = this.createTaskTx(
+        rec,
+        {
+          title: taskInput.title ?? i.text,
+          description:
+            taskInput.description ??
+            `${i.text}\n\n(promoted from idea ${i.id} in brainstorm ${s.id} "${s.topic}")`,
+          ...taskInput,
+          actor,
+        } as NewTaskInput,
+        actor,
+      );
+      this.db
+        .prepare(`UPDATE idea SET status='promoted', promoted_task_id=? WHERE id=?`)
+        .run(task.id, id);
+      rec({
+        type: 'idea.promoted',
+        task_id: task.id,
+        actor_type: actor,
+        payload: { idea_id: id, session_id: s.id },
+      });
+      return { idea: this.requireIdea(id), task };
+    });
+  }
+
   // search (board-wide: tasks / docs / comments) ---------------------------
 
   /** Whether the FTS5 index is available on this board (see db.ts v5 guard). */
@@ -1087,6 +1286,9 @@ export class Repo {
     if (!type || type === 'comment')
       parts.push(`SELECT 'comment' AS type, id AS ref_id, substr(body, 1, 60) AS snip, created_at AS ts
         FROM comment WHERE body LIKE $q ESCAPE '\\'`);
+    if (!type || type === 'idea')
+      parts.push(`SELECT 'idea' AS type, id AS ref_id, substr(text, 1, 60) AS snip, created_at AS ts
+        FROM idea WHERE text LIKE $q ESCAPE '\\'`);
     if (!parts.length) return [];
     const sql = parts.join(' UNION ALL ') + ` ORDER BY ts DESC LIMIT ${(limit * 3) | 0}`;
     return this.db.prepare(sql).all({ q: esc }) as any[];
@@ -1103,6 +1305,20 @@ export class Repo {
       const d = this.getDoc(r.ref_id);
       if (!d || d.archived_at !== null) return null;
       return { type: 'doc', id: d.id, title: d.title, snippet: r.snip, task_id: null, kind: d.kind, status: d.status };
+    }
+    if (r.type === 'idea') {
+      const i = this.getIdea(r.ref_id);
+      if (!i) return null;
+      const s = this.getBrainstorm(i.session_id);
+      return {
+        type: 'idea',
+        id: i.id,
+        title: s ? s.topic : '',
+        snippet: r.snip,
+        task_id: i.promoted_task_id,
+        kind: null,
+        status: i.status,
+      };
     }
     const c = this.db.prepare('SELECT * FROM comment WHERE id = ?').get(r.ref_id) as Comment | undefined;
     if (!c) return null;

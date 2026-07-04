@@ -513,6 +513,12 @@ textarea.edit-field { font: inherit; resize: vertical; }
 #docs-panel .metrics-head .filter { max-width: 14rem; margin-left: auto; }
 #docs-panel .metrics-head .ghost { margin-left: 0; }
 
+/* --- brainstorm panel --- */
+.idea-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.2rem 0; border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.06)); }
+.idea-row .activity-text { white-space: normal; flex: 1; }
+.idea-score { width: 3.2rem; }
+.idea-discarded { color: var(--muted); font-size: 0.8rem; }
+
 /* --- search panel --- */
 #search-panel .metrics-head .filter { max-width: 18rem; margin-left: auto; }
 #search-panel .metrics-head .ghost { margin-left: 0; }

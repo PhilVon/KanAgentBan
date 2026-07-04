@@ -374,6 +374,77 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  // ---- brainstorm (ideation) -----------------------------------------------
+  {
+    name: 'brainstorm',
+    description:
+      'Structured ideation sessions: capture ideas fast, then cluster, score (0–10), and promote winners to real tasks. Use when exploring more than ~3 candidate approaches — otherwise just add tasks. op=start (topic, optional task anchor); op=idea_add (id + text, optional cluster); op=idea_score / idea_cluster / idea_discard shape the pool; op=idea_promote turns an idea into a task atomically (optional title/priority override); op=show renders clustered score-ranked ideas; op=list scans sessions; op=close ends a session. Recipe: start → add → score → promote winners → distill into a doc → close.',
+    inputSchema: {
+      op: z.enum(['start', 'close', 'show', 'list', 'idea_add', 'idea_score', 'idea_cluster', 'idea_promote', 'idea_discard']),
+      id: z.string().optional().describe('session id B-n (start/close/show/idea_add) or idea id I-n (idea_* ops)'),
+      topic: z.string().optional().describe('for op=start (required)'),
+      task: z.string().optional().describe('op=start: anchor task; op=list: filter'),
+      text: z.string().optional().describe('idea text (op=idea_add, required)'),
+      cluster: z.string().optional().describe('cluster name (idea_add / idea_cluster)'),
+      score: z.number().int().min(0).max(10).optional().describe('op=idea_score (required)'),
+      title: z.string().optional().describe('op=idea_promote: task title (default: idea text)'),
+      priority: z.string().optional().describe('op=idea_promote: P0–P3'),
+      status: z.string().optional().describe('op=list filter (open|closed)'),
+      max_tokens: z.number().int().positive().optional(),
+      full: z.boolean().optional(),
+    },
+    run: async (c, a) => {
+      switch (a.op) {
+        case 'start': {
+          if (!a.topic) throw new CliError('brainstorm start needs topic', 1);
+          const s = await api(c, 'POST', '/api/brainstorms', { topic: a.topic, task: a.task });
+          return `${s.id} started "${s.topic}"${s.task_id ? ` (anchored to ${s.task_id})` : ''}`;
+        }
+        case 'close': {
+          if (!a.id) throw new CliError('brainstorm close needs id', 1);
+          const s = await api(c, 'POST', `/api/brainstorms/${a.id}/close`);
+          return `${s.id} closed`;
+        }
+        case 'show': {
+          if (!a.id) throw new CliError('brainstorm show needs id', 1);
+          const r = await api(c, 'GET', `/api/brainstorms/${a.id}${qs({ max_tokens: a.max_tokens, full: a.full })}`);
+          return r.text;
+        }
+        case 'list': {
+          const r = await api(c, 'GET', `/api/brainstorms${qs({ status: a.status, task: a.task })}`);
+          return r.text;
+        }
+        case 'idea_add': {
+          if (!a.id || !a.text) throw new CliError('idea_add needs id (session) and text', 1);
+          const i = await api(c, 'POST', `/api/brainstorms/${a.id}/ideas`, { text: a.text, cluster: a.cluster });
+          return `${i.id} added${i.cluster ? ` [${i.cluster}]` : ''}`;
+        }
+        case 'idea_score': {
+          if (!a.id || a.score === undefined) throw new CliError('idea_score needs id (idea) and score', 1);
+          const i = await api(c, 'PATCH', `/api/ideas/${a.id}`, { score: a.score });
+          return `${i.id} scored ${i.score}`;
+        }
+        case 'idea_cluster': {
+          if (!a.id || !a.cluster) throw new CliError('idea_cluster needs id (idea) and cluster', 1);
+          const i = await api(c, 'PATCH', `/api/ideas/${a.id}`, { cluster: a.cluster });
+          return `${i.id} → cluster "${i.cluster}"`;
+        }
+        case 'idea_promote': {
+          if (!a.id) throw new CliError('idea_promote needs id (idea)', 1);
+          const r = await api(c, 'POST', `/api/ideas/${a.id}/promote`, {
+            task: { ...(a.title ? { title: a.title } : {}), ...(a.priority ? { priority: a.priority } : {}) },
+          });
+          return `${r.idea.id} promoted → ${r.task.id} "${r.task.title}"`;
+        }
+        case 'idea_discard': {
+          if (!a.id) throw new CliError('idea_discard needs id (idea)', 1);
+          await api(c, 'PATCH', `/api/ideas/${a.id}`, { discard: true });
+          return `${a.id} discarded`;
+        }
+      }
+    },
+  },
+
   // ---- human-in-the-loop (durable async; never block) ---------------------
   {
     name: 'ask',

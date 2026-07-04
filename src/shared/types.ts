@@ -140,9 +140,41 @@ export interface DocLink {
   task_id: string;
 }
 
-/** One board-wide search hit (tasks, docs, comments). See docs/07 §Search. */
+export type BrainstormStatus = 'open' | 'closed';
+export type IdeaStatus = 'open' | 'promoted' | 'discarded';
+
+/**
+ * A structured ideation session: capture ideas fast, then cluster, score, and
+ * promote the winners to real tasks. Optionally anchored to the task that
+ * prompted it.
+ */
+export interface BrainstormSession {
+  id: string; // B-n
+  topic: string;
+  status: BrainstormStatus;
+  /** The task this session explores, if any (surfaced in that task's context). */
+  task_id: string | null;
+  created_at: string;
+  closed_at: string | null;
+}
+
+export interface Idea {
+  id: string; // I-n
+  session_id: string;
+  text: string;
+  /** Free-form cluster name for grouping related ideas; null = unclustered. */
+  cluster: string | null;
+  /** 0–10; null = unscored. */
+  score: number | null;
+  status: IdeaStatus;
+  /** The task this idea became, when status is `promoted`. */
+  promoted_task_id: string | null;
+  created_at: string;
+}
+
+/** One board-wide search hit (tasks, docs, comments, ideas). See docs/07 §Search. */
 export interface SearchResult {
-  type: 'task' | 'doc' | 'comment';
+  type: 'task' | 'doc' | 'comment' | 'idea';
   /** Public id of the hit: T-n / D-n / C-n. */
   id: string;
   title: string;
@@ -180,7 +212,12 @@ export type EventType =
   | 'doc.created'
   | 'doc.updated'
   | 'doc.linked'
-  | 'doc.unlinked';
+  | 'doc.unlinked'
+  | 'brainstorm.started'
+  | 'brainstorm.closed'
+  | 'idea.added'
+  | 'idea.updated'
+  | 'idea.promoted';
 
 export interface BoardEvent {
   seq: number;

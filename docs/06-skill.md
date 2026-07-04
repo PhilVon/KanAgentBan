@@ -271,6 +271,10 @@ Grouped to match [05-cli-reference](05-cli-reference.md). The skill steers to th
 | | `kanban doc link\|unlink <D-id> <T-id>` | attach docs to tasks (many-to-many) |
 | | `kanban docs [--kind K] [--task T-1]` | scan doc titles + summaries |
 | | `kanban search "<q>" [--type task\|doc\|comment]` | find prior work before re-researching |
+| **Brainstorm** | `kanban brainstorm start "<topic>" [--task T-1]` | open an ideation session (>3 candidate approaches) |
+| | `kanban brainstorm add <B-id> "<idea>" [--cluster N]` | capture fast, judge later |
+| | `kanban idea score\|cluster\|promote\|drop <I-id>` | shape the pool; promote winners to tasks atomically |
+| | `kanban brainstorm show\|list\|close` | review (clustered, score-ranked) / wrap up |
 | **HITL** | `kanban ask <id> "<q>" [--options a,b] [--expires-at ISO]` | create durable `Q-n` (non-blocking) |
 | | `kanban await <Q-id\|--task <id>\|--any> [--timeout S]` | short gate only (exit `2` = pending, `0` = resolved) |
 | | `kanban answer <Q-id> "<text>"` | CLI answer (testing/automation) |
@@ -320,7 +324,23 @@ kanban watch T-12 --since 142
 # → only events touching T-12 + its direct deps; returns the new high-water seq
 ```
 
-**(e) Record a decision as an ADR linked to the work.**
+**(e) Explore a wide solution space — brainstorm, score, promote.**
+```
+kanban brainstorm start "how to bound event-log growth" --task T-30   # → B-2
+kanban brainstorm add B-2 "compact with retained floor" --cluster keep-seq
+kanban brainstorm add B-2 "rebuild state from snapshots" --cluster rebuild
+kanban brainstorm add B-2 "cap by age not count" --cluster keep-seq
+kanban idea score I-5 9 ; kanban idea score I-6 3 ; kanban idea score I-7 6
+kanban idea promote I-5 --prio P1        # → T-34, atomically; provenance recorded
+kanban idea drop I-6
+# distill the outcome into an ADR, then:
+kanban brainstorm close B-2
+```
+When to bother: more than ~3 candidate approaches, or the human should weigh in
+(they can score/promote/discard from the web UI's Brainstorm panel). For a
+binary choice, just `kanban ask`.
+
+**(f) Record a decision as an ADR linked to the work.**
 ```
 kanban doc add "Use Auth0 over Cognito" --kind adr --link T-12 \
   --summary "Auth0: managed, faster to ship; Cognito revisit at scale" \

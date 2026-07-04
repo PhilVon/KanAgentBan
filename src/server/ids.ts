@@ -22,4 +22,6 @@ export const nextCommentId = (db: DB) => `C-${nextCounter(db, 'comment')}`;
 export const nextCriterionId = (db: DB) => `AC-${nextCounter(db, 'acceptance_criterion')}`;
 export const nextArtifactId = (db: DB) => `A-${nextCounter(db, 'artifact')}`;
 export const nextDocId = (db: DB) => `D-${nextCounter(db, 'doc')}`;
+export const nextBrainstormId = (db: DB) => `B-${nextCounter(db, 'brainstorm_session')}`;
+export const nextIdeaId = (db: DB) => `I-${nextCounter(db, 'idea')}`;
 export const nextSeq = (db: DB) => nextCounter(db, 'seq');

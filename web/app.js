@@ -1176,6 +1176,11 @@ function fmtEvent(ev) {
     'doc.updated': () => `doc ${p.doc_id} updated ${(p.fields || []).join(', ')}`,
     'doc.linked': () => `doc ${p.doc_id} linked`,
     'doc.unlinked': () => `doc ${p.doc_id} unlinked`,
+    'brainstorm.started': () => `brainstorm ${p.session_id} started: ${truncStr(p.topic)}`,
+    'brainstorm.closed': () => `brainstorm ${p.session_id} closed`,
+    'idea.added': () => `idea ${p.idea_id} added to ${p.session_id}`,
+    'idea.updated': () => `idea ${p.idea_id} ${p.status === 'discarded' ? 'discarded' : `updated ${(p.fields || []).join(', ')}`}`,
+    'idea.promoted': () => `idea ${p.idea_id} promoted to a task`,
   };
   const f = M[ev.type];
   return f ? f() : `${ev.type} ${truncStr(JSON.stringify(p))}`;
@@ -1347,6 +1352,154 @@ $('#docs-close').addEventListener('click', () => $('#docs-panel').classList.add(
 $('#docs-filter').addEventListener('input', () => {
   if (!$('#docs-panel').classList.contains('hidden')) loadDocs();
 });
+
+// --- brainstorm panel -----------------------------------------------------------
+// Session list -> clustered/scored idea view with inline scoring and Promote —
+// the human shaping the idea pool is the HITL payoff (like answering inputs).
+// brainstorm.*/idea.* WS events refresh whichever view is open.
+const brainstormState = { openSession: null };
+
+async function loadBrainstorms() {
+  brainstormState.openSession = null;
+  const body = $('#brainstorm-body');
+  let r;
+  try {
+    r = await api('/api/brainstorms?json=1');
+  } catch (e) {
+    body.replaceChildren(el('div', 'metrics-banner', `brainstorms failed: ${e.message}`));
+    return;
+  }
+  body.replaceChildren();
+  if (!r.sessions.length) {
+    body.append(el('div', 'activity-empty', 'no brainstorms yet — the agent starts one with `kanban brainstorm start`'));
+    return;
+  }
+  const list = el('div', 'activity-list');
+  for (const s of r.sessions) {
+    const row = el('div', 'activity-row');
+    row.append(el('span', 'doc-kind', s.status));
+    const link = el('a', 'activity-task', s.id);
+    link.href = '#';
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      viewBrainstorm(s.id);
+    });
+    row.append(link);
+    row.append(el('span', 'activity-text', s.topic));
+    if (s.task_id) {
+      const t = el('a', 'activity-task', s.task_id);
+      t.href = '#';
+      t.addEventListener('click', (e) => {
+        e.preventDefault();
+        openDrawer(s.task_id);
+      });
+      row.append(t);
+    }
+    list.append(row);
+  }
+  body.append(list);
+}
+
+async function viewBrainstorm(id) {
+  brainstormState.openSession = id;
+  const body = $('#brainstorm-body');
+  let s;
+  try {
+    s = await api(`/api/brainstorms/${id}?json=1`);
+  } catch (e) {
+    body.replaceChildren(el('div', 'metrics-banner', `brainstorm failed: ${e.message}`));
+    return;
+  }
+  body.replaceChildren();
+  const back = el('button', 'ghost', '← All brainstorms');
+  back.addEventListener('click', loadBrainstorms);
+  body.append(back);
+  const head = el('div', 'doc-head');
+  head.append(el('span', 'doc-kind', s.status));
+  head.append(el('strong', '', ` ${s.id} ${s.topic}`));
+  body.append(head);
+
+  const groups = new Map();
+  for (const i of s.ideas) {
+    const key = i.cluster || '(unclustered)';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(i);
+  }
+  for (const [cluster, ideas] of groups) {
+    body.append(el('h4', '', cluster));
+    for (const i of ideas) body.append(ideaRow(i, s));
+  }
+  if (!s.ideas.length) body.append(el('div', 'activity-empty', 'no ideas yet'));
+}
+
+function ideaRow(i, s) {
+  const row = el('div', 'idea-row');
+  row.append(el('span', 'doc-kind', i.score !== null ? String(i.score) : '–'));
+  const text = el('span', 'activity-text', i.text);
+  row.append(text);
+  if (i.status === 'promoted') {
+    const t = el('a', 'activity-task', `→ ${i.promoted_task_id}`);
+    t.href = '#';
+    t.addEventListener('click', (e) => {
+      e.preventDefault();
+      openDrawer(i.promoted_task_id);
+    });
+    row.append(t);
+  } else if (i.status === 'discarded') {
+    row.append(el('span', 'idea-discarded', '✕ discarded'));
+  } else if (s.status === 'open') {
+    const score = el('input', 'idea-score');
+    score.type = 'number';
+    score.min = '0';
+    score.max = '10';
+    score.value = i.score !== null ? String(i.score) : '';
+    score.title = 'score 0–10';
+    const submitScore = () => {
+      const v = score.value.trim();
+      if (v === '') return;
+      api(`/api/ideas/${i.id}`, {
+        method: 'PATCH',
+        headers: userJson,
+        body: JSON.stringify({ score: Number(v) }),
+      })
+        .then(() => viewBrainstorm(s.id))
+        .catch((err) => toast(`score failed: ${err.message}`));
+    };
+    score.addEventListener('change', submitScore);
+    score.addEventListener('keydown', (e) => e.key === 'Enter' && submitScore());
+    row.append(score);
+    const promote = el('button', 'send', 'Promote');
+    promote.onclick = () =>
+      api(`/api/ideas/${i.id}/promote`, {
+        method: 'POST',
+        headers: userJson,
+        body: JSON.stringify({}),
+      })
+        .then(() => viewBrainstorm(s.id))
+        .catch((err) => toast(`promote failed: ${err.message}`));
+    row.append(promote);
+    const drop = el('button', 'ghost', '✕');
+    drop.title = 'discard idea';
+    drop.onclick = () =>
+      api(`/api/ideas/${i.id}`, {
+        method: 'PATCH',
+        headers: userJson,
+        body: JSON.stringify({ discard: true }),
+      })
+        .then(() => viewBrainstorm(s.id))
+        .catch((err) => toast(`discard failed: ${err.message}`));
+    row.append(drop);
+  }
+  return row;
+}
+
+function toggleBrainstorm() {
+  const p = $('#brainstorm-panel');
+  p.classList.toggle('hidden');
+  if (!p.classList.contains('hidden')) loadBrainstorms();
+}
+$('#brainstorm-btn').addEventListener('click', toggleBrainstorm);
+$('#brainstorm-close').addEventListener('click', () => $('#brainstorm-panel').classList.add('hidden'));
 
 // --- search panel -------------------------------------------------------------
 // Debounced board-wide search over /api/search?json. Hits link to the drawer
@@ -1627,6 +1780,14 @@ function applyEvent(ev) {
 
   // Docs panel stays current while open; a doc list is cheap to re-pull.
   if (ev.type.startsWith('doc.') && !$('#docs-panel').classList.contains('hidden')) loadDocs();
+  // Brainstorm panel: refresh whichever view is open (list or a session).
+  if (
+    (ev.type.startsWith('brainstorm.') || ev.type.startsWith('idea.')) &&
+    !$('#brainstorm-panel').classList.contains('hidden')
+  ) {
+    if (brainstormState.openSession) viewBrainstorm(brainstormState.openSession);
+    else loadBrainstorms();
+  }
 
   const id = ev.task_id;
   if (ev.type === 'task.archived') return removeCard(id);
