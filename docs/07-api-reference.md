@@ -105,10 +105,16 @@ is derived, never stored ([02-data-model §5-6](02-data-model.md)).
 | `POST` | `/api/tasks/:id/criteria` | `criterion add` |
 | `PATCH` | `/api/criteria/:acid` | `criterion check` |
 | `POST` / `DELETE` | `/api/tasks/:id/labels` | `label --add/--rm` |
-| `POST` | `/api/tasks/:id/artifacts` | `artifact` |
+| `POST` | `/api/tasks/:id/artifacts` | `artifact` / `git link` |
 | `POST` | `/api/tasks/:id/summary` | `summarize` |
 
 `POST /api/tasks/:id/deps` rejects cycles/self/duplicate with `409`/`400`.
+
+`POST /api/tasks/:id/artifacts` is **idempotent on (task, kind, uri)** — a
+duplicate reference returns the existing artifact with no new event (safe for
+`kanban git link` re-scans, ADR 0008). Kinds now include `commit` (`git:<sha>`)
+and `branch` (`branch:<name>`). The `kanban git …` commands themselves have no
+endpoints: all git/`gh` execution is CLI-side.
 
 ## Search
 

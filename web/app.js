@@ -597,10 +597,16 @@ function renderDrawer(d) {
     for (const a of d.artifacts) {
       const row = el('div', 'artifact');
       row.append(el('span', 'kind', a.kind));
-      const link = el('a', '', a.title);
-      link.href = a.uri;
-      link.target = '_blank';
-      row.append(link);
+      // git:<sha> / branch:<name> / file paths aren't navigable — plain text.
+      if (/^https?:/.test(a.uri)) {
+        const link = el('a', '', a.title);
+        link.href = a.uri;
+        link.target = '_blank';
+        row.append(link);
+      } else {
+        row.append(el('span', '', a.title));
+        row.append(el('span', 'kind', a.uri.length > 30 ? a.uri.slice(0, 27) + '…' : a.uri));
+      }
       body.append(row);
     }
   }

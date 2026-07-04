@@ -185,8 +185,11 @@ Manage acceptance criteria; `check --off` unchecks.
 
 ### `kanban label <id> --add L` / `--rm L`
 
-### `kanban artifact <id> --kind link|file|pr|output --title T --uri U`
-Records a **reference** (never contents).
+### `kanban artifact <id> --kind link|file|pr|output|commit|branch --title T --uri U`
+Records a **reference** (never contents). Idempotent on (task, kind, uri) — the
+same reference attached twice returns the original, no duplicate event. Git
+conventions: `commit` → `uri: git:<sha>`, `branch` → `uri: branch:<name>`,
+`pr` → the PR URL (see the `git` commands below, ADR 0008).
 
 ### `kanban summarize <id> "<summary>"`
 Sets a fresh `summary` (clears the stale-summary flag). Server never
@@ -260,6 +263,43 @@ SQLite build without FTS5 the board degrades to substring matching
 ```
 $ kanban search "token exchange" --type task
 T-12 [task/In Progress] "Wire up OAuth callback" — …the token exchange handles…
+```
+
+---
+
+## Git commands (repo linkage — ADR 0008)
+
+All git/`gh` execution runs **CLI-side in your cwd**; the server never shells
+out. Convention: branches named `T-n-<slug>`, commit subjects mentioning `T-n`.
+
+### `kanban git link [T-n] [--depth N]`
+Scans recent commits (default 500) and local branches for `T-n` mentions and
+records them as `commit`/`branch` artifacts on those tasks (unknown ids are
+skipped). Idempotent — re-run freely, e.g. from the post-commit hook.
+
+### `kanban git branch <T-n> [--checkout|--create]`
+Prints the conventional branch name `T-n-<slugged-title>`; `--checkout` creates
+and switches, `--create` just creates.
+
+### `kanban git status [T-n]`
+Board git artifacts for the task (default: task ids in the current branch name)
+merged with live state: flags the current branch, and — when `gh` is available —
+appends `[PR open · checks green]`-style PR/CI status, fetched on demand and
+never stored.
+
+### `kanban git install-hooks [--force]`
+Installs `prepare-commit-msg` (appends `[T-n]` from the branch name, once) and
+`post-commit` (fire-and-forget `kanban git link`; a down server never blocks a
+commit). Refuses to overwrite non-kanban hooks without `--force`.
+
+```
+$ kanban git branch T-12 --checkout      # T-12-wire-up-oauth-callback
+$ git commit -m "handle token errors"    # hook appends [T-12]
+$ kanban git status
+T-12 "Wire up OAuth callback" [In Progress]
+  branch T-12-wire-up-oauth-callback  branch:T-12-wire-up-oauth-callback  ← current
+  commit handle token errors [T-12]  git:3f9c…  
+  pr     auth PR  https://github.com/acme/app/pull/42  [PR open · checks green]
 ```
 
 ---

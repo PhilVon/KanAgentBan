@@ -107,7 +107,7 @@ Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficie
 | Board-native docs (design/ADR/spike/research/note — ADR 0007) | ✅ (post-v1) | |
 | Board-wide search (FTS5) | ✅ (post-v1) | |
 | Brainstorm sessions + idea promotion | ✅ (post-v1) | |
-| Git linkage (commit/branch artifacts, CLI-side git) | | planned (tool-expansion batch) |
+| Git linkage (commit/branch artifacts, CLI-side git) | ✅ (post-v1) | |
 | Cloud sync / multi-machine | | ✅ |
 
 ### Deferred to v2+ (detail)

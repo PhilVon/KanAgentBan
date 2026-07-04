@@ -30,7 +30,10 @@ export type AuthorType = ActorType;
 
 export type InputStatus = 'open' | 'answered' | 'cancelled' | 'expired';
 export type DepType = 'blocks' | 'relates' | 'duplicates';
-export type ArtifactKind = 'link' | 'file' | 'pr' | 'output';
+/** `commit` (`uri: git:<sha>`) and `branch` (`uri: branch:<name>`) are git
+ *  references recorded by `kanban git link` — still references, never contents
+ *  (ADR 0005; git execution is CLI-side only, ADR 0008). */
+export type ArtifactKind = 'link' | 'file' | 'pr' | 'output' | 'commit' | 'branch';
 export type SummarySource = 'human' | 'agent' | 'auto';
 
 export type DocKind = 'design' | 'adr' | 'spike' | 'research' | 'note';

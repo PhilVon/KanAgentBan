@@ -94,7 +94,9 @@ ride through `?json=1` and append an `[est_tokens: N]` footer; `max_tokens` /
 **Writes:** `add`, `update` (carries `summary`; `expect_version` → `If-Match`),
 `move` (Done included), `claim` (`op: claim|release`, `force`), `archive`, `dep`
 (`op: add|remove`), `parent` (`to` / `clear`), `comment`, `criterion`
-(`op: add|check`), `label` (`op: add|remove`), `artifact`.
+(`op: add|check`), `label` (`op: add|remove`), `artifact` (kinds incl. git
+`commit`/`branch` references; idempotent on task+kind+uri — no dedicated git
+tool, since repo scanning is inherently CLI/local, ADR 0008).
 
 **Search:** `search` — board-wide ranked FTS5 hits over tasks/docs/comments with
 snippets; the "check prior work before re-researching" read.

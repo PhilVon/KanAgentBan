@@ -430,6 +430,114 @@ idea.command('drop <id>').description('discard an idea (one-way)').action(async 
   out(`${id} discarded`);
 });
 
+// ---- git linkage (CLI-side git only — ADR 0008) ---------------------------
+const git = program
+  .command('git')
+  .description('link the current repo to board tasks: commits, branches, PR status');
+git
+  .command('link [id]')
+  .description('scan the repo for T-n mentions and record commit/branch artifacts (idempotent)')
+  .option('--depth <n>', 'commits to scan (default 500)')
+  .action(async (id, o) => {
+    const g = await import('./git');
+    if (!g.inGitRepo()) throw new CliError('not inside a git repository', 1);
+    const c = await conn();
+    const commits = g.scanCommits(undefined, o.depth ? Number(o.depth) : undefined);
+    const branches = g.scanBranches();
+    let commitCount = 0;
+    let branchCount = 0;
+    const wanted = (ids: string[]) => (id ? ids.filter((x) => x === id) : ids);
+    for (const cm of commits) {
+      for (const tid of wanted(cm.ids)) {
+        try {
+          await api(c, 'POST', `/api/tasks/${tid}/artifacts`, {
+            kind: 'commit',
+            title: cm.subject,
+            uri: `git:${cm.sha}`,
+          });
+          commitCount++;
+        } catch {
+          /* task id mentioned but not on this board — skip */
+        }
+      }
+    }
+    for (const b of branches) {
+      for (const tid of wanted(b.ids)) {
+        try {
+          await api(c, 'POST', `/api/tasks/${tid}/artifacts`, {
+            kind: 'branch',
+            title: b.name,
+            uri: `branch:${b.name}`,
+          });
+          branchCount++;
+        } catch {
+          /* skip unknown ids */
+        }
+      }
+    }
+    out(`linked ${commitCount} commit(s), ${branchCount} branch(es)${id ? ` for ${id}` : ''} (re-runs are idempotent)`);
+  });
+git
+  .command('branch <id>')
+  .description('print (or create) the conventional branch T-n-<slug> for a task')
+  .option('--checkout', 'create the branch and switch to it')
+  .option('--create', 'create the branch without switching')
+  .action(async (id, o) => {
+    const g = await import('./git');
+    const r = await api(await conn(), 'GET', `/api/tasks/${id}?json=1`);
+    const name = g.branchNameFor(id, r.task.title);
+    if (o.checkout || o.create) {
+      if (!g.inGitRepo()) throw new CliError('not inside a git repository', 1);
+      g.createBranch(name, !!o.checkout);
+      out(`${name}${o.checkout ? '  (checked out)' : '  (created)'}`);
+    } else {
+      out(name);
+    }
+  });
+git
+  .command('status [id]')
+  .description('board git artifacts merged with live repo/PR state (gh optional)')
+  .action(async (id) => {
+    const g = await import('./git');
+    const c = await conn();
+    const cur = g.inGitRepo() ? g.currentBranch() : null;
+    const ids = id ? [id] : cur ? g.taskIdsIn(cur) : [];
+    if (!ids.length)
+      throw new CliError('no task id: pass one, or check out a T-n-… branch', 1);
+    for (const tid of ids) {
+      const r = await api(c, 'GET', `/api/tasks/${tid}?view=context&json=1`);
+      const arts: any[] = (r.artifacts ?? []).filter((a: any) =>
+        ['commit', 'branch', 'pr'].includes(a.kind),
+      );
+      out(`${tid} "${r.task.title}" [${r.task.status}]`);
+      if (!arts.length) out('  (no git artifacts — run: kanban git link)');
+      for (const a of arts) {
+        let line = `  ${a.kind.padEnd(6)} ${a.title}  ${a.uri}`;
+        if (a.kind === 'branch' && cur && a.uri === `branch:${cur}`) line += '  ← current';
+        if (a.kind === 'pr' || a.kind === 'branch') {
+          const ref = a.kind === 'branch' ? a.uri.slice('branch:'.length) : a.uri;
+          const pr = g.prStatus(ref);
+          if (pr) line += `  [PR ${pr.state.toLowerCase()} · ${pr.checks}]`;
+        }
+        out(line);
+      }
+    }
+  });
+git
+  .command('install-hooks')
+  .description('install prepare-commit-msg (+[T-n] from branch) and post-commit (auto git link) hooks')
+  .option('--force', 'overwrite existing non-kanban hooks')
+  .action(async (o) => {
+    const g = await import('./git');
+    if (!g.inGitRepo()) throw new CliError('not inside a git repository', 1);
+    try {
+      const written = g.installHooks(process.cwd(), !!o.force);
+      out(`installed: ${written.join(', ')}`);
+    } catch (e) {
+      throw new CliError(e instanceof Error ? e.message : String(e), 1);
+    }
+  });
+
 // ---- human-in-the-loop ---------------------------------------------------
 program.command('ask <id> <question>').option('--options <o>', 'answer option (repeatable or comma-separated)', collectList).option('--freeform').option('--expires-at <iso>')
   .action(async (id, question, o) => {

@@ -115,6 +115,10 @@ When the agent picks up a task, the skill steers it through:
 5. **Record artifacts as references, never contents.**
    `kanban artifact T-12 --kind pr --title "auth callback PR" --uri <url>`.
    The board stores the pointer; the contents live where they live.
+   For git work: start on a conventional branch (`kanban git branch T-12
+   --checkout` → `T-12-slug`), mention `T-n` in commit subjects (or install the
+   hooks once), run `kanban git link` after committing, and attach the PR URL as
+   a `pr` artifact when you open one.
 6. **Write knowledge worth keeping as a doc, not a comment.** Comments are notes
    *about one task*; a **doc** is durable knowledge that outlives it (the one
    place the board stores content — ADR 0007). Rules of thumb: a hard-to-reverse
@@ -263,7 +267,11 @@ Grouped to match [05-cli-reference](05-cli-reference.md). The skill steers to th
 | | `kanban comment <id> "<body>"` | record a decision/note |
 | | `kanban criterion add\|check <id\|AC-id> [--off]` | manage acceptance criteria |
 | | `kanban label <id> --add\|--rm L` | labels |
-| | `kanban artifact <id> --kind ... --title T --uri U` | record a reference |
+| | `kanban artifact <id> --kind ... --title T --uri U` | record a reference (incl. commit/branch/pr) |
+| **Git** | `kanban git branch T-n --checkout` | start work on the conventional `T-n-slug` branch |
+| | `kanban git link [T-n]` | record commits/branches mentioning T-n as artifacts (idempotent) |
+| | `kanban git status [T-n]` | board artifacts + live PR/CI state (gh, on demand) |
+| | `kanban git install-hooks` | auto-tag commits `[T-n]` + auto-link after each commit |
 | | `kanban summarize <id> "<summary>"` | manual summary refresh |
 | **Docs** | `kanban doc add "<title>" --kind adr\|design\|spike\|research\|note [--link T-1]` | durable knowledge (ADR, design, research) |
 | | `kanban doc show <D-id> [--full]` | one doc's body (budgeted) |

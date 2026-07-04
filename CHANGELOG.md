@@ -70,6 +70,13 @@ Unreleased section describing its change.
   `/api/ideas`, grouped MCP `brainstorm` tool, `context` open-session anchor,
   web Brainstorm panel with human scoring/promote; ideas join board search
   (SCHEMA_VERSION 5→6, FORMAT_VERSION 10→11) (#20)
+- Git linkage (ADR 0008 — all git/gh execution CLI-side, server never shells
+  out): artifact kinds `commit`/`branch` with `git:<sha>`/`branch:<name>` URIs
+  and idempotent `addArtifact` on (task, kind, uri); `kanban git link`
+  (T-n mention scanner), `git branch` (conventional `T-n-slug`), `git status`
+  (live PR/CI via `gh` on demand, never stored), `git install-hooks`
+  (prepare-commit-msg + fire-and-forget post-commit); no schema change
+  (FORMAT_VERSION 11→12) (#21)
 
 ### Fixed
 - Repeated `--label`/`--depends` on `kanban add` and `--options` on

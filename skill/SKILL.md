@@ -58,6 +58,14 @@ kanban artifact T-12 --kind pr --title "auth PR" --uri https://github.com/acme/a
 kanban done T-12
 ```
 
+**Git linkage** (all CLI-side; convention: `T-n-slug` branches, `T-n` in commit
+subjects): `kanban git branch T-12 --checkout` starts the conventional branch;
+`kanban git link` records commits/branches mentioning task ids as
+commit/branch artifacts (idempotent — re-run freely); `kanban git status T-12`
+merges board artifacts with live PR/CI state via `gh` on demand;
+`kanban git install-hooks` (once per repo) auto-tags commits `[T-n]` and
+auto-links after each commit.
+
 Claiming is **single-agent: skip it unless several agents share one board.** When
 they do, set a distinct `KANBAN_AGENT` per agent (else they collide on the default
 `agent` identity). A claim records who's working a task and hides it from peers'
@@ -233,6 +241,7 @@ The full surface — nothing here is off-limits. Any read takes `--json` and
 - Docs: `doc add "<title>" --kind design|adr|spike|research|note [--body|--body-file] [--summary] [--link T-n]`, `doc show <D-n> [--full]`, `doc update <D-n> [--status|--superseded-by D-n]`, `doc link/unlink <D-n> <T-n>`, `doc archive <D-n>`, `docs [--kind|--status|--task]`
 - Search: `search "<query>" [--type task|doc|comment|idea] [--limit N]` — ranked hits with snippets across the whole board
 - Brainstorm: `brainstorm start "<topic>" [--task T-n]`, `brainstorm add <B-n> "<idea>" [--cluster N]`, `brainstorm show/list/close`, `idea score <I-n> <0-10>`, `idea cluster <I-n> <name>`, `idea promote <I-n> [--title|--prio|--parent]`, `idea drop <I-n>`
+- Git: `git branch T-n [--checkout]`, `git link [T-n] [--depth N]`, `git status [T-n]`, `git install-hooks [--force]`
 - HITL: `ask [--options|--freeform|--expires-at]`, `await [qid|--task|--any] [--timeout S]`, `answer`, `cancel`
 - Lifecycle: `board init/show/nudge`, `serve [--port]`, `export [--out FILE]`, `open`
 - Reporting (not the work loop): `stats [id] [--window N]` — board analytics / per-task timing, read-only.
