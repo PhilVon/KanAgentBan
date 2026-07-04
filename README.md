@@ -246,6 +246,18 @@ Cloud sync / multi-machine, per-task time tracking and burndown/analytics.
 subtasks, and input cancel/expiry have all shipped post-v1; basic `kanban export`
 and multi-agent `claim` ship too — see above.)
 
+## Shell completion
+
+`kanban completion <bash|zsh|pwsh>` prints a static completion script generated
+from the live command table (so it can't drift). PowerShell:
+
+```powershell
+kanban completion pwsh | Out-String | Invoke-Expression   # add to $PROFILE to persist
+```
+
+bash: `eval "$(kanban completion bash)"` · zsh: write it to a file on `$fpath`
+as `_kanban`.
+
 ## Web UI
 
 The human's window into the board: a single-page, dark-themed app served by the

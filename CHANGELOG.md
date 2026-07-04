@@ -50,6 +50,8 @@ Unreleased section describing its change.
 - Web dependency-graph panel: layered SVG over `/api/ui/graph` (#14)
 - Web filter token grammar: `status:`/`p0`–`p3`/`label:`/`@`/`is:` +
   description/summary search (#15)
+- `kanban completion bash|zsh|pwsh`: static scripts introspected from the live
+  CLI (#16)
 
 ### Fixed
 - Repeated `--label`/`--depends` on `kanban add` and `--options` on
