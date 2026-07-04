@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        node: [20, 22]
+        include:
+          - os: windows-latest
+            node: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      # --omit=optional: the lockfile pins the optional fontawesome-pro package
+      # to the authenticated npm.fontawesome.com registry; Free FA is a regular
+      # dep and copy-web-assets falls back to it. Install scripts must run
+      # (better-sqlite3 prebuilds, web-asset copy).
+      - run: npm ci --omit=optional
+      - run: npm run build
+      - run: npm test
