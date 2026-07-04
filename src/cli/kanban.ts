@@ -2,6 +2,7 @@
 import * as fs from 'node:fs';
 import { Command } from 'commander';
 import { api, CliError, connect, initBoard } from './board';
+import { collectList } from './args';
 import { normalizeShell, renderCompletion, specFromCommand } from './completion';
 import { renderInbox } from './format';
 import { boardPaths, findBoardRoot, readBoardMeta, writeBoardMeta } from '../shared/board-paths';
@@ -140,8 +141,8 @@ program
   .option('--status <s>')
   .option('--prio <p>')
   .option('--parent <id>', 'parent task id (creates a subtask)')
-  .option('--label <list>', 'comma-separated')
-  .option('--depends <list>', 'comma-separated task ids')
+  .option('--label <l>', 'label (repeatable or comma-separated)', collectList)
+  .option('--depends <id>', 'blocking task id (repeatable or comma-separated)', collectList)
   .option('--ac <text...>', 'acceptance criterion (repeatable)')
   .action(async (title, o) => {
     const t = await api(await conn(), 'POST', '/api/tasks', {
@@ -151,8 +152,8 @@ program
       status: o.status,
       priority: o.prio,
       parent: o.parent,
-      labels: split(o.label),
-      depends: split(o.depends),
+      labels: o.label,
+      depends: o.depends,
       criteria: o.ac,
     });
     out(`${t.id}  created${t.parent_id ? `  (subtask of ${t.parent_id})` : ''}`);
@@ -228,9 +229,9 @@ program.command('artifact <id>').requiredOption('--kind <k>').requiredOption('--
 program.command('summarize <id> <summary>').action(async (id, summary) => { await api(await conn(), 'POST', `/api/tasks/${id}/summary`, { summary }); out(`${id} summary updated`); });
 
 // ---- human-in-the-loop ---------------------------------------------------
-program.command('ask <id> <question>').option('--options <list>').option('--freeform').option('--expires-at <iso>')
+program.command('ask <id> <question>').option('--options <o>', 'answer option (repeatable or comma-separated)', collectList).option('--freeform').option('--expires-at <iso>')
   .action(async (id, question, o) => {
-    const r = await api(await conn(), 'POST', `/api/tasks/${id}/input-requests`, { question, options: split(o.options), freeform: !!o.freeform, expires_at: o.expiresAt });
+    const r = await api(await conn(), 'POST', `/api/tasks/${id}/input-requests`, { question, options: o.options, freeform: !!o.freeform, expires_at: o.expiresAt });
     out(`${r.id}  created on ${id} (task now needs input)`);
   });
 
@@ -331,9 +332,6 @@ program.parseAsync(process.argv).catch((e: unknown) => {
 });
 
 // helpers
-function split(s?: string): string[] | undefined {
-  return s ? s.split(',').map((x) => x.trim()).filter(Boolean) : undefined;
-}
 function clean<T extends Record<string, unknown>>(o: T): Record<string, string> {
   const r: Record<string, string> = {};
   for (const [k, v] of Object.entries(o)) if (v !== undefined && v !== null && v !== false) r[k] = String(v);

@@ -151,7 +151,7 @@ The trailing bracketed lines are **truncation footers** — see §4.
 - Terse plaintext default; `--json` opt-in for machine parsing.
 - Stable field order, stable section headers, no decorative noise.
 - No ANSI colour when stdout is not a TTY.
-- Versioned: `--format-version` (current `6`); changes bump the version so a
+- Versioned: `--format-version` (current `8`); changes bump the version so a
   pinned agent/skill never silently breaks. **v2** added the `est_tokens` field to
   `--json` reads and the context-tier graceful-degradation truncation footers (§4);
   **v3** extended `--max-tokens` budgeting (and its never-silent footers) to the
@@ -159,7 +159,9 @@ The trailing bracketed lines are **truncation footers** — see §4.
   non-`answered` `await` resolutions; **v5** added the `stats` analytics tier;
   **v6** split comments into a protected **user comments** block (shed last) and
   shed-first **agent notes**, flagged a waiting user comment in `next`, and marked
-  user-commented tasks `💬n*` in `list`.
+  user-commented tasks `💬n*` in `list`; **v7** expanded `stats` with flow health,
+  breakdowns, forecast, and CFD; **v8** added the `stats` per-status dwell line
+  with a bottleneck flag and the velocity-trend annotation.
 
 This lets the skill and the agent regex specific fields without re-reading prose.
 

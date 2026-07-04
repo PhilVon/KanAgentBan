@@ -104,6 +104,25 @@ parked `kanban await` resolves off the same emitter
 Constrained answers are validated server-side (answer ∈ `options`); the UI
 mirrors the constraint by offering buttons, but the server is authoritative.
 
+### Filter grammar
+
+The header filter box takes space-separated tokens that must **all** match
+(AND), evaluated client-side over the already-loaded board:
+
+- `status:<prefix>` (alias `col:`) — display column, case-insensitive prefix, so
+  `status:blocked` matches the derived Blocked projection and `status:rev`
+  matches Review.
+- Bare `p0`…`p3` — priority equals.
+- `label:<x>` — label substring; `@name` — assignee substring.
+- `is:blocked` (dep- or child-blocked), `is:input` (open input request),
+  `is:claimed`, `is:subtask`.
+- Any other bare token — substring over id, title, **description, summary**,
+  labels, and assignee.
+
+Unknown `is:`/`status:` values match nothing rather than degrading to text.
+Comment-body search is out of scope (would need a server round-trip; comments
+arrive as counts on cards).
+
 ### Metrics / burndown panel
 
 A **📊 Metrics** toggle in the header opens a panel backed by `GET /api/stats?json`
@@ -112,6 +131,31 @@ WIP-per-column with aging) and an inline-SVG **burndown** chart (remaining vs do
 vs created over the window — no external chart library). It refetches on each
 WebSocket frame while open, and shows a bounded-history banner when
 `partial_history` (some tasks predate the compaction floor).
+
+### Dependency graph panel
+
+A **Graph** toggle in the header opens a hand-rolled inline-SVG view of the
+blocks-DAG backed by `GET /api/ui/graph` ([07](07-api-reference.md)): layered
+longest-path layout (safe — the server rejects dependency cycles) with
+barycenter row ordering, one rounded rect per task colored by status, dashed
+stroke when blocked, bezier edges with arrowheads pointing prerequisite →
+dependent. Only tasks participating in at least one edge are drawn (empty state
+otherwise); clicking a node opens its drawer. The panel re-renders (debounced)
+on dependency/task events while open. A per-task subgraph inside the drawer is
+a possible follow-up — the drawer already lists direct blockers as clickable
+rows.
+
+### Activity log panel
+
+An **Activity** toggle in the header opens a newest-first audit trail backed by
+`GET /api/ui/activity` ([07](07-api-reference.md)): one human-readable line per
+event (`HH:MM · actor · phrase`, all 20 event types mapped, terse
+`type + payload` fallback for anything unmapped), with the task id clickable to
+its drawer. A task-id filter input scopes the list; **Load more** pages older
+events (`before=` the oldest loaded seq). While the panel is open, live
+WebSocket frames **prepend** without a refetch. When the event log has been
+compacted (`floor > 0`) the panel shows a never-silent
+`history starts at seq N` banner.
 
 ---
 

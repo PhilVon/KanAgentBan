@@ -31,7 +31,7 @@ Related: [03-token-efficiency](03-token-efficiency.md) ·
 - **Auto-start:** any command health-checks the server and starts it detached if
   down (`kanban serve`), then proceeds.
 - **Output:** terse plaintext by default. `--json` emits a JSON object.
-  `--format-version <n>` pins the plaintext schema (current: `4`). No ANSI colour
+  `--format-version <n>` pins the plaintext schema (current: `8`). No ANSI colour
   when stdout is not a TTY.
 - **Token control:** read commands accept `--max-tokens N` and never silently
   truncate — they emit an explicit footer (see [03](03-token-efficiency.md)).
@@ -125,10 +125,11 @@ automatically; this command forces it. See [11-roadmap §2](11-roadmap.md).
 ### `kanban stats [id] [--window N] [--max-tokens N] [--full] [--json]`
 Board analytics, or per-task timing when `<id>` is given. Read-only derivation
 over the event log: per-task lead/cycle time and time-per-status; board
-throughput/velocity, WIP & aging, and a burndown series (`--window`, default 14
-days). Honours the token-budget contract and is never-silent about the compaction
-floor (tasks predating it are excluded from timing aggregates).
-See [13-analytics](13-analytics.md).
+throughput/velocity (with a recent-vs-prior-half **trend** annotation), WIP &
+aging, a burndown series (`--window`, default 14 days), and per-status **dwell**
+times with a bottleneck flag. Honours the token-budget contract and is
+never-silent about the compaction floor (tasks predating it are excluded from
+timing aggregates). See [13-analytics](13-analytics.md).
 
 ---
 
@@ -137,7 +138,8 @@ See [13-analytics](13-analytics.md).
 ### `kanban add "<title>" [--desc T] [--summary T] [--status S] [--prio P0..P3] [--parent T-1] [--label L,...] [--depends T-3,T-4] [--ac "text" ...]`
 Creates a task; prints the new `T-n`. `--depends` adds `blocks` edges;
 `--ac` adds acceptance criteria. `--parent` nests it as a subtask under an
-existing task (§subtasks).
+existing task (§subtasks). `--label` and `--depends` are repeatable and each
+occurrence may be comma-separated (`--label a,b --label c` -> a, b, c).
 
 ### `kanban update <id> [--title T] [--desc T] [--summary T] [--prio P] [--expect-version N]`
 Edits fields. `--expect-version` enables optimistic concurrency; a stale version
@@ -204,7 +206,8 @@ error: T-12 already claimed by alice        # exit 4
 
 ### `kanban ask <id> "<question>" [--options a,b,c] [--freeform] [--expires-at ISO]`
 Creates a durable input request, moves the task to needs-input, broadcasts to the
-UI, and **returns `Q-n` immediately (non-blocking)**.
+UI, and **returns `Q-n` immediately (non-blocking)**. `--options` is repeatable
+and each occurrence may be comma-separated.
 
 ```
 $ kanban ask T-12 "Which auth provider?" --options Auth0,Cognito
