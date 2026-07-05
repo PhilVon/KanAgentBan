@@ -42,10 +42,12 @@ that answers its question.
 ## 2. Tiered / progressive disclosure
 
 ```
-next         → 1 ready task, ~5 lines, + one-clause "why"
+standup      → narrative diff since a cursor/days window (cold-start catch-up)
+doctor       → hygiene findings only, each naming its fix (exit 2 = findings)
+next         → 1 ready task, ~5 lines, + one-clause "why" (flags a checkpoint)
 next --context → that task + full working set (ONE call — cold start)
 list         → compact one-line-per-task
-show <id>    → medium: summary + counts + user comments + recent agent notes
+show <id>    → medium: checkpoint + summary + counts + user comments + recent agent notes
 context <id> → full curated working set (the flagship payload)
 docs         → compact one-line-per-doc (id, kind/status, title, summary)
 doc show D-n → one doc's markdown body (budgeted by default — ADR 0007)
@@ -63,7 +65,9 @@ Fixed section order, fixed headers (a parseable contract), each section
 **independently truncatable** with its own footer. Order reflects what an agent
 needs first:
 
-1. **Task line** — id, title, status, priority, summary
+1. **Task line + checkpoint** — id, title, status, priority; then the one-slot
+   **checkpoint** (the resume pointer reads first, never trimmed under budget);
+   then summary
 2. **Acceptance criteria** — checklist with checked state (`3/5`)
 3. **Direct deps only** — blockers (id+title+status) and tasks blocked-by-this.
    Transitive blockers shown as a **count**, never expanded (a token bomb).
@@ -202,10 +206,15 @@ tiebreak:  sticky bias to the most-recently-touched still-ready task
 
 **Cold start (new turn/session, no context):**
 ```
-kanban next --context      # one call: the task to do + its full working set
+kanban standup --since <cursor>   # what happened while you were away, as narrative
+kanban next --context             # one call: the task to do + its full working set
 ```
-Avoids the round-trip of `next` then `context`, and avoids the agent
-re-deriving what it just asked for.
+`standup` replaces re-reading the whole board to reorient: completed, kickbacks +
+reasons, moves, new tasks, question traffic, and aging flags in one budgeted
+narrative; it prints a cursor to pass next time. `next --context` then avoids the
+round-trip of `next` then `context`. A task's **checkpoint** (one-slot resume
+pointer, written whenever an agent pauses) renders first in the working set, so
+resuming costs a read of one line rather than re-deriving state from notes.
 
 **Mid-task refresh (already loaded, want only the delta):**
 ```

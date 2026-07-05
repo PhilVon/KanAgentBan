@@ -160,11 +160,14 @@ first."
 A healthy session looks roughly like this — you'll see it reflected live in the UI:
 
 ```
+kanban standup                 # cold start: what happened since the last session
+kanban doctor                  # hygiene sweep: stale claims, aging WIP, ancient questions
 kanban next --context          # Claude loads one task + its working set in a single call
 kanban move T-12 "In Progress" # status goes current on pickup
 kanban criterion add T-12 "handles error responses"
 kanban comment T-12 "chose Auth0 — Cognito needs a custom UI"
 kanban artifact T-12 --kind pr --title "auth PR" --uri https://github.com/...
+kanban checkpoint T-12 "did X, next Y"   # resume pointer whenever it pauses mid-task
 kanban done T-12               # completion recomputes what's now unblocked
 ```
 
@@ -177,8 +180,19 @@ Claude is coached to:
 - **Decompose with subtasks** — `kanban add "step" --parent T-12`. A parent can't
   reach Done until its children do.
 - **Record decisions, not chatter** — comments are for non-obvious choices, not a
-  play-by-play.
+  play-by-play; hard-to-reverse decisions become durable docs
+  (`kanban doc add … --kind adr`).
+- **Search before re-researching** — `kanban search` covers tasks, docs, comments,
+  and ideas board-wide.
 - **Store artifacts as references** (links, PRs, paths) — never paste contents.
+- **Checkpoint before pausing** — a one-slot resume pointer per task, so the next
+  session picks up where this one left off instead of re-deriving state.
+
+Two more surfaces you drive from the UI: cards in the **Review** column carry
+approve/reject buttons (your sign-off gate — a rejection records the reason and
+kicks the task back), and any comment you leave on a card is treated by Claude as
+a **directive** — it reads user comments before starting or resuming a task and
+acknowledges them.
 
 ### When Claude needs a decision from you
 
@@ -255,8 +269,9 @@ config:
 }
 ```
 
-It exposes a curated ~21-tool subset of the CLI (the same read ladder, write
-vocabulary, and ask → yield → inbox loop). Most users on Claude Code should use the
+It exposes a curated 30-tool subset of the CLI (the same read ladder, write
+vocabulary, and ask → yield → inbox loop, plus docs/search/brainstorm, templates,
+checkpoint, standup, doctor, and the review gate). Most users on Claude Code should use the
 skill (§3) and can ignore this. Full detail: `docs/12-mcp.md`.
 
 ---

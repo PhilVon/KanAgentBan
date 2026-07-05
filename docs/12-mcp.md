@@ -5,7 +5,7 @@
 > other LLM frameworks, any MCP client — can drive it. It is a **thin MCP client of
 > the existing sole-writer HTTP server**, reusing the same `connect()` + `api()`
 > path as the `kanban` CLI; it never opens its own database. The tool surface is a
-> **curated** subset of the CLI (~21 tools), not a 1:1 mirror, to keep an agent's
+> **curated** subset of the CLI (30 tools), not a 1:1 mirror, to keep an agent's
 > tool-context cost low while preserving the token-efficiency and durable-async
 > contracts.
 >
@@ -82,24 +82,31 @@ Example MCP client config (`command` + `args`):
 - **stdout is the protocol channel.** All diagnostics go to **stderr** — the
   server never writes to stdout outside JSON-RPC.
 
-## 4. Tool catalogue (~25, curated)
+## 4. Tool catalogue (30, curated)
 
 Each tool maps to the CLI command / REST endpoint of the same behaviour. Reads
 ride through `?json=1` and append an `[est_tokens: N]` footer; `max_tokens` /
 `full` honour the token-budget contract ([03-token-efficiency](03-token-efficiency.md)).
 
-**Read ladder** (cheapest first): `next`, `list`, `show`, `context`, `watch`,
-`changes`, `inbox`, `stats` (board analytics, or per-task timing with `id`).
+**Read ladder** (cheapest first): `standup` (narrative catch-up since a `seq`
+cursor or over N days), `doctor` (hygiene report; `healthy: true` = all checks
+clean), `next`, `list`, `show`, `context`, `watch`, `changes`, `inbox`, `stats`
+(board analytics, or per-task timing with `id`).
 
 **Writes:** `add`, `update` (carries `summary`; `expect_version` → `If-Match`),
-`move` (Done included), `claim` (`op: claim|release`, `force`), `archive`, `dep`
-(`op: add|remove`), `parent` (`to` / `clear`), `comment`, `criterion`
-(`op: add|check`), `label` (`op: add|remove`), `artifact` (kinds incl. git
-`commit`/`branch` references; idempotent on task+kind+uri — no dedicated git
-tool, since repo scanning is inherently CLI/local, ADR 0008).
+`move` (Done included), `claim` (`op: claim|release`, `force`, `ttl` for a
+leased claim the server auto-releases past due), `archive`, `dep`
+(`op: add|remove`), `parent` (`to` / `clear`), `review` (`op: approve|reject`,
+`reason` required on reject — normally the human's gate, used by the agent only
+under delegated sign-off), `comment`, `checkpoint` (set/clear the one-slot
+resume pointer), `criterion` (`op: add|check`), `label` (`op: add|remove`),
+`artifact` (kinds incl. git `commit`/`branch` references; idempotent on
+task+kind+uri — no dedicated git tool, since repo scanning is inherently
+CLI/local, ADR 0008), `template` (`op: save|apply|list|show|delete` — reusable
+blueprints applied atomically as a tree).
 
-**Search:** `search` — board-wide ranked FTS5 hits over tasks/docs/comments with
-snippets; the "check prior work before re-researching" read.
+**Search:** `search` — board-wide ranked FTS5 hits over tasks/docs/comments/ideas
+with snippets; the "check prior work before re-researching" read.
 
 **Brainstorm:** one grouped `brainstorm` tool (`op: start|close|show|list|
 idea_add|idea_score|idea_cluster|idea_promote|idea_discard`) over the ideation
@@ -109,14 +116,17 @@ surface; `idea_promote` creates the task atomically.
 board-native document surface (design/adr/spike/research/note — ADR 0007);
 `show` is budgeted by default and the only op that returns a body.
 
-**Human-in-the-loop:** `ask`, `await` (bounded; `qid` / `task` / `any`), `cancel`.
+**Human-in-the-loop:** `ask` (takes `expires_at` and `default` — a default
+auto-answers at expiry, flagged `defaulted`, keeping the agent unblocked),
+`await` (bounded; `qid` / `task` / `any`), `cancel`.
 
 ### Consolidations vs the CLI
 
 Six CLI verb-pairs collapse into one tool each via an `op`/flag argument:
 `claim`+`release`, `dep add`+`dep rm`, `label --add`+`--rm`, `parent --to`+`--clear`,
-`criterion add`+`check`, and `move`+`done`. `summarize` folds into `update`'s
-`summary` field.
+`criterion add`+`check`, and `move`+`done`. Multi-op command families group the
+same way: `review` (`approve|reject`), `template` (`save|apply|list|show|delete`),
+`doc`, and `brainstorm`. `summarize` folds into `update`'s `summary` field.
 
 ### Intentionally omitted
 

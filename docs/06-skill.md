@@ -66,11 +66,16 @@ the agent stops as soon as it has enough.
 
 | Question the agent has | Command | Why it's cheapest |
 |------------------------|---------|-------------------|
+| "What happened while I was away?" | `kanban standup [--since <cursor>]` | one narrative diff instead of re-reading the board |
+| "Is the board healthy?" | `kanban doctor` | findings only, each naming its fix; exit `2` = act |
 | "What should I do next?" | `kanban next` | ~1 task, ~5 lines, + a *why* |
 | "I'm cold — give me a task and its working set" | `kanban next --context` | one call, no re-derive |
 | "Reload just this task" | `kanban context T-12` | flagship working set, truncated |
 | "What changed since I looked?" | `kanban watch T-12 --since <seq>` | scoped delta, tens of tokens |
 | "Scan the board" | `kanban list` | ~15 tokens/task |
+
+At session start the skill runs `standup` (saving the printed cursor for next
+time) and `doctor`, acting on any findings, before entering the work loop.
 
 Rules the skill enforces:
 
@@ -129,6 +134,29 @@ When the agent picks up a task, the skill steers it through:
    Linked docs surface in `context` as a `docs (n):` section — read the summary,
    pull the body only when you actually need it.
 
+7. **Checkpoint before pausing.** Whenever the agent yields, ends a turn
+   mid-task, or parks a task on an `ask`, it writes the one-slot resume pointer
+   first: `kanban checkpoint T-12 "did X, next Y, watch Z"` (latest wins). It
+   renders first in `show`/`context` and is flagged by `next`, so the next
+   session resumes from it instead of re-deriving state from notes.
+
+**Review gate.** `Review` is a human/peer sign-off column, not more agent work.
+The human resolves it with `kanban review approve T-12` / `review reject T-12
+--reason "…"` (or the UI's card buttons); a rejection kicks the task back to
+`In Progress` with the reason recorded as a comment — the skill reads it before
+resuming.
+
+**Claiming in a fleet.** With several agents on one board (distinct
+`KANBAN_AGENT` each), `kanban claim T-12` reserves a task so peers' `next` skips
+it. Prefer `claim --ttl 900` — a lease the server auto-releases past due
+(re-claim to renew), so a crashed agent never wedges the task. `done` needs no
+release; `release` returns an unfinished task to the pool.
+
+**Templates.** For repeated task shapes (PR checklist, spike), `kanban template
+save <name> --from T-n` snapshots criteria/labels/subtask skeleton and
+`template apply <name> "<title>"` recreates the tree atomically — cheaper than
+re-authoring the same criteria.
+
 **Subtasks (decomposition).** When a task splits into pieces, nest children under
 it — a single-parent tree, distinct from `blocks` deps: `kanban add "step"
 --parent T-8`, or re-nest/detach an existing task with `kanban parent T-12 --to
@@ -175,6 +203,10 @@ Key points the skill carries:
   no longer needs (clears the task's needs-input); `kanban ask … --expires-at <ISO>`
   sets a TTL after which the request auto-expires. Both surface in `inbox` under
   **resolved**.
+- **Default-on-expiry.** `ask … --default X --expires-at <ISO>` resolves as
+  `answered (defaulted)` at expiry instead of dead-ending, keeping the agent
+  unblocked when the human is away. Use it for reversible choices with a safe
+  fallback — never for destructive ones.
 - **Yielding is the optimal path**, not a fallback compromise: no held
   connection, survives session boundaries, keeps the agent productive on other
   ready tasks.
@@ -253,7 +285,9 @@ Grouped to match [05-cli-reference](05-cli-reference.md). The skill steers to th
 
 | Group | Command | Use |
 |-------|---------|-----|
-| **Read / context** | `kanban next [--context] [--n N]` | what to do next (cold start with `--context`) |
+| **Read / context** | `kanban standup [--since <cursor>\|--days N]` | session-start narrative catch-up |
+| | `kanban doctor` | hygiene sweep; exit `2` = findings to act on |
+| | `kanban next [--context] [--n N] [--mine]` | what to do next (cold start with `--context`) |
 | | `kanban context <id> [--full] [--max-tokens N]` | flagship working set for one task |
 | | `kanban show <id>` | medium detail |
 | | `kanban list [--status S] [--label L] [--limit N]` | compact board scan |
@@ -261,7 +295,10 @@ Grouped to match [05-cli-reference](05-cli-reference.md). The skill steers to th
 | | `kanban changes --since <seq>` | board-wide delta (reserve) |
 | **Write / workflow** | `kanban add "<title>" [--parent T-1] [--depends T-3,T-4] [--ac "..."]` | create a task (or subtask with `--parent`) |
 | | `kanban update <id> [...] [--expect-version N]` | edit fields (concurrency-safe) |
-| | `kanban move <id> <column>` | set workflow status |
+| | `kanban move <id> <column>` | set workflow status (`T-1,T-2,…` = one atomic bulk move) |
+| | `kanban claim\|release <id> [--ttl S] [--force]` | reserve/return a task (lease auto-releases past due) |
+| | `kanban checkpoint <id> "…"\|--clear` | one-slot resume pointer before pausing |
+| | `kanban review approve\|reject <id> [--reason "…"]` | the human's Review sign-off gate |
 | | `kanban dep add\|rm <id> --on <id>` | manage blocking edges |
 | | `kanban parent <id> --to <pid>\|--clear` | nest as subtask / detach (single-parent tree) |
 | | `kanban comment <id> "<body>"` | record a decision/note |
@@ -283,7 +320,10 @@ Grouped to match [05-cli-reference](05-cli-reference.md). The skill steers to th
 | | `kanban brainstorm add <B-id> "<idea>" [--cluster N]` | capture fast, judge later |
 | | `kanban idea score\|cluster\|promote\|drop <I-id>` | shape the pool; promote winners to tasks atomically |
 | | `kanban brainstorm show\|list\|close` | review (clustered, score-ranked) / wrap up |
-| **HITL** | `kanban ask <id> "<q>" [--options a,b] [--expires-at ISO]` | create durable `Q-n` (non-blocking) |
+| **Templates** | `kanban template save <name> --from T-n` | snapshot criteria/labels/subtask skeleton |
+| | `kanban template apply <name> "<title>" [--prio\|--parent]` | atomic tree create from a blueprint |
+| | `kanban template list\|show\|delete` | manage blueprints |
+| **HITL** | `kanban ask <id> "<q>" [--options a,b] [--expires-at ISO] [--default X]` | create durable `Q-n` (non-blocking; `--default` resolves at expiry) |
 | | `kanban await <Q-id\|--task <id>\|--any> [--timeout S]` | short gate only (exit `2` = pending, `0` = resolved) |
 | | `kanban answer <Q-id> "<text>"` | CLI answer (testing/automation) |
 | | `kanban cancel <Q-id>` | withdraw an open request (clears needs-input) |
@@ -291,7 +331,7 @@ Grouped to match [05-cli-reference](05-cli-reference.md). The skill steers to th
 | **Reporting** | `kanban stats [id]` | board analytics / per-task timing (read-only, off the work loop) |
 | **Lifecycle** | `kanban board init [--name N]` | provision `.kanban/` |
 | | `kanban open` | show the human the UI |
-| | `kanban done <id>` / `kanban archive <id>` | complete / soft-delete |
+| | `kanban done <id>` / `kanban archive <id>` | complete / soft-delete (`archive` takes bulk ids; an auto-archive policy can sweep aged Done tasks) |
 | | `kanban export [--out FILE]` | backup |
 
 ---
@@ -319,6 +359,7 @@ kanban next --context
 ```
 kanban ask T-12 "Auth provider — Auth0 (managed, $) or Cognito (in our AWS, more wiring)?" --options Auth0,Cognito   # → Q-7
 kanban await Q-7 --timeout 60                                    # exit 2: pending
+kanban checkpoint T-12 "callback wired; blocked on Q-7 (provider); next: token exchange"
 # yield: "Paused T-12 on Q-7 (auth provider). Picking up T-08."
 kanban next
 # --- later / new session ---
