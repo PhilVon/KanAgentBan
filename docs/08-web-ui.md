@@ -73,6 +73,12 @@ Each card is a compact summary keyed by its public id:
     (`blocked_by_children` keeps it out of `next` until `d == t`).
   - ⤷`T-parent` **subtask-of** — on a child: a link/badge to its parent task
     ([02-data-model §6](02-data-model.md)).
+- **Review sign-off buttons** — a card actually sitting in the `Review` column
+  carries **✓ Approve / ✕ Reject** buttons (the human's gate). Approve moves it
+  to Done; Reject prompts for a reason, records it as a comment, and kicks the
+  task back to `In Progress` (`POST /api/tasks/:id/review`, §6). A dep-blocked
+  Review task resolves its blocker first — the buttons only show in the Review
+  column itself.
 
 Cards are ordered within a column by `position`
 ([02-data-model §task](02-data-model.md)).
@@ -255,6 +261,8 @@ when the matching event arrives.
 - **Add / remove label** → `POST` / `DELETE /api/tasks/:id/labels`.
 - **Add / remove blocker dependency** → `POST` / `DELETE /api/tasks/:id/deps`.
 - **Claim / release / archive** → `POST /api/tasks/:id/{claim,release,archive}`.
+- **Review sign-off** → `POST /api/tasks/:id/review` (`verdict: approve|reject`,
+  `reason` required on reject) from the buttons on Review-column cards (§2).
 
 No write path bypasses REST; the UI never writes SQLite directly (the server is
 the sole writer — [02-data-model §7](02-data-model.md),

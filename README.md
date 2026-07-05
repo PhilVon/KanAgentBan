@@ -14,8 +14,12 @@ The flagship design goal: **deliver task context to the agent token-efficiently.
 - The human **views the board in realtime** in a browser (WebSocket).
 - The agent can **request user input on a task and pause it** until the human
   answers — a durable, async request the agent yields on, resumable across sessions.
-- Featureful: dependency DAG, comments (agent + user), labels, artifacts,
-  acceptance criteria.
+- Featureful: dependency DAG, subtasks, comments (agent + user), labels, artifacts,
+  acceptance criteria, durable docs/ADRs, board-wide search, brainstorm sessions,
+  task templates, and git linkage.
+- Built for **cross-session continuity**: per-task checkpoints, `kanban standup`
+  catch-up digests, `kanban doctor` hygiene sweeps, claim leases that auto-release
+  when an agent dies, and a first-class Review sign-off gate.
 
 ## Architecture (one line)
 
@@ -112,10 +116,12 @@ Once it's running, Claude works the board itself — you mostly watch the realti
 [Web UI](#web-ui) (`kanban open`) and answer questions. A healthy session looks like:
 
 ```bash
+kanban standup                     # cold-start: everything that happened since last session
 kanban next --context              # load one task + its full working set in one call
 kanban move T-12 "In Progress"     # status goes current on pickup
 kanban criterion add T-12 "handles error responses"
 kanban comment T-12 "chose Auth0 — Cognito needs a custom UI"   # records the decision
+kanban checkpoint T-12 "did X, next Y"   # resume pointer if pausing mid-task
 kanban done T-12                   # completion recomputes what's now unblocked
 ```
 
@@ -200,8 +206,10 @@ the UI degrades gracefully (labels/counts render, just without glyphs).
 ### Test
 
 ```bash
-npm test          # vitest: 153 tests across 12 suites
+npm test          # vitest: 354 tests across 31 suites
 ```
+
+Core suites:
 
 - `tests/repo.test.ts` — data layer: ids, DAG (self/dup/cycle rejection), the
   two-flag derived state, event log + `seq`, scoped `watch`, HITL answer
@@ -215,6 +223,11 @@ npm test          # vitest: 153 tests across 12 suites
   scopes, 204 on timeout, `--json` structured reads, `export` snapshot, WebSocket
   replay + live stream, bad-token rejection.
 
+Each shipped feature carries its own suite alongside these — subtasks, compaction,
+docs/search/brainstorm/git linkage, analytics, and the continuity primitives
+(checkpoint, claim leases, doctor, review gate, standup, bulk ops, auto-archive,
+templates, default-on-expiry answers).
+
 ### What's implemented
 
 - **Data layer** (`src/server/`): SQLite/WAL schema, per-board counters, append-only
@@ -226,25 +239,40 @@ npm test          # vitest: 153 tests across 12 suites
   auto-start, terse plaintext output + semantic exit codes.
 - **Multi-agent claiming** (post-v1): `kanban claim` / `release` (`--force` to
   steal) reserve a task via `assignee` so it drops out of other agents' `next`;
-  identity via `KANBAN_AGENT` / `--as`. See [docs/09 §9](docs/09-concurrency.md).
+  identity via `KANBAN_AGENT` / `--as`. Leases (`claim --ttl N`) auto-release a
+  dead agent's claims via a server sweep. See [docs/09 §9](docs/09-concurrency.md).
 - **Token-efficiency renderers** (`src/server/render.ts`): `next`, `list`, `show`,
   `context` with deterministic, never-silent truncation; recommendation engine.
 - **Web UI** (`web/`): realtime board, "Needs your input" inbox, card drawer,
   analytics panel, and per-board project identity (see [Web UI](#web-ui) below).
 - **Skill** (`skill/SKILL.md`): the Claude Code skill wrapping the CLI.
-- **MCP server** (`src/mcp/`, post-v1): `kanban-mcp` exposes a curated ~21-tool
+- **MCP server** (`src/mcp/`, post-v1): `kanban-mcp` exposes a curated 30-tool
   subset over the Model Context Protocol (stdio) for non-skill agents — a thin
   client of the same sole-writer server. See [docs/12-mcp.md](docs/12-mcp.md).
+- **Knowledge surfaces** (post-v1): durable docs/ADRs (`kanban doc`), FTS5
+  board-wide `search`, brainstorm sessions with scored ideas and atomic
+  promotion, and CLI-side git linkage (branch/commit artifacts, `gh`-backed
+  PR/CI status).
+- **Analytics** (`kanban stats`, post-v1): per-task timing, dwell/bottleneck,
+  velocity trend, flow efficiency, burndown, forecast, CFD — read-only
+  derivation from the event log. See [docs/13-analytics.md](docs/13-analytics.md).
+- **Continuity primitives** (post-v1): `checkpoint` resume pointers, `standup`
+  narrative catch-up, `doctor` hygiene report, claim leases, a Review-column
+  sign-off gate (`review approve/reject`), bulk multi-id ops, auto-archive
+  policy for aged Done tasks, task `template`s, and `ask --default` answers
+  that resolve on expiry.
 
 Verified end-to-end (create → dep → next → ask → answer/await → done → recompute)
 plus auth rejection and the pending-await exit code.
 
 ### Deferred (see [docs/11-roadmap](docs/11-roadmap.md))
 
-Cloud sync / multi-machine, per-task time tracking and burndown/analytics.
-(The MCP interface, external-nudge auto-resume, event-log compaction, first-class
-subtasks, and input cancel/expiry have all shipped post-v1; basic `kanban export`
-and multi-agent `claim` ship too — see above.)
+Cloud sync / multi-machine is the last deferred item. Everything else on the
+original roadmap has shipped post-v1: the MCP interface, external-nudge
+auto-resume, event-log compaction, first-class subtasks, input cancel/expiry,
+analytics, docs/search/brainstorm/git linkage, and the continuity batch
+(checkpoint, leases, doctor, standup, review gate, bulk ops, auto-archive,
+templates, default-on-expiry) — see above.
 
 ## Shell completion
 
@@ -276,10 +304,15 @@ live without polling.
 - **"Needs your input" inbox** — surfaces the agent's open input requests and lets
   the human answer them inline, resuming the paused task. Optional desktop
   notifications when the agent needs you.
+- **Review sign-off** — approve/reject buttons on Review-column cards; a rejection
+  records your reason as a comment and kicks the task back to In Progress.
 - **Analytics panel** — throughput, WIP, flow efficiency, burndown, CFD and more
   (toggle with the 📊 button).
-- **Create / filter** — add tasks from a modal; live filter by title, id,
-  `@assignee`, or label.
+- **Activity log & dependency graph** — a live event feed panel and a graph view
+  of the dependency DAG.
+- **Brainstorm panel** — score, promote, or discard the agent's captured ideas.
+- **Create / filter / search** — add tasks from a modal; live filter by title, id,
+  `@assignee`, or label; token-grammar search (`label:x @agent is:blocked …`).
 - **Per-board project identity** — the board's name (from `.kanban/board.json`) is
   shown in the header and browser tab title, with a stable accent colour and a
   colour-coded favicon derived from the name, so several boards open at once are
@@ -309,6 +342,7 @@ Start with **[docs/00-overview.md](docs/00-overview.md)**, then read in order:
 | [10-security-lifecycle](docs/10-security-lifecycle.md) | Local token auth, board resolution, lifecycle |
 | [11-roadmap](docs/11-roadmap.md) | Phased build plan; v1 vs deferred (v2+) |
 | [12-mcp](docs/12-mcp.md) | The `kanban-mcp` MCP interface for non-skill agents |
+| [13-analytics](docs/13-analytics.md) | `kanban stats`: flow metrics derived read-only from the event log |
 | [adr/](docs/adr/README.md) | Architecture Decision Records |
 
 ## License

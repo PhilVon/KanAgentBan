@@ -8,7 +8,11 @@
 > Multi-agent claiming, external-nudge auto-resume, first-class subtasks,
 > event-log compaction, input-request cancel/expiry, the **MCP server
 > interface**, and **per-task time-tracking / burndown analytics** have since
-> shipped post-v1.
+> shipped post-v1 — followed by a **knowledge batch** (board-native docs/ADRs,
+> FTS5 search, brainstorm sessions, git linkage) and a **continuity batch**
+> (checkpoints, claim leases, doctor, standup, review gate, bulk ops,
+> auto-archive, templates, default-on-expiry answers). Cloud sync /
+> multi-machine is the sole remaining deferred item.
 >
 > **Decisions:** v1 = single agent, single local board, CLI-driven, sole writer.
 > Model subtasks as deps + labels in v1. Build phases land in dependency order:
@@ -108,6 +112,15 @@ Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficie
 | Board-wide search (FTS5) | ✅ (post-v1) | |
 | Brainstorm sessions + idea promotion | ✅ (post-v1) | |
 | Git linkage (commit/branch artifacts, CLI-side git) | ✅ (post-v1) | |
+| Checkpoint resume pointers (`kanban checkpoint`) | ✅ (post-v1) | |
+| Claim leases w/ auto-release sweep (`claim --ttl`) | ✅ (post-v1) | |
+| Board hygiene report (`kanban doctor`, semantic exit code) | ✅ (post-v1) | |
+| Standup digest (`kanban standup`, narrative board diff) | ✅ (post-v1) | |
+| Review sign-off gate (`review approve/reject` + UI buttons) | ✅ (post-v1) | |
+| Bulk multi-id ops (`move`/`label`/`archive` `T-1,T-2,…`, atomic) | ✅ (post-v1) | |
+| Auto-archive policy for aged Done tasks | ✅ (post-v1) | |
+| Task templates (`template save/apply`) | ✅ (post-v1) | |
+| Default-on-expiry answers (`ask --default` + `--expires-at`) | ✅ (post-v1) | |
 | Cloud sync / multi-machine | | ✅ |
 
 ### Deferred to v2+ (detail)
@@ -116,7 +129,7 @@ Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficie
   board over the Model Context Protocol (stdio) as an alternative to the CLI so
   non-Claude-Code agents can drive it. It is a **thin MCP client of the same
   sole-writer server** (reusing `connect()`/`api()`), never a second writer, with
-  a curated ~21-tool subset of the CLI that preserves the token-efficiency and
+  a curated 30-tool subset of the CLI that preserves the token-efficiency and
   durable-async contracts ([12-mcp](12-mcp.md)).
 - **Multi-agent support + `kanban claim`** — ✅ **shipped post-v1.** Atomic task
   claiming (`claim` / `release` / `claim --force`) so multiple agents share one
@@ -153,7 +166,21 @@ Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficie
   schema change — and **never-silent about the compaction floor**: tasks whose
   `task.created` predates the floor are flagged `partial_history` and excluded
   from timing aggregates ([13-analytics](13-analytics.md)).
+- **Knowledge batch** — ✅ **shipped post-v1.** Board-native docs (the one
+  content-storing surface, [adr/0007](adr/0007-docs-store-content.md)), FTS5
+  board-wide search over tasks/docs/comments/ideas, brainstorm sessions with
+  scored ideas and atomic promotion, and CLI-side git linkage
+  ([adr/0008](adr/0008-git-linkage-is-client-side.md)).
+- **Continuity batch** — ✅ **shipped post-v1.** Nine primitives aimed at
+  cross-session and multi-agent continuity: `checkpoint` one-slot resume
+  pointers; `claim --ttl` leases with a server auto-release sweep; `doctor`
+  hygiene report (exit `2` = findings); `standup` narrative catch-up diff;
+  a first-class Review sign-off gate (`review approve/reject` + UI card
+  buttons, kickback reason recorded); atomic bulk `move`/`label`/`archive`;
+  an auto-archive policy for aged Done tasks; task `template`s; and
+  `ask --default` answers that resolve as `answered (defaulted)` at expiry.
 - **Cloud sync / multi-machine** — v1 is one local process on one machine.
+  **The sole remaining deferred item.**
 
 ---
 

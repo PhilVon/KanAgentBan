@@ -15,10 +15,16 @@
 > claiming were out of v1 scope; both have since shipped post-v1, as has an **MCP
 > interface** (`kanban-mcp`) for agents that aren't running the CLI/skill — a thin
 > client of the same sole-writer server ([11-roadmap](11-roadmap.md), [12-mcp](12-mcp.md)).
+> Post-v1 the surface has grown three families: **knowledge** (durable docs/ADRs,
+> FTS5 board-wide search, brainstorm sessions, git linkage), **analytics**
+> (read-only flow metrics derived from the event log, [13-analytics](13-analytics.md)),
+> and **continuity** (checkpoints, standup digests, doctor hygiene sweeps, claim
+> leases, a Review sign-off gate, templates, default-on-expiry answers).
 >
-> **Open questions:** external-nudge transport for v2
-> auto-resume (see [04-human-in-the-loop](04-human-in-the-loop.md)). (Storage is
-> **locked: one SQLite DB per project** — see [02-data-model](02-data-model.md).)
+> **Open questions:** none currently — the external-nudge transport shipped
+> ([adr/0006](adr/0006-external-nudge-transport.md)); cloud sync / multi-machine
+> is the one deliberately deferred item. (Storage is **locked: one SQLite DB per
+> project** — see [02-data-model](02-data-model.md).)
 
 Related: [01-architecture](01-architecture.md) · [02-data-model](02-data-model.md) ·
 [03-token-efficiency](03-token-efficiency.md) ·
@@ -171,6 +177,17 @@ Key properties (detailed in [01-architecture](01-architecture.md) and
   never the contents.
 - **acceptance criterion (`AC-n`)** — a first-class checklist row on a task,
   rendered as a cheap `3/5` count.
+- **doc (`D-n`)** — durable knowledge (design/adr/spike/research/note) the board
+  stores in full — the one content-storing surface ([adr/0007](adr/0007-docs-store-content.md)).
+- **brainstorm / idea (`B-n` / `I-n`)** — an ideation session and its captured
+  ideas; ideas are scored 0–10 and promoted atomically into tasks.
+- **checkpoint** — a one-slot resume pointer per task ("did X, next Y"), rendered
+  first in `show`/`context`; latest wins.
+- **claim / lease** — an `assignee` reservation hiding a task from peers' `next`;
+  with `--ttl` the server auto-releases it past due, so a dead agent never wedges
+  a task ([09 §9](09-concurrency.md)).
+- **template** — a reusable task blueprint (criteria set, labels, subtask
+  skeleton) applied atomically as a tree.
 
 ---
 
@@ -204,4 +221,6 @@ Each of the six core requirements (§2) maps to the doc(s) that specify it.
 | [08-web-ui](08-web-ui.md) | The human's realtime browser board and input-answering UX. |
 | [09-concurrency](09-concurrency.md) | Sole-writer model, transactions, `seq` allocation, event replay. |
 | [10-security-lifecycle](10-security-lifecycle.md) | Local token auth, board resolution, init/export lifecycle. |
-| [11-roadmap](11-roadmap.md) | Deferred features: multi-agent, external nudge, subtasks, v2+. |
+| [11-roadmap](11-roadmap.md) | Phased build plan; shipped post-v1 batches vs the deferred remainder. |
+| [12-mcp](12-mcp.md) | The `kanban-mcp` MCP interface for non-skill agents. |
+| [13-analytics](13-analytics.md) | `kanban stats`: flow metrics derived read-only from the event log. |
