@@ -119,49 +119,57 @@ describe('stats: board aggregates', () => {
     expect(s.throughput.series.reduce((a, p) => a + p.completed, 0)).toBe(3);
   });
 
-  it('burndown has one contiguous ascending point per window day with a sound invariant', () => {
+  it('burndown has one contiguous ascending point per bucket with a sound invariant', () => {
     const repo = makeRepo();
     const a = repo.createTask({ title: 'a' });
     repo.moveTask(a.id, 'Done');
     repo.createTask({ title: 'b' });
-    // Backdate the oldest task so the project is 7 days old — the window now
-    // clamps to project age, so a fresh board would otherwise yield 1 point.
+    // Backdate the oldest task so the project is 6 days old — the span clamps to
+    // project age and the bucket width scales down to give a multi-point series.
     const old = new Date(Date.now() - 6 * 86400000).toISOString();
     repo.db.prepare('UPDATE task SET created_at = ? WHERE id = ?').run(old, a.id);
 
     const s = boardStats(repo, { windowDays: 7 });
-    expect(s.burndown).toHaveLength(7);
+    expect(s.burndown).toHaveLength(s.window.buckets);
+    expect(s.burndown.length).toBeGreaterThanOrEqual(2);
     for (let i = 1; i < s.burndown.length; i++)
-      expect(s.burndown[i].date > s.burndown[i - 1].date).toBe(true);
+      expect(s.burndown[i].t > s.burndown[i - 1].t).toBe(true);
     for (const p of s.burndown) {
       expect(p.remaining).toBeGreaterThanOrEqual(0);
       expect(p.remaining + p.done).toBeLessThanOrEqual(p.created_cum);
     }
-    // Today: one done, one remaining.
+    // Last (partial) bucket, ending now: one done, one remaining.
     const today = s.burndown[s.burndown.length - 1];
     expect(today.done).toBe(1);
     expect(today.remaining).toBe(1);
   });
 
-  it('clamps the window to project age — no buckets before the first task (T-1)', () => {
+  it('clamps the span to project age and scales the bucket width (T-1)', () => {
     const repo = makeRepo();
-    const a = repo.createTask({ title: 'a' }); // created today
+    const a = repo.createTask({ title: 'a' }); // created now
 
-    // Fresh board: even a 14-day request collapses to today only.
+    // Fresh board: the span floors at MIN_SPAN_MS (30m) → 5m buckets, still ≥2 pts
+    // (never the degenerate single dot). days still collapses to 1.
     const fresh = boardStats(repo, { windowDays: 14 });
     expect(fresh.window.days).toBe(1);
-    expect(fresh.burndown).toHaveLength(1);
-    expect(fresh.throughput.series).toHaveLength(1);
+    expect(fresh.window.clamped).toBe(true);
+    expect(fresh.window.bucket).toBe('5m');
+    expect(fresh.burndown.length).toBeGreaterThanOrEqual(2);
+    expect(fresh.throughput.series).toHaveLength(fresh.window.buckets);
 
-    // Backdate to make the project 3 days old: window expands to min(14, age=4).
-    const old = new Date(Date.now() - 3 * 86400000).toISOString();
+    // Backdate to 3.5 days old (off a day boundary to avoid ceil flakiness): the
+    // span clamps to the age, not the 14d request.
+    const old = new Date(Date.now() - 3.5 * 86400000).toISOString();
     repo.db.prepare('UPDATE task SET created_at = ? WHERE id = ?').run(old, a.id);
     const aged = boardStats(repo, { windowDays: 14 });
-    expect(aged.window.days).toBe(4);
-    expect(aged.burndown).toHaveLength(4);
+    expect(aged.window.days).toBe(4); // ceil(3.5)
+    expect(aged.window.clamped).toBe(true);
+    expect(aged.burndown).toHaveLength(aged.window.buckets);
 
-    // A small request still wins when it's narrower than the project age.
-    expect(boardStats(repo, { windowDays: 2 }).window.days).toBe(2);
+    // A smaller request wins when narrower than the project age (not clamped).
+    const narrow = boardStats(repo, { windowDays: 2 });
+    expect(narrow.window.days).toBe(2);
+    expect(narrow.window.clamped).toBe(false);
   });
 });
 
@@ -195,6 +203,62 @@ function backdate(repo: ReturnType<typeof makeRepo>, id: string, daysAgo: number
   const iso = new Date(Date.now() - daysAgo * 86400000).toISOString();
   repo.db.prepare('UPDATE task SET created_at = ? WHERE id = ?').run(iso, id);
 }
+
+/** Backdate a task's created_at by an arbitrary ms offset (for sub-day boards). */
+function backdateMs(repo: ReturnType<typeof makeRepo>, id: string, msAgo: number) {
+  const iso = new Date(Date.now() - msAgo).toISOString();
+  repo.db.prepare('UPDATE task SET created_at = ? WHERE id = ?').run(iso, id);
+}
+
+describe('stats: adaptive bucketing (pace-aware)', () => {
+  const HOUR = 3_600_000;
+
+  it('scales the bucket width to a sub-day board and covers up to now', () => {
+    const repo = makeRepo();
+    const a = repo.createTask({ title: 'a' });
+    backdateMs(repo, a.id, 6 * HOUR); // 6h-old board
+
+    const s = boardStats(repo, { windowDays: 14 });
+    expect(s.window.clamped).toBe(true);
+    expect(s.window.bucket).toBe('15m'); // 6h / 15m = 24 buckets ≤ 32
+    expect(s.window.bucket_ms).toBe(15 * 60_000);
+    expect(s.burndown.length).toBeGreaterThanOrEqual(20);
+    // The last bucket ends at generated_at (the freshest data is shown).
+    expect(s.window.to).toBe(s.generated_at);
+    expect(new Date(s.burndown[s.burndown.length - 1].t).getTime()).toBeLessThanOrEqual(
+      Date.parse(s.generated_at),
+    );
+  });
+
+  it('normalizes per-day rates by the fractional span (young board reads true velocity)', () => {
+    const repo = makeRepo();
+    // 10 completions on a 6h-old board → ~40/day, not a day-floored 10/day.
+    const anchor = repo.createTask({ title: 'anchor' });
+    backdateMs(repo, anchor.id, 6 * HOUR);
+    for (let i = 0; i < 10; i++) {
+      const t = repo.createTask({ title: `done-${i}` });
+      repo.moveTask(t.id, 'Done');
+    }
+    const s = boardStats(repo, { windowDays: 14 });
+    expect(s.throughput.total).toBe(10);
+    expect(s.throughput.rolling_avg_per_day).toBeGreaterThan(35);
+    expect(s.throughput.rolling_avg_per_day).toBeLessThan(45);
+  });
+
+  it('a young board with rising completions now gets a real trend (headline win)', () => {
+    const repo = makeRepo();
+    const anchor = repo.createTask({ title: 'anchor' });
+    backdateMs(repo, anchor.id, 3 * HOUR);
+    // All completions land in the most recent buckets → recent half > prior half.
+    for (let i = 0; i < 5; i++) {
+      const t = repo.createTask({ title: `d-${i}` });
+      repo.moveTask(t.id, 'Done');
+    }
+    const s = boardStats(repo, { windowDays: 14 });
+    expect(s.window.buckets).toBeGreaterThanOrEqual(4); // guard no longer fires
+    expect(s.throughput.trend.direction).toBe('up');
+  });
+});
 
 describe('stats: flow efficiency (T-2)', () => {
   it('per-task flow_efficiency in [0,1], active/lead; null without a lead', async () => {
@@ -361,7 +425,8 @@ describe('stats: completion forecast (T-8)', () => {
     const fc = boardStats(repo, { windowDays: 7 }).forecast;
     expect(fc.velocity_per_day).toBeGreaterThan(0);
     expect(fc.days_to_drain).not.toBeNull();
-    expect(fc.eta).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(fc.ms_to_drain).not.toBeNull();
+    expect(fc.eta).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 });
 
@@ -414,20 +479,23 @@ describe('stats: CFD (T-11)', () => {
     repo.archiveTask(b.id);
 
     const s = boardStats(repo, { windowDays: 7 });
-    expect(s.cfd.length).toBe(s.window.days);
-    for (const day of s.cfd) {
+    expect(s.cfd.length).toBe(s.window.buckets);
+    const nowMs = Date.parse(s.generated_at);
+    s.cfd.forEach((pt, i) => {
       const sum = (['Backlog', 'Ready', 'In Progress', 'Review', 'Done'] as const).reduce(
-        (acc, st) => acc + day.counts[st],
+        (acc, st) => acc + pt.counts[st],
         0,
       );
-      const end = Date.parse(`${day.date}T23:59:59.999Z`);
+      // Same as-of instant the producer used: min(bucketEnd - 1, now).
+      const bucketEnd = i + 1 < s.cfd.length ? Date.parse(s.cfd[i + 1].t) : nowMs + 1;
+      const asOf = Math.min(bucketEnd - 1, nowMs);
       const expected = repo.allTasks().filter((t) => {
         const created = Date.parse(t.created_at);
         const archived = t.archived_at ? Date.parse(t.archived_at) : null;
-        return created <= end && !(archived !== null && archived <= end);
+        return created <= asOf && !(archived !== null && archived <= asOf);
       }).length;
       expect(sum).toBe(expected);
-    }
+    });
   });
 });
 
@@ -553,11 +621,12 @@ describe('stats: dwell + bottleneck (T-12)', () => {
 });
 
 describe('stats: velocity trend (T-13)', () => {
+  const DAY = 86_400_000;
   const series = (vals: number[]) =>
-    vals.map((completed, i) => ({ date: `2026-01-${String(i + 1).padStart(2, '0')}`, completed }));
+    vals.map((completed, i) => ({ t: `2026-01-${String(i + 1).padStart(2, '0')}T00:00:00.000Z`, completed }));
 
   it('rising series trends up with a delta', () => {
-    const t = computeTrend(series([0, 1, 2, 3]));
+    const t = computeTrend(series([0, 1, 2, 3]), DAY);
     expect(t.direction).toBe('up');
     expect(t.prior_per_day).toBe(0.5);
     expect(t.recent_per_day).toBe(2.5);
@@ -565,40 +634,48 @@ describe('stats: velocity trend (T-13)', () => {
   });
 
   it('falling series trends down', () => {
-    const t = computeTrend(series([3, 2, 1, 0]));
+    const t = computeTrend(series([3, 2, 1, 0]), DAY);
     expect(t.direction).toBe('down');
     expect(t.delta_pct).toBe(-80);
   });
 
   it('steady series is flat with a 0% delta', () => {
-    const t = computeTrend(series([1, 1, 1, 1]));
+    const t = computeTrend(series([1, 1, 1, 1]), DAY);
     expect(t.direction).toBe('flat');
     expect(t.delta_pct).toBe(0);
   });
 
   it('all-zero series is flat with a null delta', () => {
-    const t = computeTrend(series([0, 0, 0, 0]));
+    const t = computeTrend(series([0, 0, 0, 0]), DAY);
     expect(t.direction).toBe('flat');
     expect(t.delta_pct).toBeNull();
   });
 
-  it('windows under 4 days are always flat (halves too small)', () => {
-    const t = computeTrend(series([0, 3, 9]));
+  it('series under 4 buckets are always flat (halves too small)', () => {
+    const t = computeTrend(series([0, 3, 9]), DAY);
     expect(t.direction).toBe('flat');
     expect(t.delta_pct).toBeNull();
   });
 
   it('zero prior with recent activity is up with a null delta', () => {
-    const t = computeTrend(series([0, 0, 2, 2]));
+    const t = computeTrend(series([0, 0, 2, 2]), DAY);
     expect(t.direction).toBe('up');
     expect(t.delta_pct).toBeNull();
   });
 
-  it('odd windows drop the middle day', () => {
-    const t = computeTrend(series([0, 0, 9, 2, 2]));
+  it('odd series drop the middle bucket', () => {
+    const t = computeTrend(series([0, 0, 9, 2, 2]), DAY);
     expect(t.prior_per_day).toBe(0);
     expect(t.recent_per_day).toBe(2);
     expect(t.direction).toBe('up');
+  });
+
+  it('normalizes per-day regardless of bucket width (12h buckets)', () => {
+    // Two completions per 12h bucket = 4/day. Rate scales by DAY/bucketMs.
+    const t = computeTrend(series([2, 2, 2, 2]), DAY / 2);
+    expect(t.prior_per_day).toBe(4);
+    expect(t.recent_per_day).toBe(4);
+    expect(t.direction).toBe('flat');
   });
 });
 
@@ -634,9 +711,13 @@ describe('stats: v8 rendering', () => {
     s.throughput.trend = { recent_per_day: 1.2, prior_per_day: 0.86, delta_pct: 40, direction: 'up' };
     expect(renderStats(s, { full: true })).toContain('trend ↑ +40% (1.2/d vs 0.86/d)');
 
-    // A young board (window < 4 days) has nothing to compare — no suffix.
-    const fresh = boardStats(repo);
-    expect(fresh.throughput.trend.direction).toBe('flat');
-    expect(renderStats(fresh, { full: true })).not.toContain('· trend');
+    // A board with no completions has nothing to compare — flat, no suffix.
+    // (Young boards now DO get a real trend once work completes: adaptive
+    // bucketing gives them ≥4 buckets, so the <4-bucket guard no longer fires.)
+    const empty = makeRepo();
+    empty.createTask({ title: 'y' }); // stays in Backlog — zero throughput
+    const es = boardStats(empty);
+    expect(es.throughput.trend.direction).toBe('flat');
+    expect(renderStats(es, { full: true })).not.toContain('· trend');
   });
 });

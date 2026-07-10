@@ -10,6 +10,15 @@ Unreleased section describing its change.
 ## [Unreleased]
 
 ### Added
+- Pace/age-aware analytics: `stats` time-series (burndown / throughput / CFD) now
+  **auto-scale their bucket width** to the board's age (ladder `5m…7d`, ≤~32 points)
+  so a hours-old board renders a readable multi-point series instead of one daily
+  dot; `--window <days>` becomes an upper bound. Per-day rates normalize by the
+  fractional span and render per-hour when brisk (`fmtRate`); the drain forecast
+  gains hour-precision ETA; aging thresholds (fresh/stale) derive from the board's
+  own completion tempo and are shared across `stats`/`doctor`/`standup` via
+  `boardPace()` (never-silent — every aging line names the threshold and tags
+  `(pace)`). New pure `src/server/pace.ts`; FORMAT_VERSION 17→18 (T-87, 2026-07-10)
 - Multi-agent task claiming: `kanban claim` / `release`, claimed tasks hidden
   from other agents' `next` (`8e2b93a`, 2026-06-18)
 - External-nudge auto-resume: webhook or local command fired on
@@ -120,6 +129,15 @@ Unreleased section describing its change.
   show / delete` — reusable blueprints (priority, labels, criteria, subtask
   skeleton) applied atomically with `template.applied` provenance; REST
   `/api/templates`, grouped MCP `template` tool (SCHEMA_VERSION 9→10) (#30)
+
+### Changed
+- **Breaking (analytics response shape):** `stats` JSON time-series points are keyed
+  by `t` (ISO 8601 UTC bucket start) instead of `date` (`YYYY-MM-DD`); `forecast.eta`
+  is now a full ISO timestamp (with new `ms_to_drain`); `window` gains `span_ms`,
+  `bucket_ms`, `bucket`, `buckets`, `clamped`; the `standup` report's aging entries
+  carry `age_ms` instead of `age_days` and add a `pace` block. `doctor`'s `aging-wip`
+  check is now pace-scaled, so fast boards that were "healthy" may newly exit `2` on
+  it — the finding prints the (pace-based) threshold it used (T-87, 2026-07-10)
 
 ### Fixed
 - Repeated `--label`/`--depends` on `kanban add` and `--options` on

@@ -56,7 +56,11 @@ import {
 // v17: standup tier — `kanban standup` renders the narrative board diff
 //     (completed / kickbacks / moved / new / question traffic / aging) since a
 //     cursor or over a day window, floor-clamped never-silently.
-export const FORMAT_VERSION = 17;
+// v18: pace/age-aware analytics — stats header shows the adaptive bucket size,
+//     rates render per-hour when fast (`fmtRate`), forecast ETA gains hour
+//     precision when the drain is near, and aging lines show the pace-derived
+//     threshold. Standup aging renders `fmtDur(age_ms)` against that threshold.
+export const FORMAT_VERSION = 18;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;
@@ -709,11 +713,13 @@ export function renderStandup(
       `question resolutions (${r.resolved.length}):\n` +
         r.resolved.map((q) => `  ${q.id} ${q.status} (task ${q.task_id})`).join('\n'),
     );
-  if (r.aging.length)
+  if (r.aging.length) {
+    const paceTag = r.pace.basis === 'cycle-time' ? ' (pace)' : '';
     blocks.push(
-      `aging >7d (${r.aging.length}):\n` +
-        r.aging.map((a) => `  ${a.id} ${a.title} [${a.status}] ${a.age_days}d`).join('\n'),
+      `aging >${fmtDur(r.pace.stale_ms)}${paceTag} (${r.aging.length}):\n` +
+        r.aging.map((a) => `  ${a.id} ${a.title} [${a.status}] ${fmtDur(a.age_ms)}`).join('\n'),
     );
+  }
 
   if (blocks.length === 1) blocks.push('(quiet — nothing happened in the window)');
   if (r.floor_clamped)
@@ -753,6 +759,24 @@ export function renderDoctor(
 
 // ---- analytics tier (FORMAT_VERSION 5) -----------------------------------
 
+const round1 = (n: number): number => Math.round(n * 10) / 10;
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+const DAY_MS = 86_400_000;
+
+/** A per-day rate at the natural unit: `2.5/h` when brisk (≥24/day), else `0.3/d`.
+ *  Keeps a fast agent-driven board legible without a false "N/day" that reads as
+ *  slower than it is. */
+export function fmtRate(perDay: number): string {
+  return perDay >= 24 ? `${round1(perDay / 24)}/h` : `${round2(perDay)}/d`;
+}
+
+/** A bucket-start ISO timestamp as an axis label, scaled to the bucket width:
+ *  `14:05` (UTC) for sub-day buckets, `07-10` for day-or-coarser. */
+export function fmtBucketTick(iso: string, bucketMs: number): string {
+  return bucketMs < DAY_MS ? iso.slice(11, 16) : iso.slice(5, 10);
+}
+
 /** Human-friendly duration: `0m` / `45m` / `3h 10m` / `2d 4h`. */
 export function fmtDur(msv: number | null): string {
   if (msv === null) return '—';
@@ -781,14 +805,13 @@ function perStatusLine(label: string, m: Record<WorkflowStatus, number>, fmt: (n
 
 /** `kanban stats` — board analytics. Token-budgeted, never-silent on compaction. */
 export function renderStats(stats: BoardStats, opts: { full?: boolean; maxTokens?: number } = {}): string {
-  const w = stats.window;
   const tp = stats.throughput;
   const lead = stats.timing_summary.lead_ms;
   const cycle = stats.timing_summary.cycle_ms;
 
   const blocks: string[] = [
-    `board stats · window ${w.days}d (${w.from} … ${w.to})`,
-    `throughput: ${tp.total} done / ${w.days}d  ·  ${tp.rolling_avg_per_day}/day  ·  ${tp.per_week}/week`,
+    statsHeader(stats),
+    throughputLine(stats),
     perStatusLine('WIP', wipCounts(stats), (n) => String(n)),
     `lead p50 ${fmtDur(lead.p50)} · p90 ${fmtDur(lead.p90)} (n=${lead.n})   cycle p50 ${fmtDur(cycle.p50)} · p90 ${fmtDur(cycle.p90)} (n=${cycle.n})`,
     `burndown (remaining): ${sparkline(stats.burndown.map((p) => p.remaining))}  ${burndownEnds(stats)}`,
@@ -828,6 +851,30 @@ function burndownEnds(stats: BoardStats): string {
   return `(${b[0].remaining} → ${b[b.length - 1].remaining})`;
 }
 
+/** `board stats · window 14d · 12h buckets · 29 pts (06-26 … 07-10)`, or, on a
+ *  board younger than the requested window with sub-day buckets, `board age 6h`. */
+function statsHeader(stats: BoardStats): string {
+  const w = stats.window;
+  const subDay = w.bucket_ms < DAY_MS;
+  const scale = w.clamped && subDay ? `board age ${fmtDur(w.span_ms)}` : `window ${w.days}d`;
+  const from = fmtBucketTick(w.from, w.bucket_ms);
+  const to = fmtBucketTick(w.to, w.bucket_ms);
+  return `board stats · ${scale} · ${w.bucket} buckets · ${w.buckets} pts (${from} … ${to}${subDay ? ' UTC' : ''})`;
+}
+
+function throughputLine(stats: BoardStats): string {
+  const w = stats.window;
+  const tp = stats.throughput;
+  // `/week` only reads meaningfully once the span covers at least a week.
+  const week = w.span_ms >= 7 * DAY_MS ? `  ·  ${tp.per_week}/week` : '';
+  return `throughput: ${tp.total} done / ${fmtDur(w.span_ms)}  ·  ${fmtRate(tp.rolling_avg_per_day)}${week}`;
+}
+
+/** ISO timestamp → `2026-07-10 21:00 UTC` for hour-precision ETAs. */
+function fmtEtaHour(iso: string): string {
+  return `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
+}
+
 function agingLine(stats: BoardStats): string {
   const aged = stats.wip
     .filter((c) => c.oldest && c.status !== 'Done' && c.status !== 'Backlog')
@@ -847,7 +894,7 @@ function flowEfficiencyLine(stats: BoardStats): string {
 function netFlowLine(stats: BoardStats): string {
   const f = stats.flow;
   const sign = f.net_per_day > 0 ? '+' : '';
-  return `net flow: +${f.arrival_per_day}/d in · −${f.departure_per_day}/d out · net ${sign}${f.net_per_day}/d (${f.trend})`;
+  return `net flow: +${fmtRate(f.arrival_per_day)} in · −${fmtRate(f.departure_per_day)} out · net ${sign}${fmtRate(f.net_per_day)} (${f.trend})`;
 }
 
 function inputWaitLine(stats: BoardStats): string {
@@ -863,7 +910,8 @@ function agingFlagsLine(stats: BoardStats): string {
   if (!f.length) return '';
   const head = f.slice(0, 5).map((a) => `${a.id} ${fmtDur(a.age_ms)}`).join(' · ');
   const more = f.length > 5 ? ` (+${f.length - 5} more)` : '';
-  return `aging >7d (${f.length}): ${head}${more}`;
+  const paceTag = stats.pace.basis === 'cycle-time' ? ' (pace)' : '';
+  return `aging >${fmtDur(stats.pace.stale_ms)}${paceTag} (${f.length}): ${head}${more}`;
 }
 
 function qualityLine(stats: BoardStats): string {
@@ -899,8 +947,11 @@ function byAgentLine(stats: BoardStats): string {
 
 function forecastLine(stats: BoardStats): string {
   const f = stats.forecast;
-  const drain = f.days_to_drain !== null ? `~${f.days_to_drain}d (eta ${f.eta})` : 'stalled (velocity 0)';
-  return `forecast: ${f.remaining} open · ${f.velocity_per_day}/day → drain ${drain}${f.diverging ? ' · ⚠ diverging' : ''}`;
+  let drain: string;
+  if (f.ms_to_drain === null) drain = 'stalled (velocity 0)';
+  else if (f.ms_to_drain < 3 * DAY_MS) drain = `~${fmtDur(f.ms_to_drain)} (eta ${fmtEtaHour(f.eta!)})`;
+  else drain = `~${f.days_to_drain}d (eta ${f.eta!.slice(0, 10)})`;
+  return `forecast: ${f.remaining} open · ${fmtRate(f.velocity_per_day)} → drain ${drain}${f.diverging ? ' · ⚠ diverging' : ''}`;
 }
 
 /** ` · trend ↑ +40% (1.2/d vs 0.86/d)` — empty when there's nothing to compare. */
@@ -908,7 +959,7 @@ function trendSuffix(t: VelocityTrend): string {
   if (t.delta_pct === null && t.direction === 'flat') return '';
   const arrow = t.direction === 'up' ? '↑' : t.direction === 'down' ? '↓' : '→';
   const delta = t.delta_pct !== null ? ` ${t.delta_pct > 0 ? '+' : ''}${t.delta_pct}%` : '';
-  return `  · trend ${arrow}${delta} (${t.recent_per_day}/d vs ${t.prior_per_day}/d)`;
+  return `  · trend ${arrow}${delta} (${fmtRate(t.recent_per_day)} vs ${fmtRate(t.prior_per_day)})`;
 }
 
 /** Closed-stint dwell per active-flow status, flagging the slowest (bottleneck). */

@@ -119,7 +119,12 @@ export const TOOLS: ToolDef[] = [
       'Board analytics (throughput + trend, WIP & aging, dwell/bottleneck, burndown, forecast) — or per-task timing (lead/cycle, time per status) when id is given. Token-budgeted text; never silent about bounded (compacted) history.',
     inputSchema: {
       id: z.string().optional().describe('task id for per-task timing (omit for board stats)'),
-      window: z.number().int().positive().optional().describe('window in days (default 14)'),
+      window: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe('window in days (default 14); bucket size auto-scales to the (age-clamped) window'),
       max_tokens: z.number().int().positive().optional().describe('token budget (sheds trailing lines)'),
       full: z.boolean().optional().describe('ignore the token budget'),
     },

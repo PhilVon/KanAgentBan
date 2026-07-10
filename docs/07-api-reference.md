@@ -79,7 +79,12 @@ left-to-right in execution order.
 `GET /api/stats` returns `{text}` (token-budgeted) or, with `json`, the full
 `BoardStats` (`window`, `compaction_floor`, `partial_history`, `excluded_partial`,
 `throughput` — incl. a `trend` half-window comparison —, `wip`, `burndown`,
-`timing_summary`, `dwell`, `bottleneck`) plus `est_tokens`.
+`timing_summary`, `dwell`, `bottleneck`, `pace`) plus `est_tokens`. `window` is
+requested in **days** (`?window=`, default 14) but the time-series **bucket width
+auto-scales** to the board's age; `window` now also carries `span_ms`, `bucket_ms`,
+`bucket` (label), `buckets`, and `clamped`. Time-series points (`burndown`,
+`throughput.series`, `cfd`) are keyed by **`t`** (ISO 8601 UTC bucket start), *not* a
+`date` string; `forecast` carries `ms_to_drain` and an ISO `eta`.
 `GET /api/tasks/:id/stats` returns the per-task `TaskTiming` (unknown id → `404`).
 Both stamp the compaction floor so bounded history is never silent.
 

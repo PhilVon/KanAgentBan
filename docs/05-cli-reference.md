@@ -136,10 +136,13 @@ automatically; this command forces it. See [11-roadmap §2](11-roadmap.md).
 Board analytics, or per-task timing when `<id>` is given. Read-only derivation
 over the event log: per-task lead/cycle time and time-per-status; board
 throughput/velocity (with a recent-vs-prior-half **trend** annotation), WIP &
-aging, a burndown series (`--window`, default 14 days), and per-status **dwell**
-times with a bottleneck flag. Honours the token-budget contract and is
-never-silent about the compaction floor (tasks predating it are excluded from
-timing aggregates). See [13-analytics](13-analytics.md).
+aging, a burndown series, and per-status **dwell** times with a bottleneck flag.
+`--window` (days, default 14, max 365) is an **upper bound** on the span — the
+**bucket width auto-scales** to the board's age, so a board that is hours old
+still gets a readable multi-point series (a 6h board → 15-minute buckets) instead
+of one daily dot; the header names the bucket size. Rates render per-hour when
+brisk, aging thresholds and the drain ETA scale to the board's own pace, and it
+stays never-silent about the compaction floor. See [13-analytics](13-analytics.md).
 
 ---
 

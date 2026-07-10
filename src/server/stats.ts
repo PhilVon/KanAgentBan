@@ -14,11 +14,11 @@
 import type { Repo } from './repo';
 import type { BoardEvent, InputRequest, Priority, Task, WorkflowStatus } from '../shared/types';
 import { PRIORITIES, WORKFLOW_STATUSES } from '../shared/types';
+import { bucketRange, bucketLabel, paceThresholds, MIN_SPAN_MS, type PaceThresholds } from './pace';
 
 const ms = (iso: string): number => Date.parse(iso);
 
 const DAY_MS = 86400000;
-const STALE_MS = 7 * DAY_MS; // aging boundary: tasks older than this are "stale"
 
 /** Top-N rows shown for the per-label breakdown before the render footer kicks in.
  *  `boardStats.by_label` carries the full sorted set; renderers cap to this. */
@@ -53,21 +53,26 @@ export interface TaskTiming {
 }
 
 export interface StatsWindow {
-  days: number;
-  from: string; // YYYY-MM-DD (UTC)
-  to: string; // YYYY-MM-DD (UTC)
+  days: number; // clamped requested window in whole days (kept for CLI/MCP continuity)
+  from: string; // ISO 8601 UTC — first bucket start
+  to: string; // ISO 8601 UTC — end of the (partial) last bucket, = generated_at
+  span_ms: number; // clamped span the series covers
+  bucket_ms: number; // width of each bucket
+  bucket: string; // human label for bucket_ms ("15m" | "1h" | "1d" | …)
+  buckets: number; // series length
+  clamped: boolean; // true when board age < the requested window
 }
 
 export interface BurndownPoint {
-  date: string; // YYYY-MM-DD (UTC)
-  remaining: number; // created & not done & not archived, as of end-of-day
-  done: number; // Done as of end-of-day
-  created_cum: number; // created on/before end-of-day
+  t: string; // ISO 8601 UTC — bucket start
+  remaining: number; // created & not done & not archived, as of bucket end
+  done: number; // Done as of bucket end
+  created_cum: number; // created on/before bucket end
 }
 
 export interface ThroughputPoint {
-  date: string;
-  completed: number;
+  t: string; // ISO 8601 UTC — bucket start
+  completed: number; // terminal completions within the bucket
 }
 
 /** Age buckets for tasks currently in a column: fresh ≤1d · aging 1–7d · stale >7d.
@@ -138,8 +143,9 @@ export interface PriorityStat {
 export interface Forecast {
   remaining: number; // current non-archived, non-Done
   velocity_per_day: number; // = throughput.rolling_avg_per_day
-  days_to_drain: number | null; // null when velocity is 0
-  eta: string | null; // YYYY-MM-DD, null when no drain date
+  ms_to_drain: number | null; // remaining / velocity, in ms; null when velocity is 0
+  days_to_drain: number | null; // ceil(ms_to_drain / day); null when velocity is 0
+  eta: string | null; // ISO 8601 UTC, null when no drain date
   diverging: boolean; // net flow >= 0 ⇒ backlog not shrinking
 }
 
@@ -159,9 +165,9 @@ export interface AgentStat {
   active_wip: number; // currently claimed & non-Done
 }
 
-/** One column-stacked day for the cumulative-flow diagram (T-11). */
+/** One column-stacked bucket for the cumulative-flow diagram (T-11). */
 export interface CfdPoint {
-  date: string; // YYYY-MM-DD (UTC)
+  t: string; // ISO 8601 UTC — bucket start
   counts: Record<WorkflowStatus, number>;
 }
 
@@ -208,6 +214,7 @@ export interface BoardStats {
   cfd: CfdPoint[];
   dwell: DwellStat[];
   bottleneck: { status: WorkflowStatus; avg_ms: number } | null;
+  pace: PaceThresholds; // tempo-derived aging thresholds (never-silent basis)
 }
 
 const zeroPerStatus = (): Record<WorkflowStatus, number> => {
@@ -303,22 +310,34 @@ export function taskTiming(repo: Repo, id: string): TaskTiming {
   return computeTask(task, events, repo.floor(), Date.now()).timing;
 }
 
-// ---- date bucketing (UTC calendar days) ----------------------------------
+// ---- adaptive time bucketing ---------------------------------------------
+// Bucket width scales with the board's age (docs/13-analytics §3), so an
+// agent-driven board that is only hours old still renders a useful multi-point
+// series instead of one daily dot. The final bucket is partial: it ends at
+// `nowMs` (= generated_at), so the freshest data is always shown.
 
-const dayKey = (epoch: number): string => new Date(epoch).toISOString().slice(0, 10);
-const endOfDay = (key: string): number => Date.parse(`${key}T23:59:59.999Z`);
-const startOfDay = (key: string): number => Date.parse(`${key}T00:00:00.000Z`);
+interface Bucket {
+  t: string; // ISO 8601 UTC — bucket start
+  start: number; // epoch ms, inclusive
+  end: number; // epoch ms, exclusive (nowMs+1 for the open final bucket)
+}
 
+/** Clamp the requested window to whole days in [1, 365] (default 14). */
 function windowDays(opts: { windowDays?: number }): number {
   const d = Math.floor(opts.windowDays ?? 14);
   return Math.min(365, Math.max(1, Number.isFinite(d) ? d : 14));
 }
 
-function dayRange(nowMs: number, days: number): string[] {
-  const today = dayKey(nowMs);
-  const out: string[] = [];
-  for (let i = days - 1; i >= 0; i--) out.push(dayKey(Date.parse(`${today}T00:00:00.000Z`) - i * 86400000));
-  return out;
+/** Epoch-aligned buckets over `[nowMs - spanMs, nowMs]`; the last bucket runs to
+ *  `nowMs`. Bucket width is chosen (`bucketRange`) to keep the series readable. */
+function computeBuckets(nowMs: number, spanMs: number): { buckets: Bucket[]; step: number } {
+  const { starts, step } = bucketRange(nowMs, spanMs);
+  const buckets: Bucket[] = starts.map((start, i) => ({
+    t: new Date(start).toISOString(),
+    start,
+    end: i + 1 < starts.length ? starts[i + 1] : nowMs + 1,
+  }));
+  return { buckets, step };
 }
 
 /** Status the task was in at `endMs` (or null if not yet created by then). */
@@ -349,19 +368,23 @@ function summarize(values: number[], round: (n: number) => number = Math.round):
 }
 
 /**
- * Velocity trend (T-13): compare the recent half of the per-day series against
- * the prior half (dropping the middle day when odd). Simpler to explain than a
- * regression slope and robust on small n. Direction needs a >10% move to leave
- * `flat`; windows under 4 days are always `flat` (halves too small to compare).
+ * Velocity trend (T-13): compare the recent half of the bucket series against the
+ * prior half (dropping the middle bucket when odd). Simpler to explain than a
+ * regression slope and robust on small n. Rates are normalized to per-day so the
+ * headline numbers stay comparable regardless of bucket width. Direction needs a
+ * >10% move to leave `flat`; series under 4 buckets are always `flat` (halves too
+ * small to compare). The partial final bucket biases the recent half slightly low
+ * — accepted (dropping it would ignore the newest work).
  */
-export function computeTrend(series: ThroughputPoint[]): VelocityTrend {
-  const days = series.length;
-  const half = Math.floor(days / 2);
+export function computeTrend(series: ThroughputPoint[], bucketMs: number): VelocityTrend {
+  const n = series.length;
+  const half = Math.floor(n / 2);
+  const perDay = bucketMs > 0 ? DAY_MS / bucketMs : 1;
   const rate = (pts: ThroughputPoint[]): number =>
-    pts.length ? round2(pts.reduce((a, p) => a + p.completed, 0) / pts.length) : 0;
+    pts.length ? round2((pts.reduce((a, p) => a + p.completed, 0) / pts.length) * perDay) : 0;
   const prior = rate(series.slice(0, half));
-  const recent = rate(series.slice(days - half));
-  if (days < 4 || (prior === 0 && recent === 0))
+  const recent = rate(series.slice(n - half));
+  if (n < 4 || (prior === 0 && recent === 0))
     return { recent_per_day: recent, prior_per_day: prior, delta_pct: null, direction: 'flat' };
   if (prior === 0) return { recent_per_day: recent, prior_per_day: prior, delta_pct: null, direction: 'up' };
   const delta_pct = Math.round(((recent - prior) / prior) * 100);
@@ -383,16 +406,20 @@ export function boardStats(repo: Repo, opts: { windowDays?: number } = {}): Boar
 
   const tasks = repo.allTasks();
 
-  // Clamp the window to the project's actual age — never render days before the
-  // board had any tasks. Those buckets are all-zero and make a young board's
-  // graph useless/redundant (T-1). Anchored on the earliest task `created_at`
-  // (a never-compacted task-row field; there's no meaningful burndown before the
-  // first task, and the DB stores no separate board-creation timestamp).
+  // Clamp the span to the board's actual age — never render buckets before the
+  // board had any tasks (they'd be all-zero and misleading, T-1). Anchored on the
+  // earliest task `created_at` (a never-compacted task-row field; the DB stores no
+  // separate board-creation timestamp). The bucket *width* then scales with the
+  // clamped span (pace.ts) so a young board still gets a multi-point series; the
+  // requested window is honoured only as an upper bound on the span.
   const requested = windowDays(opts);
   const earliestMs = tasks.reduce((m, t) => Math.min(m, ms(t.created_at)), nowMs);
-  const ageDays =
-    Math.floor((startOfDay(dayKey(nowMs)) - startOfDay(dayKey(earliestMs))) / 86400000) + 1;
-  const days = Math.max(1, Math.min(requested, ageDays));
+  const ageMs = nowMs - earliestMs;
+  const spanMs = Math.max(MIN_SPAN_MS, Math.min(requested * DAY_MS, ageMs));
+  const clamped = ageMs < requested * DAY_MS;
+  const { buckets, step: bucket_ms } = computeBuckets(nowMs, spanMs);
+  const days = Math.max(1, Math.ceil(spanMs / DAY_MS));
+  const spanDays = spanMs / DAY_MS; // fractional — the true denominator for rates
 
   const byTask = new Map<string, BoardEvent[]>();
   for (const e of repo.changes(0)) {
@@ -403,30 +430,8 @@ export function boardStats(repo: Repo, opts: { windowDays?: number } = {}): Boar
   }
   const computed = tasks.map((t) => computeTask(t, byTask.get(t.id) ?? [], floor, nowMs));
 
-  // WIP & aging — current (live rows), excludes archived. Each column's tasks are
-  // partitioned into fresh ≤1d · aging 1–7d · stale >7d (sums to count, T-5).
-  const ageOf = (t: Task) => nowMs - ms(t.created_at);
-  const wip: ColumnStat[] = WORKFLOW_STATUSES.map((status) => {
-    const inCol = tasks.filter((t) => t.status === status && t.archived_at === null);
-    let oldest: ColumnStat['oldest'] = null;
-    const aging: AgingBuckets = { fresh: 0, aging: 0, stale: 0 };
-    for (const t of inCol) {
-      const age = ageOf(t);
-      if (!oldest || age > oldest.age_ms) oldest = { id: t.id, age_ms: age };
-      if (age <= DAY_MS) aging.fresh++;
-      else if (age <= STALE_MS) aging.aging++;
-      else aging.stale++;
-    }
-    return { status, count: inCol.length, oldest, aging };
-  });
-
-  // Aging flags — non-Done, non-archived tasks past the stale threshold (T-5).
-  const aging_flags: AgingFlag[] = tasks
-    .filter((t) => t.archived_at === null && t.status !== 'Done' && ageOf(t) > STALE_MS)
-    .map((t) => ({ id: t.id, status: t.status, age_ms: ageOf(t) }))
-    .sort((a, b) => b.age_ms - a.age_ms);
-
-  // Timing summary over non-partial, currently-completed tasks.
+  // Timing summary over non-partial, currently-completed tasks. Collected before
+  // aging so the pace thresholds (derived from cycle p90) can drive it.
   const lead: number[] = [];
   const cycle: number[] = [];
   const flowEff: number[] = [];
@@ -436,34 +441,64 @@ export function boardStats(repo: Repo, opts: { windowDays?: number } = {}): Boar
     if (c.timing.cycle_ms !== null) cycle.push(c.timing.cycle_ms);
     if (c.timing.flow_efficiency !== null) flowEff.push(c.timing.flow_efficiency);
   }
+  const cycleSummary = summarize(cycle);
+  // Pace-aware aging thresholds — derived from the board's own completion tempo,
+  // shared with doctor/standup via boardPace(). Never-silent: `pace.basis` says
+  // whether these came from tempo or the fixed fallback.
+  const pace = paceThresholds(cycleSummary.p90, cycleSummary.n);
 
-  const dates = dayRange(nowMs, days);
-  const burndown: BurndownPoint[] = dates.map((date) => {
-    const end = endOfDay(date);
+  // WIP & aging — current (live rows), excludes archived. Each column's tasks are
+  // partitioned into fresh ≤ pace.fresh_ms · aging · stale > pace.stale_ms
+  // (sums to count, T-5).
+  const ageOf = (t: Task) => nowMs - ms(t.created_at);
+  const wip: ColumnStat[] = WORKFLOW_STATUSES.map((status) => {
+    const inCol = tasks.filter((t) => t.status === status && t.archived_at === null);
+    let oldest: ColumnStat['oldest'] = null;
+    const aging: AgingBuckets = { fresh: 0, aging: 0, stale: 0 };
+    for (const t of inCol) {
+      const age = ageOf(t);
+      if (!oldest || age > oldest.age_ms) oldest = { id: t.id, age_ms: age };
+      if (age <= pace.fresh_ms) aging.fresh++;
+      else if (age <= pace.stale_ms) aging.aging++;
+      else aging.stale++;
+    }
+    return { status, count: inCol.length, oldest, aging };
+  });
+
+  // Aging flags — non-Done, non-archived tasks past the (pace-aware) stale
+  // threshold (T-5).
+  const aging_flags: AgingFlag[] = tasks
+    .filter((t) => t.archived_at === null && t.status !== 'Done' && ageOf(t) > pace.stale_ms)
+    .map((t) => ({ id: t.id, status: t.status, age_ms: ageOf(t) }))
+    .sort((a, b) => b.age_ms - a.age_ms);
+
+  const burndown: BurndownPoint[] = buckets.map((b) => {
+    const asOf = Math.min(b.end - 1, nowMs);
     let created_cum = 0;
     let done = 0;
     let remaining = 0;
     for (const c of computed) {
-      if (c.createdMs > end) continue;
+      if (c.createdMs > asOf) continue;
       created_cum++;
-      const archivedByThen = c.archivedMs !== null && c.archivedMs <= end;
-      const status = statusAsOf(c.segments, end);
+      const archivedByThen = c.archivedMs !== null && c.archivedMs <= asOf;
+      const status = statusAsOf(c.segments, asOf);
       const isDone = status === 'Done';
       if (isDone) done++;
       if (!isDone && !archivedByThen) remaining++;
     }
-    return { date, remaining, done, created_cum };
+    return { t: b.t, remaining, done, created_cum };
   });
 
-  // Throughput — terminal completions bucketed by day; windowed series.
-  const completedByDay = new Map<string, number>();
-  for (const c of computed) {
-    if (c.doneMs === null) continue;
-    completedByDay.set(dayKey(c.doneMs), (completedByDay.get(dayKey(c.doneMs)) ?? 0) + 1);
-  }
-  const series: ThroughputPoint[] = dates.map((date) => ({ date, completed: completedByDay.get(date) ?? 0 }));
+  // Throughput — terminal completions bucketed by the adaptive bucket; the series
+  // covers only the windowed span. Rates normalize by the *fractional* span so a
+  // 6h-old board reads its true per-day velocity, not a day-floored understatement.
+  const series: ThroughputPoint[] = buckets.map((b) => {
+    let completed = 0;
+    for (const c of computed) if (c.doneMs !== null && c.doneMs >= b.start && c.doneMs < b.end) completed++;
+    return { t: b.t, completed };
+  });
   const total = series.reduce((a, p) => a + p.completed, 0);
-  const rolling_avg_per_day = Math.round((total / days) * 100) / 100;
+  const rolling_avg_per_day = round2(total / spanDays);
 
   const excluded_partial = computed.filter((c) => c.timing.partial_history).map((c) => c.timing.id);
 
@@ -492,9 +527,9 @@ export function boardStats(repo: Repo, opts: { windowDays?: number } = {}): Boar
   iw.resolved = summarize(waits);
 
   // ---- net flow rate (T-4) — arrival vs departure ---------------------------
-  const windowStart = startOfDay(dates[0]);
+  const windowStart = buckets[0].start;
   const arrived = tasks.filter((t) => ms(t.created_at) >= windowStart).length;
-  const arrival_per_day = round2(arrived / days);
+  const arrival_per_day = round2(arrived / spanDays);
   const net_per_day = round2(arrival_per_day - rolling_avg_per_day);
   const flow: FlowRate = {
     arrival_per_day,
@@ -537,13 +572,16 @@ export function boardStats(repo: Repo, opts: { windowDays?: number } = {}): Boar
   });
 
   // ---- completion forecast (T-8) --------------------------------------------
+  // Drain time in ms so a fast board gets an hour-precision ETA, not a day-floored
+  // one. `days_to_drain` is kept (ceil of the ms figure) for continuity.
   const remaining = tasks.filter((t) => t.archived_at === null && t.status !== 'Done').length;
-  const days_to_drain = rolling_avg_per_day > 0 ? Math.ceil(remaining / rolling_avg_per_day) : null;
+  const ms_to_drain = rolling_avg_per_day > 0 ? Math.round((remaining / rolling_avg_per_day) * DAY_MS) : null;
   const forecast: Forecast = {
     remaining,
     velocity_per_day: rolling_avg_per_day,
-    days_to_drain,
-    eta: days_to_drain !== null ? dayKey(nowMs + days_to_drain * DAY_MS) : null,
+    ms_to_drain,
+    days_to_drain: ms_to_drain !== null ? Math.ceil(ms_to_drain / DAY_MS) : null,
+    eta: ms_to_drain !== null ? new Date(nowMs + ms_to_drain).toISOString() : null,
     diverging: net_per_day >= 0,
   };
 
@@ -626,22 +664,31 @@ export function boardStats(repo: Repo, opts: { windowDays?: number } = {}): Boar
     if (!bottleneck || d.closed.avg > bottleneck.avg_ms) bottleneck = { status: d.status, avg_ms: d.closed.avg };
   }
 
-  // ---- cumulative-flow diagram (T-11) — one stacked column per window day ----
-  const cfd: CfdPoint[] = dates.map((date) => {
-    const end = endOfDay(date);
+  // ---- cumulative-flow diagram (T-11) — one stacked column per window bucket --
+  const cfd: CfdPoint[] = buckets.map((b) => {
+    const asOf = Math.min(b.end - 1, nowMs);
     const counts = zeroPerStatus();
     for (const c of computed) {
-      if (c.createdMs > end) continue;
-      if (c.archivedMs !== null && c.archivedMs <= end) continue;
-      const status = statusAsOf(c.segments, end) ?? c.timing.status;
+      if (c.createdMs > asOf) continue;
+      if (c.archivedMs !== null && c.archivedMs <= asOf) continue;
+      const status = statusAsOf(c.segments, asOf) ?? c.timing.status;
       counts[status]++;
     }
-    return { date, counts };
+    return { t: b.t, counts };
   });
 
   return {
     generated_at: new Date(nowMs).toISOString(),
-    window: { days, from: dates[0], to: dates[dates.length - 1] },
+    window: {
+      days,
+      from: buckets[0].t,
+      to: new Date(nowMs).toISOString(),
+      span_ms: spanMs,
+      bucket_ms,
+      bucket: bucketLabel(bucket_ms),
+      buckets: buckets.length,
+      clamped,
+    },
     compaction_floor: floor,
     partial_history: excluded_partial.length > 0,
     excluded_partial,
@@ -649,13 +696,13 @@ export function boardStats(repo: Repo, opts: { windowDays?: number } = {}): Boar
       series,
       total,
       rolling_avg_per_day,
-      per_week: Math.round(rolling_avg_per_day * 7 * 100) / 100,
-      trend: computeTrend(series),
+      per_week: round2(rolling_avg_per_day * 7),
+      trend: computeTrend(series, bucket_ms),
     },
     wip,
     aging_flags,
     burndown,
-    timing_summary: { lead_ms: summarize(lead), cycle_ms: summarize(cycle), flow_efficiency: summarize(flowEff, round2) },
+    timing_summary: { lead_ms: summarize(lead), cycle_ms: cycleSummary, flow_efficiency: summarize(flowEff, round2) },
     input_wait: iw,
     flow,
     quality,
@@ -666,8 +713,34 @@ export function boardStats(repo: Repo, opts: { windowDays?: number } = {}): Boar
     cfd,
     dwell,
     bottleneck,
+    pace,
   };
 }
 
-// startOfDay is exported only so tests can assert bucketing without re-deriving it.
-export const _internal = { dayKey, endOfDay, startOfDay, statusAsOf };
+/**
+ * The board's pace-aware aging thresholds (fresh/stale), derived from its own
+ * completion tempo (p90 cycle time over non-partial, currently-completed tasks).
+ * The single source of truth shared by `boardStats`, `doctor`, and `standup` so
+ * the three never drift. Falls back to fixed legacy thresholds below the
+ * completion floor (see `paceThresholds`).
+ */
+export function boardPace(repo: Repo, nowMs: number = Date.now()): PaceThresholds {
+  const floor = repo.floor();
+  const byTask = new Map<string, BoardEvent[]>();
+  for (const e of repo.changes(0)) {
+    if (!e.task_id) continue;
+    const list = byTask.get(e.task_id);
+    if (list) list.push(e);
+    else byTask.set(e.task_id, [e]);
+  }
+  const cycle: number[] = [];
+  for (const t of repo.allTasks()) {
+    const c = computeTask(t, byTask.get(t.id) ?? [], floor, nowMs);
+    if (!c.timing.partial_history && c.timing.cycle_ms !== null) cycle.push(c.timing.cycle_ms);
+  }
+  const summary = summarize(cycle);
+  return paceThresholds(summary.p90, summary.n);
+}
+
+// Exported only so tests can assert bucketing/timeline logic without re-deriving it.
+export const _internal = { computeBuckets, bucketRange, statusAsOf };

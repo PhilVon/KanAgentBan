@@ -181,7 +181,7 @@ program
 program
   .command('stats [id]')
   .description('board analytics (throughput, WIP, burndown), or per-task timing when <id> is given')
-  .option('--window <days>', 'burndown / throughput window in days (default 14)')
+  .option('--window <days>', 'burndown / throughput window in days (default 14); bucket size auto-scales to the age-clamped window')
   .option('--max-tokens <n>', 'token budget (sheds trailing lines)')
   .option('--full', 'ignore the token budget')
   .option('--json')
