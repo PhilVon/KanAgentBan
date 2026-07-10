@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { makeRepo } from './helpers';
+import { makeRepo, sleep } from './helpers';
 import { boardStats, boardPace } from '../src/server/stats';
 import { runDoctor } from '../src/server/doctor';
 import { standup } from '../src/server/standup';
@@ -12,14 +12,17 @@ const HOUR = 3_600_000;
  * surfaces drifting apart (the whole reason boardPace is a single source).
  */
 describe('pace: cross-surface aging consistency', () => {
-  it('flags one stuck task at the same threshold in stats, doctor, and standup', () => {
+  it('flags one stuck task at the same threshold in stats, doctor, and standup', async () => {
     const repo = makeRepo();
 
-    // A fast board: ≥5 quick completions establish a tempo (p90 cycle ~ minutes),
-    // so the pace threshold drops well below the legacy 7d.
+    // A fast board: ≥5 quick completions establish a tempo. The `sleep` gives each
+    // a real (if tiny) In-Progress→Done cycle so p90 > 0 — without it the moves
+    // land in the same millisecond on a fast runner, p90 is 0, and pace falls back
+    // to 'default' (the flake that only surfaced on the quickest CI cell).
     for (let i = 0; i < 6; i++) {
       const t = repo.createTask({ title: `fast-${i}` });
       repo.moveTask(t.id, 'In Progress');
+      await sleep(3);
       repo.moveTask(t.id, 'Done');
     }
 
