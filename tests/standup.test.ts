@@ -56,7 +56,11 @@ describe('standup: narrative board diff', () => {
     repo.db.prepare('UPDATE event SET ts = ?').run(new Date(Date.now() - 9 * 86_400_000).toISOString());
     const r = standup(repo, { days: 1 });
     expect(r.completed).toEqual([]);
-    expect(r.aging).toEqual([{ id: old.id, title: 'stuck', status: 'In Progress', age_days: 9 }]);
+    expect(r.aging).toHaveLength(1);
+    expect(r.aging[0]).toMatchObject({ id: old.id, title: 'stuck', status: 'In Progress' });
+    expect(r.aging[0].age_ms).toBeGreaterThan(8 * 86_400_000);
+    // No completions → pace falls back to the fixed 7d threshold (no pace tag).
+    expect(r.pace.basis).toBe('default');
     const text = renderStandup(r);
     expect(text).toContain('aging >7d (1)');
   });

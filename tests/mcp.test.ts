@@ -116,7 +116,10 @@ describe('mcp stats', () => {
     const id = idOf(await ok('add', { title: 'measurable', status: 'Ready' }));
     await ok('move', { id, status: 'Done' });
     const text = await ok('stats', {});
-    expect(text).toContain('board stats · window');
+    // A brand-new board renders "board age …" (pace-aware header); an aged one
+    // would say "window Nd". Either way the stats block leads with "board".
+    expect(text).toContain('board stats · ');
+    expect(text).toContain(' buckets · ');
     expect(text).toContain('[est_tokens:');
   });
 

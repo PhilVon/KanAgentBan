@@ -767,6 +767,20 @@ function fmtDur(ms) {
   return d + 'd' + (h % 24 ? ` ${h % 24}h` : '');
 }
 
+const DAY_MS = 86_400_000;
+
+/** Per-day rate at its natural unit — mirrors render.ts fmtRate so CLI and web
+ *  agree: `2.5/h` when brisk (≥24/day), else `0.3/d`. */
+function fmtRate(perDay) {
+  return perDay >= 24 ? `${Math.round((perDay / 24) * 10) / 10}/h` : `${Math.round(perDay * 100) / 100}/d`;
+}
+
+/** A bucket-start ISO timestamp as an axis label, scaled to the bucket width:
+ *  `14:05` (UTC) for sub-day buckets, `07-10` for day-or-coarser. */
+function fmtTick(iso, bucketMs) {
+  return bucketMs < DAY_MS ? iso.slice(11, 16) : iso.slice(5, 10);
+}
+
 function tile(label, value, sub) {
   const t = el('div', 'tile');
   t.append(el('div', 'tile-val', value));
@@ -783,7 +797,7 @@ const SERIES = [
   ['remaining', C.warn, 'remaining'],
 ];
 // Three-line burndown: remaining (warn) vs done (accent) vs created (line).
-function burndownChart(burndown) {
+function burndownChart(burndown, bucketMs) {
   const W = 560, H = 160, padL = 28, padB = 18, padT = 8, padR = 8;
   // Default preserveAspectRatio (xMidYMid meet) scales uniformly — non-uniform
   // ('none') stretches the axis text horizontally on a wide panel.
@@ -817,8 +831,15 @@ function burndownChart(burndown) {
   };
   svg.append(tx(String(max), 2, y(max) + 4));
   svg.append(tx('0', 2, H - padB + 4));
-  svg.append(tx(burndown[0].date.slice(5), padL, H - 4));
-  svg.append(tx(burndown[n - 1].date.slice(5), W - padR, H - 4, 'end'));
+  // Time axis: first / middle / last ticks. Variable bucket widths make two
+  // labels too few to orient, so add a middle one. Sub-day charts date-stamp the
+  // first tick ("07-10 14:05"); the header already names the UTC basis.
+  const stamp = (i) =>
+    bucketMs < DAY_MS && i === 0 ? `${burndown[i].t.slice(5, 10)} ${burndown[i].t.slice(11, 16)}` : fmtTick(burndown[i].t, bucketMs);
+  const mid = Math.floor((n - 1) / 2);
+  svg.append(tx(stamp(0), padL, H - 4));
+  if (mid > 0 && mid < n - 1) svg.append(tx(fmtTick(burndown[mid].t, bucketMs), x(mid), H - 4, 'middle'));
+  svg.append(tx(fmtTick(burndown[n - 1].t, bucketMs), W - padR, H - 4, 'end'));
   return svg;
 }
 
@@ -863,7 +884,8 @@ async function loadStats() {
     tr.direction === 'flat' && tr.delta_pct === null
       ? ''
       : ` · ${tr.direction === 'up' ? '↑' : tr.direction === 'down' ? '↓' : '→'}${tr.delta_pct !== null ? ` ${tr.delta_pct > 0 ? '+' : ''}${tr.delta_pct}%` : ''} vs prior half`;
-  const tpTile = tile('done / window', String(s.throughput.total), `${s.throughput.rolling_avg_per_day}/day · ${s.throughput.per_week}/wk${trendTxt}`);
+  const week = s.window.span_ms >= 7 * DAY_MS ? ` · ${s.throughput.per_week}/wk` : '';
+  const tpTile = tile('done / window', String(s.throughput.total), `${fmtRate(s.throughput.rolling_avg_per_day)}${week}${trendTxt}`);
   if (tr.direction === 'up') tpTile.classList.add('tile-good');
   else if (tr.direction === 'down') tpTile.classList.add('tile-warn');
   tiles.append(tpTile);
@@ -872,13 +894,17 @@ async function loadStats() {
   tiles.append(tile('flow efficiency', pctVal(s.timing_summary.flow_efficiency.p50), `avg ${pctVal(s.timing_summary.flow_efficiency.avg)} · n=${s.timing_summary.flow_efficiency.n}`));
   // Net flow: arrival vs departure, coloured by whether the board is growing.
   const f = s.flow;
-  const netTile = tile('net flow / day', `${f.net_per_day > 0 ? '+' : ''}${f.net_per_day}`, `${f.arrival_per_day} in · ${f.departure_per_day} out · ${f.trend}`);
+  const netTile = tile('net flow', `${f.net_per_day > 0 ? '+' : ''}${fmtRate(f.net_per_day)}`, `${fmtRate(f.arrival_per_day)} in · ${fmtRate(f.departure_per_day)} out · ${f.trend}`);
   if (f.trend === 'growing') netTile.classList.add('tile-warn');
   else if (f.trend === 'shrinking') netTile.classList.add('tile-good');
   tiles.append(netTile);
-  // Forecast: days to drain the backlog at current velocity.
+  // Forecast: time to drain the backlog at current velocity. Hour-precision ETA
+  // when the drain is near (< 3 days), else a day figure.
   const fc = s.forecast;
-  const drainTile = tile('drain forecast', fc.days_to_drain !== null ? `${fc.days_to_drain}d` : '∞', fc.days_to_drain !== null ? `${fc.remaining} open · eta ${fc.eta}` : `${fc.remaining} open · velocity 0`);
+  const etaNear = fc.ms_to_drain !== null && fc.ms_to_drain < 3 * DAY_MS;
+  const drainVal = fc.ms_to_drain !== null ? fmtDur(fc.ms_to_drain) : '∞';
+  const etaStr = fc.eta ? (etaNear ? `${fc.eta.slice(0, 10)} ${fc.eta.slice(11, 16)} UTC` : fc.eta.slice(0, 10)) : null;
+  const drainTile = tile('drain forecast', drainVal, etaStr ? `${fc.remaining} open · eta ${etaStr}` : `${fc.remaining} open · velocity 0`);
   if (fc.diverging) drainTile.classList.add('tile-warn');
   tiles.append(drainTile);
   // Input-wait: human response latency.
@@ -903,10 +929,12 @@ async function loadStats() {
   //     panel width instead of stacking in one narrow left column. ---
   const grid = el('div', 'metric-grid');
 
-  // Aging flags — non-Done tasks past the stale threshold.
+  // Aging flags — non-Done tasks past the pace-aware stale threshold.
   if (s.aging_flags.length) {
     const rows = s.aging_flags.slice(0, 12).map((a) => [a.id, a.status, fmtDur(a.age_ms)]);
-    grid.append(metricCard(`Aging > 7d (${s.aging_flags.length})`, metricTable(['task', 'status', 'age'], rows)));
+    const paceTag = s.pace && s.pace.basis === 'cycle-time' ? ' (pace)' : '';
+    const thresh = s.pace ? fmtDur(s.pace.stale_ms) : '7d';
+    grid.append(metricCard(`Aging > ${thresh}${paceTag} (${s.aging_flags.length})`, metricTable(['task', 'status', 'age'], rows)));
   }
 
   // Per-priority cycle/lead.
@@ -947,9 +975,13 @@ async function loadStats() {
   // --- charts — wider grid tracks so the two time-series sit side by side on a
   //     wide panel and the SVGs fill their cards (no fixed max-width gap). ---
   const charts = el('div', 'metric-charts');
-  charts.append(metricCard(`Burndown · window ${s.window.days}d`, burndownLegend(), burndownChart(s.burndown)));
+  const bucketMs = s.window.bucket_ms;
+  const scale = s.window.clamped && bucketMs < DAY_MS ? `board age ${fmtDur(s.window.span_ms)}` : `window ${s.window.days}d`;
+  charts.append(
+    metricCard(`Burndown · ${scale} · ${s.window.bucket} buckets`, burndownLegend(), burndownChart(s.burndown, bucketMs)),
+  );
   if (s.cfd && s.cfd.length)
-    charts.append(metricCard('Cumulative flow', cfdLegend(), cfdChart(s.cfd)));
+    charts.append(metricCard(`Cumulative flow · ${s.window.bucket} buckets`, cfdLegend(), cfdChart(s.cfd, bucketMs)));
   body.append(charts);
 }
 
@@ -983,7 +1015,7 @@ function metricTable(headers, rows) {
 // CFD stacked-area: one column per status, oldest→newest left→right. Stacked in
 // workflow order so the band heights read as the board's WIP composition over time.
 const CFD_COLORS = { Backlog: '#5a6573', Ready: '#4c9aff', 'In Progress': '#ffb454', Review: '#b083ff', Done: '#3fb950' };
-function cfdChart(cfd) {
+function cfdChart(cfd, bucketMs) {
   const W = 560, H = 160, padL = 28, padB = 18, padT = 8, padR = 8;
   const svg = svgEl('svg', { class: 'burndown', viewBox: `0 0 ${W} ${H}` });
   if (cfd.length < 2) {
@@ -1014,8 +1046,12 @@ function cfdChart(cfd) {
   };
   svg.append(tx(String(max), 2, y(max) + 4));
   svg.append(tx('0', 2, H - padB + 4));
-  svg.append(tx(cfd[0].date.slice(5), padL, H - 4));
-  svg.append(tx(cfd[n - 1].date.slice(5), W - padR, H - 4, 'end'));
+  const stamp = (i) =>
+    bucketMs < DAY_MS && i === 0 ? `${cfd[i].t.slice(5, 10)} ${cfd[i].t.slice(11, 16)}` : fmtTick(cfd[i].t, bucketMs);
+  const mid = Math.floor((n - 1) / 2);
+  svg.append(tx(stamp(0), padL, H - 4));
+  if (mid > 0 && mid < n - 1) svg.append(tx(fmtTick(cfd[mid].t, bucketMs), x(mid), H - 4, 'middle'));
+  svg.append(tx(fmtTick(cfd[n - 1].t, bucketMs), W - padR, H - 4, 'end'));
   return svg;
 }
 

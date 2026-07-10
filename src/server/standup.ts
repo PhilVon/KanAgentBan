@@ -1,9 +1,9 @@
 import type { Repo } from './repo';
+import { boardPace } from './stats';
+import type { PaceThresholds } from './pace';
 import type { BoardEvent, Task } from '../shared/types';
 
 const DAY_MS = 86_400_000;
-/** Attention threshold — matches stats' aging boundary and doctor's aging-wip. */
-const AGING_MS = 7 * DAY_MS;
 
 export interface StandupReport {
   /** Cursor the digest starts from (post-clamp) and the cursor to save next. */
@@ -22,8 +22,11 @@ export interface StandupReport {
   /** Cancelled/expired — resolutions a resuming agent must still see. */
   resolved: { id: string; task_id: string; status: string }[];
   rejected: { id: string; title: string; reason: string }[];
-  /** Tasks in active columns currently untouched > 7d (attention list). */
-  aging: { id: string; title: string; status: string; age_days: number }[];
+  /** Tasks in active columns untouched past the pace-aware stale threshold. */
+  aging: { id: string; title: string; status: string; age_ms: number }[];
+  /** The tempo-derived thresholds used for `aging` (never-silent; shared with
+   *  stats/doctor via boardPace). */
+  pace: PaceThresholds;
 }
 
 /**
@@ -110,14 +113,16 @@ export function standup(
     moved.push({ id, title: title(id), from, to });
   }
 
-  // Current attention list — active-column tasks untouched past the boundary.
+  // Current attention list — active-column tasks untouched past the pace-aware
+  // stale threshold (the same one stats/doctor use, via boardPace).
   const nowMs = Date.now();
+  const pace = boardPace(repo, nowMs);
   const aging: StandupReport['aging'] = repo
     .listTasks({})
     .filter((t: Task) => ['Ready', 'In Progress', 'Review'].includes(t.status))
     .map((t: Task) => ({ t, age: nowMs - new Date(t.updated_at).getTime() }))
-    .filter((x) => x.age > AGING_MS)
-    .map((x) => ({ id: x.t.id, title: x.t.title, status: x.t.status, age_days: Math.floor(x.age / DAY_MS) }));
+    .filter((x) => x.age > pace.stale_ms)
+    .map((x) => ({ id: x.t.id, title: x.t.title, status: x.t.status, age_ms: x.age }));
 
   return {
     since,
@@ -133,5 +138,6 @@ export function standup(
     resolved,
     rejected,
     aging,
+    pace,
   };
 }

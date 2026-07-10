@@ -1,16 +1,20 @@
 import type { Repo } from './repo';
 import { childProgress } from './derive';
+import { boardPace } from './stats';
+import { fmtDur } from './render';
 import type { Task } from '../shared/types';
 
-// Hygiene thresholds. Deliberately fixed (not flags): doctor is a report, not a
-// policy engine — a finding is a prompt to look, and stable thresholds keep its
-// exit semantics predictable for the session-start skill hook.
+// Hygiene thresholds. Not flags: doctor is a report, not a policy engine — a
+// finding is a prompt to look. The claim/question thresholds are fixed because
+// they measure *human* latency (a lease left dead, a question the human missed),
+// which board tempo doesn't change. The aging-WIP threshold, in contrast, is
+// derived from the board's own completion pace (boardPace) so a fast agent board
+// doesn't wait a human week to flag stuck work — still deterministic from board
+// state, and every finding prints the threshold it used (never-silent).
 const HOUR_MS = 3600_000;
 const DAY_MS = 24 * HOUR_MS;
 /** An untouched claim (no lease) older than this smells abandoned. */
 const STALE_CLAIM_MS = 24 * HOUR_MS;
-/** Active-column tasks untouched this long are aging WIP. */
-const AGING_WIP_MS = 7 * DAY_MS;
 /** An open question this old has probably been missed by the human. */
 const ANCIENT_ASK_MS = 48 * HOUR_MS;
 
@@ -49,6 +53,9 @@ const hours = (ms: number): string => (ms >= DAY_MS ? days(ms) : `${Math.floor(m
  */
 export function runDoctor(repo: Repo, nowMs: number = Date.now()): DoctorReport {
   const findings: DoctorFinding[] = [];
+  // Pace-aware aging threshold — the same one stats/standup use (single source).
+  const pace = boardPace(repo, nowMs);
+  const paceTag = pace.basis === 'cycle-time' ? ', pace-based' : '';
   const tasks = repo.listTasks({});
   const active = (t: Task) => t.status === 'Ready' || t.status === 'In Progress' || t.status === 'Review';
 
@@ -81,12 +88,13 @@ export function runDoctor(repo: Repo, nowMs: number = Date.now()): DoctorReport 
       });
     }
 
-    // 3. aging WIP: active-column tasks nobody has touched in a week.
-    if (active(t) && age(t.updated_at, nowMs) > AGING_WIP_MS) {
+    // 3. aging WIP: active-column tasks nobody has touched past the (pace-aware)
+    //    stale threshold.
+    if (active(t) && age(t.updated_at, nowMs) > pace.stale_ms) {
       findings.push({
         check: 'aging-wip',
         id: t.id,
-        detail: `${t.status}, untouched ${days(age(t.updated_at, nowMs))} — still real? move it or archive it`,
+        detail: `${t.status}, untouched ${fmtDur(age(t.updated_at, nowMs))} (threshold ${fmtDur(pace.stale_ms)}${paceTag}) — still real? move it or archive it`,
       });
     }
 

@@ -134,7 +134,11 @@ arrive as counts on cards).
 A **📊 Metrics** toggle in the header opens a panel backed by `GET /api/stats?json`
 ([13-analytics](13-analytics.md)): metric tiles (throughput, lead/cycle p50·p90,
 WIP-per-column with aging) and an inline-SVG **burndown** chart (remaining vs done
-vs created over the window — no external chart library). It refetches on each
+vs created — no external chart library). The chart buckets **auto-scale to the
+board's age** (a hours-old board renders minute-scale buckets, not one dot); the
+card header names the bucket size and x-axis ticks scale to it (`HH:MM` sub-day,
+`MM-DD` otherwise) with a middle tick for orientation. Rate tiles render per-hour
+when brisk and the aging card shows the pace-derived threshold. It refetches on each
 WebSocket frame while open, and shows a bounded-history banner when
 `partial_history` (some tasks predate the compaction floor).
 
