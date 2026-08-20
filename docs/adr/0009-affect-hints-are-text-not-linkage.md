@@ -35,9 +35,10 @@ handed, so the influence contract and the one-clause disclosure rule stay exactl
 EmotionalBrain put them.
 
 What the board contributes is the half `eb` cannot supply for itself: **the moment**,
-and **the vocabulary**. A task's labels become cue keys (an explicit map, else
-`activity:<label>`), so the cue namespace is *inherited* rather than reinvented each
-session — which is the failure mode `eb doctor`'s `cue-sprawl` check exists to catch.
+and **the vocabulary**. A task's **mapped** labels become cue keys, so the cue namespace
+is *inherited* rather than reinvented each session — which is the failure mode
+`eb doctor`'s `cue-sprawl` check exists to catch. A label with no mapping emits nothing
+(amended 2026-08-21 — see the amendment below).
 
 Three emission points, ranked by how certain the moment is:
 
@@ -88,3 +89,37 @@ earlier. It is named here because it is the obvious wrong place to put it.
   reads would be the wrong reason.
 - The board gains no dependency on `eb` and `eb` gains none on the board, so either can
   be absent, versioned or replaced without touching the other.
+
+## Amendment — 2026-08-21: an unmapped label emits no cue
+
+As shipped, a label with no `--map` entry fell back to `activity:<label>`. **That default
+is withdrawn: only mapped labels become cues.** The rest of this ADR stands unchanged.
+
+The default existed so the vocabulary would work with no configuration. Measured against
+this repo's own board, it did the opposite: 23 labels across 73 of 102 tasks, 14 of them
+occurring at most twice, `test`/`tests` and `web`/`webui` splitting one concept across two
+keys, and `tier-1`, `epic`, `planning` and `archive` describing the board's own
+bookkeeping rather than any activity. At the time of the amendment the brain this board
+writes to was failing `eb doctor`'s `cue-sprawl` check — 11 of 27 cues at `n=1` — and two
+of those eleven had been minted by this board minutes earlier out of its own labels. The
+first cue it ever emitted, `activity:docs`, drew a near-duplicate warning against
+`activity:writing-docs` from `eb`'s starter vocabulary.
+
+The asymmetry that decides it: `eb` cue keys are immutable — no rename, no merge
+([EmotionalBrain ADR 0006](../../../EmotionalBrain/docs/adr/0006-cue-key-ids.md)) — so **a
+bad cue costs evidence permanently, while silence costs one prompt.**
+
+> **The board emits less; the agent is not allowed less.** The map is *advisory to the
+> agent* and *binding on the board*.
+
+This is the distinction the amendment turns on. Nothing about the agent's own writes
+changes: `eb feel --about <anything>` is exactly as free as it was, and cue *values* were
+never constrained by this board. What is withdrawn is the board's licence to mint
+vocabulary on the agent's behalf — and a board is not an agent, so removing it takes no
+option away from anyone who can actually have a feeling.
+
+**Never silently.** `context` names the labels that produced no cue and the single command
+that fixes them, and `board affect` says so when the map is empty. The fix hint shows a
+literal `<cue>` placeholder rather than a slug of the label: suggesting `activity:docs`
+would have the board proposing the very near-duplicate described above, which is the
+same error one step removed.

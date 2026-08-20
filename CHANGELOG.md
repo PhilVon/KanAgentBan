@@ -9,6 +9,19 @@ Unreleased section describing its change.
 
 ## [Unreleased]
 
+### Changed
+- **Cues are map-only: an unmapped label now emits no cue.** `board affect`'s label map
+  used to fall back to `activity:<label>`, which had the board minting `eb` vocabulary
+  out of its own bookkeeping. Measured on this repo's board that produced sprawl rather
+  than the inherited vocabulary intended: 23 labels over 73 of 102 tasks, 14 at `n<=2`,
+  `test`/`tests` and `web`/`webui` split across two keys, and `tier-1`/`epic`/`planning`
+  mapped to activities that do not exist. `eb` cue keys are immutable (no rename, no
+  merge), so a bad cue costs evidence permanently while silence costs one prompt — hence
+  **the board emits less; the agent is not allowed less**, the map being advisory to the
+  agent and binding on the board. Never silently: `context` names the unmapped labels and
+  the command that fixes them, and `board affect` reports an empty map. Nothing about
+  `eb feel --about …` changes. ADR 0009 amended. FORMAT_VERSION 24→25 (T-109, 2026-08-21)
+
 ### Added
 - **Affect hints (opt-in, off by default) — `kanban board affect --on`.** The board
   emits a labelled `affect: eb consult …` line at the moments it knows a choice is

@@ -781,7 +781,7 @@ board
   .description('emit eb consult hints at decision moments (text only — the board never runs eb). Off by default.')
   .option('--on', 'enable hints')
   .option('--off', 'disable hints')
-  .option('--map <label=cue>', 'map a board label to an eb cue (default: activity:<label>)')
+  .option('--map <label=cue>', 'map a board label to an eb cue — an unmapped label emits no cue')
   .option('--unmap <label>', 'drop a label mapping')
   .action((o) => {
     const root = program.opts().board ?? findBoardRoot(process.cwd());
@@ -804,7 +804,7 @@ board
     }
     writeBoardMeta(paths, meta);
     const pairs = Object.entries(cfg.map);
-    out(`affect hints ${cfg.enabled ? 'on' : 'off'}${pairs.length ? `; map: ${pairs.map(([l, c]) => `${l}=${c}`).join(', ')}` : ' (no label map — labels default to activity:<label>)'}`);
+    out(`affect hints ${cfg.enabled ? 'on' : 'off'}${pairs.length ? `; map: ${pairs.map(([l, c]) => `${l}=${c}`).join(', ')}` : ' — no label map, so no cues are emitted; map one with --map <label>=<cue>'}`);
   });
 
 // Auto-archive policy config — local board.json edit; the server reads it at
