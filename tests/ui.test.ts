@@ -24,8 +24,16 @@ let realFetch: typeof globalThis.fetch;
 let realWS: any;
 let tornDown: { v: boolean };
 
-/** Poll until `fn` returns a truthy value (or time out). */
-async function until<T>(fn: () => T | Promise<T>, ms = 4000): Promise<NonNullable<T>> {
+/**
+ * Poll until `fn` returns a truthy value (or time out).
+ *
+ * 10s, not 4s: the drawer-edit test has timed out at ~4.1s on windows-latest
+ * runners three times across batches. It is a slow-runner symptom, not a
+ * liveness bug — the same assertion passes on a rerun — and a ceiling that a
+ * healthy run finishes well inside costs nothing while a flaky one costs a red
+ * pipeline and a rerun each time.
+ */
+async function until<T>(fn: () => T | Promise<T>, ms = 10000): Promise<NonNullable<T>> {
   const start = Date.now();
   for (;;) {
     const v = await fn();

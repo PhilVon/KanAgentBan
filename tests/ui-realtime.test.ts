@@ -24,7 +24,10 @@ let realFetch: typeof globalThis.fetch;
 let realWS: any;
 let sockets: any[];
 
-async function until<T>(fn: () => T | Promise<T>, ms = 4000): Promise<NonNullable<T>> {
+/** Poll until `fn` returns a truthy value (or time out). 10s for the same reason
+ *  as tests/ui.test.ts: windows-latest runners are slow enough to trip a 4s
+ *  ceiling on a healthy run. */
+async function until<T>(fn: () => T | Promise<T>, ms = 10000): Promise<NonNullable<T>> {
   const start = Date.now();
   for (;;) {
     const v = await fn();
