@@ -140,6 +140,30 @@ When the agent picks up a task, the skill steers it through:
    renders first in `show`/`context` and is flagged by `next`, so the next
    session resumes from it instead of re-deriving state from notes.
 
+**When a criterion is knowable.** "Plan this on the board" is three different jobs,
+separated by *what the agent already knows when it writes the criteria* — and getting
+it wrong is the commonest way a board goes stale, because a criterion written before
+its premise was checked can only be ticked falsely, left unchecked forever, or
+escalated as a question the agent created for itself. **From a doc or spec:** the doc
+is the source of truth, so write the full set up front (the case the rest of §4
+assumes). **From a plan already made** (plan mode, or a design agreed in chat): this
+is *transcription, not planning* — put the agreed plan on the board rather than
+re-deriving it and quietly arriving somewhere else. **From a reported defect** (a
+symptom, a screenshot, "this feels wrong"): the task is not writable yet and neither
+is most of the criteria list — **diagnose first, then write the task**; filing it
+after the investigation is correct, not sloppy.
+
+Within all three, the skill separates two kinds of criterion and writes them at
+different moments:
+
+- **Promises** — what a person will be able to do or see. Stable under any
+  implementation, so they can be written as early as the agent likes.
+- **Hypotheses** — claims about *mechanism*, which embed assumptions about code the
+  agent may not have read. Wait until it has. A hypothesis that turns out wrong is
+  still useful — testing it is often how the real mechanism gets found — but when one
+  falls, the skill says so in a `comment` naming what replaced it and files the
+  successor, rather than leaving an unchecked box that reads as unfinished work.
+
 **Review gate.** `Review` is a human/peer sign-off column, not more agent work.
 The human resolves it with `kanban review approve T-12` / `review reject T-12
 --reason "…"` (or the UI's card buttons); a rejection kicks the task back to
@@ -221,8 +245,13 @@ Key points the skill carries:
   and carry the tradeoff** (not `"Which one?"`), each `ask` raises **one** decision
   (separate `Q-n`s answer independently), and the answer is shaped with `--options
   a,b` (closed, mutually-exclusive set; short distinct labels) or `--freeform` (open
-  answer — a value, path, or prose). If the `ask` is a **sign-off gate**, move the
-  task to `Review` first so the board shows *why* it's parked.
+  answer — a value, path, or prose). The two flags are **companions, not
+  alternatives**: pass *both* whenever the options are the agent's best guesses rather
+  than an exhaustive set, so the human can pick one or say the thing the agent failed
+  to imagine — a set of three the agent invented is a poor reason for someone to have
+  to reach for "Other" to report something it needed to hear. If the `ask` is a
+  **sign-off gate**, move the task to `Review` first so the board shows *why* it's
+  parked.
 
 ---
 
@@ -265,6 +294,30 @@ the box:
 - the local **server** (REST + WebSocket, model-free),
 - the static **web UI** (where the human reads the board and answers questions),
 - or, equivalently, an **installer** that provisions all three.
+
+### Installing the skill (and detecting drift)
+
+`skill/SKILL.md` + `docs/` in the repo are the **source of truth**; the copy under
+`<CLAUDE_CONFIG_DIR>/skills/kanban/` (default `~/.claude`) is *derived*:
+
+```
+npm run install-skill              # sync skill/ + docs/ -> <config>/skills/kanban/
+npm run install-skill -- --check   # exit 2 on drift, 0 when the copy matches
+```
+
+A sync copies added/changed files and removes files no longer in source, printing
+a per-file count (and naming every removal — never silent).
+
+`--check` exists because the derived copy is **editable in place**, and an edit made
+there lives nowhere else. That happened: two sections (§4 *when a criterion is
+knowable* and the `--options`/`--freeform`-are-companions rule in §5) were written
+straight into the installed `SKILL.md` and existed only there for a month — an
+install run at any point in that window would have destroyed them. So the ordering
+is a rule, not a preference: **on a `differs` finding, diff the installed file and
+backport anything only it has before syncing.** `--check` is a *local* check by
+design — a fresh CI checkout has no installed copy, so it would report every file
+missing. Its home is the machine that has the copy: run it after a pull, and as a
+release step, so drift is noticed on purpose rather than discovered by losing work.
 
 First-time setup per project:
 
