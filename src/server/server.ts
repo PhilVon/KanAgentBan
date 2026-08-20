@@ -32,6 +32,7 @@ import {
   affectLine,
   consultAboutCommand,
   checkAffect,
+  langCues,
   cuesForLabels,
   AFFECT_OFF,
   type AffectConfig,
@@ -123,11 +124,14 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     const m = readBoardMeta(ensureBoard(root)).affect;
     return m?.enabled ? { enabled: true, map: m.map ?? {} } : AFFECT_OFF;
   };
-  /** The hint for a prospective action, or null when hints are off. */
-  const actionHint = (what: string, labels: string[]): string | null => {
+  /** The hint for a prospective action, or null when hints are off. Cues come
+   *  from the mapped labels plus the languages of the task`s linked commits. */
+  const actionHint = (what: string, labels: string[], taskId?: string): string | null => {
     const cfg = affect();
     if (!cfg.enabled) return null;
-    return affectLine(consultAboutCommand(what, cuesForLabels(labels, cfg.map)));
+    const cues = [...cuesForLabels(labels, cfg.map)];
+    if (taskId) for (const c of langCues(repo.langUsage(taskId))) if (!cues.includes(c)) cues.push(c);
+    return affectLine(consultAboutCommand(what, cues));
   };
 
   const actor = (req: Request): ActorType => (req.get('x-actor') as ActorType) || 'agent';
@@ -172,7 +176,7 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     // are off, which would hide the map from the one command whose job is to show
     // it — you want to see what you have configured *before* turning it on.
     const m = readBoardMeta(ensureBoard(root)).affect;
-    const check = checkAffect({ enabled: !!m?.enabled, map: m?.map ?? {} }, repo.labelUsage());
+    const check = checkAffect({ enabled: !!m?.enabled, map: m?.map ?? {} }, repo.labelUsage(), repo.langUsage());
     res.json({ ...check, text: renderAffectCheck(check) });
   });
 
@@ -500,7 +504,7 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     // The strongest moment by construction: more than ~3 candidate approaches
     // IS the definition of an open choice.
     const labels = s.task_id ? repo.getLabels(s.task_id) : [];
-    const hint = actionHint(s.topic, labels);
+    const hint = actionHint(s.topic, labels, s.task_id ?? undefined);
     res.json(hint ? { ...s, affect: hint } : s);
   }));
   app.get(
@@ -602,7 +606,7 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
       actor: actor(req),
     });
     // Committing to a piece of work is the estimating-difficulty moment.
-    const hint = actionHint(`picking up ${t.id}: ${t.title}`, repo.getLabels(t.id));
+    const hint = actionHint(`picking up ${t.id}: ${t.title}`, repo.getLabels(t.id), t.id);
     res.json(hint ? { ...t, affect: hint } : t);
   }));
   app.post('/api/tasks/:id/release', wrap((req, res) =>
@@ -675,7 +679,16 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     }),
   );
   app.post('/api/tasks/:id/artifacts', wrap((req, res) =>
-    res.json(repo.addArtifact(req.params.id, req.body.kind, req.body.title, req.body.uri, actor(req))),
+    res.json(
+      repo.addArtifact(
+        req.params.id,
+        req.body.kind,
+        req.body.title,
+        req.body.uri,
+        actor(req),
+        Array.isArray(req.body.langs) ? req.body.langs : undefined,
+      ),
+    ),
   ));
   app.post('/api/tasks/:id/summary', wrap((req, res) =>
     res.json(repo.updateTask(req.params.id, { summary: req.body.summary }, { actor: actor(req) })),

@@ -624,6 +624,8 @@ git
             kind: 'commit',
             title: cm.subject,
             uri: `git:${cm.sha}`,
+            // Computed here, never server-side: the server does not shell out.
+            langs: cm.langs,
           });
           commitCount++;
         } catch {

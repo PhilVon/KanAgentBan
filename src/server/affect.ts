@@ -127,6 +127,10 @@ export interface AffectCheck {
   /** Map entries `eb` would reject. `--map` validates, so one of these can only
    *  arrive by hand-editing board.json — an error, not a preference. */
   invalid: { label: string; cue: string; reason: string }[];
+  /** Language cues derived from linked commits — board-wide, commonest first.
+   *  Listed so they are visible rather than arriving unexplained: they are the
+   *  one thing here the board derives rather than being told. */
+  derived: string[];
   /** Mapped, but no live task carries the label. Harmless, and worth saying:
    *  a mapping nothing uses is usually a renamed or archived label. */
   stale: { label: string; cue: string }[];
@@ -139,9 +143,20 @@ export interface AffectCheck {
  * stays a string-and-struct builder that touches neither a database nor a
  * process (ADR 0009, and the structural test that enforces it).
  */
-export function checkAffect(cfg: AffectConfig, usage: LabelUse[]): AffectCheck {
+export function checkAffect(
+  cfg: AffectConfig,
+  usage: LabelUse[],
+  langs: { lang: string; commits: number }[] = [],
+): AffectCheck {
   const map = cfg.map ?? {};
-  const check: AffectCheck = { enabled: cfg.enabled, mapped: [], unmapped: [], invalid: [], stale: [] };
+  const check: AffectCheck = {
+    enabled: cfg.enabled,
+    mapped: [],
+    unmapped: [],
+    invalid: [],
+    stale: [],
+    derived: langCues(langs, Number.MAX_SAFE_INTEGER),
+  };
   const used = new Set(usage.map((u) => u.label));
 
   for (const { label, tasks } of usage) {
@@ -164,6 +179,23 @@ export function checkAffect(cfg: AffectConfig, usage: LabelUse[]): AffectCheck {
   check.stale.sort((a, b) => a.label.localeCompare(b.label));
   check.invalid.sort((a, b) => a.label.localeCompare(b.label));
   return check;
+}
+
+/** How many derived language cues one task may contribute. A task spanning more
+ *  is a sweep, and a sweep is not evidence about any one language. */
+export const MAX_TASK_LANGS = 3;
+
+/**
+ * A task's linked commits as `lang:` cues.
+ *
+ * This is derivation, which T-109 withdrew for labels — and it is allowed here
+ * for the one reason that does not generalise: the extension -> language table is
+ * closed and canonical, so the board applies a convention the world already
+ * agreed rather than inventing a name for something. An extension outside the
+ * table contributes nothing, exactly as an unmapped label does.
+ */
+export function langCues(usage: { lang: string; commits: number }[], cap = MAX_TASK_LANGS): string[] {
+  return usage.slice(0, cap).map((u) => `lang:${u.lang}`).filter((c) => !cueError(c));
 }
 
 /** Strip what would break the command's own quoting, and keep it short. */
