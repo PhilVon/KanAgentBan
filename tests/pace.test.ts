@@ -37,9 +37,31 @@ describe('pace: bucket selection', () => {
       // Flooring the first edge can add one bucket beyond the target.
       expect(starts.length).toBeLessThanOrEqual(TARGET_MAX_BUCKETS + 1);
     }
-    // 365d falls through to weekly — bounded but allowed to exceed the target.
-    const { starts } = bucketRange(Date.now(), 365 * DAY);
-    expect(starts.length).toBeLessThanOrEqual(53);
+  });
+
+  // 365d falls through to the weekly rung — bounded, but allowed to exceed the
+  // target. The bound has to be DERIVED, not picked: bucketRange floors both edges,
+  // so count = floor(now/step) - floor((now - span)/step) + 1, and 365d spans
+  // 365/7 = 52.142857 weekly steps. The difference is therefore 52 or 53 depending
+  // on where `now` sits inside the week, i.e. the count is 53 or 54 — 54 on exactly
+  // 2 days in every 14 (the 0.142857 fractional part). A hand-picked 53 failed on
+  // 14% of calendar days, on every platform.
+  it('bounds the 365d fall-through at ceil(span/step) + 1 at every phase of the week', () => {
+    const span = 365 * DAY;
+    const step = chooseBucket(span);
+    const bound = Math.ceil(span / step) + 1; // 53 + 1 = 54
+    const counts = new Set<number>();
+
+    // Sweep two whole weeks of day offsets so the assertion cannot depend on the
+    // date the suite happens to run: 14 consecutive days cover all 7 phases twice.
+    for (let day = 0; day < 14; day++) {
+      const { starts } = bucketRange(Date.now() + day * DAY, span);
+      expect(starts.length).toBeLessThanOrEqual(bound);
+      counts.add(starts.length);
+    }
+
+    // …and the sweep must actually reach the wide case, or the bound is untested.
+    expect(Math.max(...counts)).toBe(bound);
   });
 
   it('falls through to the top rung when nothing fits the target', () => {

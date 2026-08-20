@@ -140,6 +140,14 @@ Unreleased section describing its change.
   it — the finding prints the (pace-based) threshold it used (T-87, 2026-07-10)
 
 ### Fixed
+- `pace.test.ts` failed on 2 calendar days in every 14: the 365d fall-through
+  assertion hard-coded `<= 53`, but `bucketRange` floors *both* edges over a span
+  that is 365/7 = 52.14 weekly steps wide, so the count is 53 **or** 54 depending on
+  where `now` sits inside the week. The bound is now derived (`ceil(span/step) + 1`)
+  and swept across 14 consecutive day offsets, so it covers every phase of the week
+  rather than whichever one the suite happens to run on. `pace.ts` is unchanged —
+  the top rung is documented as bounded-but-over-target and behaved correctly
+  (T-106, 2026-08-20)
 - Repeated `--label`/`--depends` on `kanban add` and `--options` on
   `kanban ask` now accumulate instead of silently keeping only the last
   value (#8)
