@@ -319,6 +319,30 @@ validated when you set it, so the board can never print a command `eb` would rej
 (`proj:` is refused outright — `eb` derives it from the cwd). A task with **no** labels
 emits no cues, never a guess from its title.
 
+`kanban board affect --check` reports the map against the labels actually in use —
+what emits a cue, what does not, map entries `eb` would reject, and mappings for
+labels no longer on the board. Unmapped labels lead with the number of live tasks
+behind them, because that count is the advice: mapping the label on thirteen tasks
+buys thirteen times the evidence of mapping the one on a single task.
+
+```
+affect hints on · 1 of 3 labels mapped
+
+mapped (1):
+  cli  -> activity:cli  (7 tasks)
+
+unmapped (2) — these emit no cues:
+  13  docs
+   2  bug
+  fix: kanban board affect --map <label>=<cue>
+```
+
+It is **read-only and exclusive** — combining it with `--on`/`--map` is rejected,
+since a report describing state the same command just changed is worth little. An
+unmapped label exits **0**: it is a preference, not a fault, and exiting non-zero
+would pressure a board into mapping every label mechanically. Only a map entry
+`eb` would reject exits **1**. It is deliberately *not* a `doctor` check.
+
 The silence is never unexplained: `context` names the labels that produced no cue and
 the command that fixes them (`cues: none — unmapped: docs, feature — kanban board affect
 --map <label>=<cue>`), and `board affect` reports an empty map. The hint shows `<cue>`

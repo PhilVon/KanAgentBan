@@ -9,6 +9,18 @@ Unreleased section describing its change.
 
 ## [Unreleased]
 
+### Added
+- **`kanban board affect --check`.** Reports the label map against the labels actually
+  in use: what emits a cue, what does not, map entries `eb` would reject, and mappings
+  for labels no longer on the board. Unmapped labels lead with their live-task count,
+  because that count is the advice — mapping the label on 13 tasks buys 13x the evidence
+  of the one on a single task. Read-only and exclusive (combining it with `--on`/`--map`
+  is rejected). An unmapped label exits **0**: it is a preference, not a fault, and
+  exiting non-zero would pressure a board into mapping everything mechanically — the very
+  minting T-109 removed. Only a rejected cue exits **1**. Deliberately not a `doctor`
+  check: affect adjusts preference, never permission. FORMAT_VERSION 25→26
+  (T-110, 2026-08-21)
+
 ### Changed
 - **Cues are map-only: an unmapped label now emits no cue.** `board affect`'s label map
   used to fall back to `activity:<label>`, which had the board minting `eb` vocabulary
