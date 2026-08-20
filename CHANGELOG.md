@@ -274,15 +274,31 @@ Unreleased section describing its change.
   it — the finding prints the (pace-based) threshold it used (T-87, 2026-07-10)
 
 ### Fixed
+- **The windows-latest `ui.test.ts` drawer-edit flake, actually fixed.** Root cause,
+  reproduced rather than assumed: every test in that file calls `loadApp()`, which
+  starts a *new* `app.js` instance in the one shared jsdom global, and nothing stops
+  the previous ones. The teardown guard parked a late **rejection** but not a late
+  **success** — so a request issued by test N could resolve during test N+1 and run
+  test N's continuation, which (because `renderDrawer`/`openEdit` resolve
+  `#drawer-body` at call time) rendered into the *live* drawer and wiped the edit
+  form mid-flow. The save then never fired and the poll waited for a title that could
+  never arrive. Reproduced 4 times in 12 runs locally; 120/120 green with the guard,
+  which is one line: park the success path on teardown too. `ui-realtime.test.ts` had
+  no guard at all and now has the same one.
+  The earlier 409/`if-match` explanation is **disproved** — the reproduction shows no
+  `PATCH` is ever sent. `until` now names the condition it was waiting for (from the
+  callback source, so no call site has to remember) and lists the writes made so far,
+  because "no write was sent" and "the write came back 409" are different bugs that
+  look identical from a poll (T-107, 2026-08-20)
 - The `until` poll ceiling in `ui.test.ts` and `ui-realtime.test.ts` goes 4s -> 10s.
   A healthy run finishes in ~2.4s, so the headroom costs nothing.
   **Correction (same day):** this was raised as a fix for the standing windows-latest
   drawer-edit flake, on the reasoning that it had timed out at ~4.1s three times and
   passed on every rerun — a slow-runner symptom. That was wrong. With the ceiling at
   10s the same test timed out at **10169ms**, which rules slowness out: it is not a
-  test that needs longer, it is one that sometimes never completes. Diagnosed and
-  filed as T-107; the ceiling change is kept because the headroom is harmless, but it
-  fixes nothing (T-105, 2026-08-20)
+  test that needs longer, it is one that sometimes never completes. The real cause and
+  fix are the next entry (T-107); the ceiling change is kept because the headroom is
+  harmless, but it fixed nothing (T-105, 2026-08-20)
 - `getLabels` now orders by name. Labels render in `list`/`context` and seed affect
   cues, so an unordered read let identical board state produce different text on
   different machines — which is how the affect test passed locally and failed on CI

@@ -41,7 +41,16 @@ async function until<T>(fn: () => T | Promise<T>, ms = 10000): Promise<NonNullab
   for (;;) {
     const v = await fn();
     if (v) return v as NonNullable<T>;
-    if (Date.now() - start > ms) throw new Error('until: timed out');
+    if (Date.now() - start > ms)
+      // Name the condition and the writes so far. A bare "until: timed out" cost
+      // this repo four batches of guessing which step had actually stalled — and
+      // "no write was ever sent" vs "the write came back 409" are different bugs
+      // that look identical from a poll. The condition labels itself from source,
+      // so no call site has to remember to pass one (T-107).
+      throw new Error(
+        `until: timed out waiting for ${String(fn).replace(/\s+/g, ' ').slice(0, 120)}` +
+          ` | writes: ${mutations.length ? mutations.join('; ') : '(none sent)'}`,
+      );
     await sleep(20);
   }
 }
@@ -85,11 +94,22 @@ beforeEach(async () => {
   localStorage.setItem('kanban_token', h.token); // app.js reads this as the token
 
   // app.js fetches relative URLs ('/api/...'); resolve them to the test server.
-  // A fetch that app.js left in flight when the test's server stops would
-  // reject with ECONNRESET as an unhandled rejection — after teardown, park it
-  // on a never-resolving promise instead.
-  // The flag is per-test (closure-captured): a stray rejection from test N must
-  // not escape just because test N+1 has already started.
+  //
+  // A fetch left in flight when the test's server stops must not reach app.js
+  // AT ALL after teardown — neither outcome. The rejection path was guarded from
+  // the start (an ECONNRESET would surface as an unhandled rejection); the
+  // SUCCESS path was not, and that was the bug behind four batches of red
+  // windows-latest runs (T-107).
+  //
+  // Every test calls loadApp(), which starts a *new* app.js instance in this one
+  // jsdom global, and nothing stops the old ones. When test N's request resolved
+  // during test N+1, test N's continuation ran — and because renderDrawer() and
+  // openEdit() look up `#drawer-body` at call time, it rendered into the LIVE
+  // drawer, wiping the edit form mid-flow. Reproduced 4 times in 12 runs; 120/120
+  // green with the guard below, which is the whole of the fix.
+  //
+  // The flag is per-test (closure-captured): a stray result from test N must not
+  // escape just because test N+1 has already started.
   const torn = (tornDown = { v: false });
   realFetch = globalThis.fetch;
   mutations = [];
@@ -98,6 +118,7 @@ beforeEach(async () => {
     const method = (init?.method ?? 'GET').toUpperCase();
     try {
       const res = await realFetch(url.startsWith('/') ? h.url + url : (input as any), init);
+      if (torn.v) return new Promise(() => {}); // see above: a late success renders too
       // Record every write and its status. A test that polls for a mutation and
       // times out otherwise reports only "until: timed out", which says nothing
       // about WHY — and a silently-rejected write (409, 4xx) looks identical to
@@ -257,16 +278,6 @@ describe('web UI (real app.js against a real server)', () => {
     const t = await until(() => {
       const x = h.repo.getTask(created.id);
       return x && x.title === 'Edited title' ? x : null;
-    }).catch(() => {
-      // Report what the client actually did instead of just that time ran out.
-      // The save carries if-match from the drawer's snapshot, so a stale version
-      // yields a 409 that the UI only toasts — invisible to a poll (T-107).
-      const now = h.repo.getTask(created.id);
-      throw new Error(
-        'drawer save never landed. title=' + JSON.stringify(now?.title) +
-          ' version=' + now?.version +
-          ' | writes: ' + (mutations.length ? mutations.join('; ') : '(none sent)'),
-      );
     });
     expect(t.title).toBe('Edited title');
     expect(t.version).toBeGreaterThan(created.version);
