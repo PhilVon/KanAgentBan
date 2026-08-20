@@ -51,6 +51,24 @@ export function parseLogMentions(log: string): CommitMention[] {
   return out;
 }
 
+/**
+ * The report lines for commits that name more than one task — empty when there
+ * are none. Task boundaries and commit boundaries drift and nothing says so, so
+ * `git link` mentions it; it never refuses. Whether two tasks in one commit is
+ * sloppy or just how the editing flowed is the author's call, not the tool's.
+ * Caps the listing at `show` so a long history can't bury the link summary.
+ */
+export function straddleNote(commits: CommitMention[], show = 5): string[] {
+  const straddling = commits.filter((c) => c.ids.length > 1);
+  if (!straddling.length) return [];
+  const lines = [
+    `note: ${straddling.length} commit(s) name more than one task — a commit per task keeps the trail readable:`,
+    ...straddling.slice(0, show).map((c) => `  ${c.sha.slice(0, 7)}  ${c.ids.join(', ')}  ${c.subject}`),
+  ];
+  if (straddling.length > show) lines.push(`  …and ${straddling.length - show} more`);
+  return lines;
+}
+
 /** Commits (recent `depth`) whose subject mentions a task id. */
 export function scanCommits(cwd?: string, depth = 500): CommitMention[] {
   const log = run(`git log --pretty=format:%H%x09%s -n ${depth | 0}`, cwd);

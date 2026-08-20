@@ -37,3 +37,26 @@ describe('commander integration', () => {
     expect(parse([]).label).toBeUndefined();
   });
 });
+
+describe('--desc / --description alias', () => {
+  // `add` and `update` both declare '--desc, --description <t>'. The description
+  // is the field worth rewriting once a symptom's cause is known, and typing the
+  // obvious long spelling used to be `error: unknown option`.
+  function parse(args: string[]): Record<string, unknown> {
+    const cmd = new Command().option('--desc, --description <t>', 'task description');
+    cmd.parse(args, { from: 'user' });
+    return cmd.opts();
+  }
+
+  it('accepts --description', () => {
+    expect(parse(['--description', 'the cause, once known']).description).toBe('the cause, once known');
+  });
+
+  it('still accepts --desc, landing on the same property', () => {
+    expect(parse(['--desc', 'short form']).description).toBe('short form');
+  });
+
+  it('leaves it undefined when neither is given', () => {
+    expect(parse([]).description).toBeUndefined();
+  });
+});

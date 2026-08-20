@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { makeRepo, startTestServer, stopTestServer, client, tempDir, type TestServer } from './helpers';
 import { openDb } from '../src/server/db';
-import { Repo } from '../src/server/repo';
+import { looseTerms, Repo } from '../src/server/repo';
 import { renderSearch } from '../src/server/render';
 import { boardPaths } from '../src/shared/board-paths';
 import { runTool } from '../src/mcp/tools';
@@ -99,6 +99,105 @@ describe('repo.search (LIKE fallback)', () => {
     expect(repo.search('%').length).toBe(0);
     // Type filter still applies.
     expect(repo.search('capybara', { type: 'comment' })).toHaveLength(0); // task archived
+  });
+});
+
+describe('loose (OR) fallback', () => {
+  let h: TestServer;
+  afterEach(async () => {
+    if (h) await stopTestServer(h);
+  });
+
+  // FTS5 AND-s bare terms, which is right for precision — but a three-word guess
+  // then returns nothing, and search is the first thing an agent runs on a cold
+  // board. The retry is OR-ranked and says so; it never silently loosens.
+  it('retries OR-ranked when nothing matches every term, and marks it loose', () => {
+    const repo = makeRepo();
+    repo.createTask({ title: 'clipping the polaroid edge' });
+    repo.createTask({ title: 'a cut scene' });
+    // search() folds the retry in; spell the AND explicitly to see the strict
+    // result — an operator query is never rewritten, so this is the unloosened one.
+    expect(repo.search('clipping AND cut AND polaroid')).toEqual([]);
+
+    const r = repo.searchBoard('clipping cut polaroid');
+    expect(r.loose).toBe(true);
+    expect(r.hits.map((h) => h.id).sort()).toEqual(['T-1', 'T-2']);
+    // Two terms beat one — bm25 ranks the fuller match first.
+    expect(r.hits[0].id).toBe('T-1');
+  });
+
+  it('a query that matches every term is never loose', () => {
+    const repo = makeRepo();
+    repo.createTask({ title: 'clipping the polaroid edge' });
+    const r = repo.searchBoard('clipping polaroid');
+    expect(r.loose).toBe(false);
+    expect(r.hits).toHaveLength(1);
+  });
+
+  it('a genuinely empty result stays empty rather than inventing loose hits', () => {
+    const repo = makeRepo();
+    repo.createTask({ title: 'nothing relevant' });
+    const r = repo.searchBoard('kangaroo wombat');
+    expect(r.hits).toEqual([]);
+    expect(r.loose).toBe(false);
+  });
+
+  it('a single term is never rewritten (an OR of one is the same query)', () => {
+    const repo = makeRepo();
+    repo.createTask({ title: 'lonely' });
+    expect(looseTerms('lonely')).toBeNull();
+    expect(repo.searchBoard('kangaroo').loose).toBe(false);
+  });
+
+  it('a query carrying quotes or FTS operators is never rewritten', () => {
+    // The caller wrote a query, not a bag of words — loosening it would answer a
+    // different question than the one asked.
+    for (const q of ['"clipping cut"', 'clipping OR cut', 'clipping NOT cut', 'title:clipping cut', 'clip* cut', '^clipping cut', '(clipping cut)']) {
+      expect(looseTerms(q), q).toBeNull();
+    }
+    // …but a hyphenated word is one term, not an operator.
+    expect(looseTerms('write-through cache')).toEqual(['write-through', 'cache']);
+  });
+
+  it('loosens on the LIKE fallback too, ranked by how many terms hit', () => {
+    const repo = makeRepo();
+    disableFts(repo);
+    repo.createTask({ title: 'clipping the polaroid edge' });
+    repo.createTask({ title: 'a cut scene' });
+    // LIKE matches the literal phrase, so no row contains all three words. Spell
+    // the AND out: an operator query is never rewritten, so this is the strict one.
+    expect(repo.search('clipping AND cut AND polaroid')).toEqual([]);
+    const r = repo.searchBoard('clipping cut polaroid');
+    expect(r.loose).toBe(true);
+    expect(r.hits[0].id).toBe('T-1'); // matched two terms; T-2 matched one
+    expect(r.hits.map((h) => h.id).sort()).toEqual(['T-1', 'T-2']);
+  });
+
+  it('renders a loose header above the hits, and nothing when strict', () => {
+    const repo = makeRepo();
+    repo.createTask({ title: 'clipping the polaroid edge' });
+    repo.createTask({ title: 'a cut scene' });
+    const q = 'clipping cut polaroid';
+    const r = repo.searchBoard(q);
+    const text = renderSearch(r.hits, q, { loose: r.loose });
+    expect(text.split('\n')[0]).toContain('[loose:');
+    expect(text.split('\n')[0]).toContain(q);
+    expect(renderSearch(repo.search('polaroid'), 'polaroid')).not.toContain('[loose:');
+  });
+
+  it('REST reports loose in the text and under --json', async () => {
+    h = await startTestServer();
+    const c = client(h);
+    await c('POST', '/api/tasks', { title: 'clipping the polaroid edge' });
+    await c('POST', '/api/tasks', { title: 'a cut scene' });
+
+    const strict = await c('GET', '/api/search?q=polaroid&json=1');
+    expect(strict.body.loose).toBe(false);
+
+    const loose = await c('GET', '/api/search?q=clipping%20cut%20polaroid&json=1');
+    expect(loose.body.loose).toBe(true);
+    expect(loose.body.results.length).toBe(2);
+    expect(loose.body.text).toContain('[loose:');
   });
 });
 
