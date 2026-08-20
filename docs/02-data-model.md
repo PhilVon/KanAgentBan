@@ -112,7 +112,8 @@ prioritize `user`/`agent` comments and collapse `system` ones to a count.
 |-------|------|-------|
 | `id` | TEXT (`Q-n`) | |
 | `task_id` | TEXT | |
-| `question` | TEXT | |
+| `question` | TEXT | the decision to make — or, for a `watch`, the event to wait for |
+| `kind` | TEXT | `question` | `watch`. A **question** is a decision and sets `needs_input`; a **watch** (`kanban expect`) is an event to wait for and does **not**. Defaults to `question`, which is what every row predating the split was |
 | `options` | JSON NULL | constrained choices; null = free-form |
 | `answer_freeform` | INTEGER (bool) | allow free text even when options given |
 | `status` | TEXT | `open` \| `answered` \| `cancelled` \| `expired` |
@@ -327,6 +328,10 @@ blocked_by_deps     = EXISTS dep d WHERE d.from_task = task
 
 needs_input         = EXISTS input_request q WHERE q.task_id = task
                                               AND q.status = 'open'
+                                              AND q.kind   = 'question'
+                      -- a watch is SUPPOSED to be open: counting it here made a
+                      -- task read Blocked for days with no remedy that fit, and
+                      -- made the Blocked projection mean two different things.
 
 blocked_by_children = EXISTS task c WHERE c.parent_id = task
                                      AND c.status != 'Done'
@@ -395,6 +400,7 @@ CREATE TABLE dependency (
 
 CREATE TABLE input_request (
   id TEXT PRIMARY KEY, task_id TEXT NOT NULL, question TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'question',
   options TEXT, answer_freeform INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'open', answer TEXT, answered_by TEXT,
   created_at TEXT NOT NULL, answered_at TEXT, expires_at TEXT

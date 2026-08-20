@@ -28,6 +28,7 @@ UI and answers your questions. Full design: `docs/`. CLI contract:
 - Multi-step or dependency-laden work → create tasks, set `dep`s, nest **subtasks**, track status.
 - Need to remember progress across turns/sessions → the board is durable memory.
 - Need a human decision → **`kanban ask`**, then resume (see below) — **never ask in chat only**.
+- Waiting on an *event* rather than a decision → **`kanban expect`** (a watch; it does **not** block the task).
 - **Skip it** for trivial one-shot requests.
 
 ## Writing the task — when a criterion is knowable
@@ -75,7 +76,7 @@ question, so you don't burn tokens dumping the board when one task's working set
 would do:
 
 - `kanban standup [--since seq|--days N]` — cold-start catch-up: everything that happened since your last session (completed, kickbacks + reasons, moves, new tasks, question traffic, aging) in one call. Save the printed cursor; pass it next time.
-- `kanban doctor` — session-start hygiene sweep (exit `2` = findings: stale claims, criteria-less WIP, aging tasks, ancient questions, questions left open on finished work, closable parents). Run it when you sit down at a board. Every finding names its fix **and, in a trailing `[cannot see: …]` clause, what its own check is blind to** — read that clause before you run the command it hands you. `done-eligible-parent` counts subtasks and cannot judge criteria; a finding can be locally right and globally wrong.
+- `kanban doctor` — session-start hygiene sweep (exit `2` = findings: stale claims, criteria-less WIP, aging tasks, ancient questions, questions left open on finished work, very old watches, closable parents). Run it when you sit down at a board. Every finding names its fix **and, in a trailing `[cannot see: …]` clause, what its own check is blind to** — read that clause before you run the command it hands you. `done-eligible-parent` counts subtasks and cannot judge criteria; a finding can be locally right and globally wrong.
 - `kanban next` — "what should I work on?" (~5 lines; flags any waiting user comment)
 - `kanban next --context` — cold start: the task to do **and** its full working set, one call
 - `kanban context <id>` — full working set for a known task
@@ -270,17 +271,45 @@ Branch on the exit code:
 Resume later (even a new session):
 
 ```
-kanban inbox            # open / answered / resolved (cancelled+expired) requests
+kanban inbox            # open questions / answered / resolved, then watches
 kanban context T-12     # reload, continue
 ```
+
+## Waiting for an event — `expect`, not `ask`
+
+`ask` is the mechanism for a **decision**: something with an answer to choose,
+which parks the task `needs_input` until it is chosen. The other thing you need
+from a human is a **watch** — *tell me when X happens* — and it is not a question:
+
+```
+kanban expect T-88 "the producer's seventeen files land in public/audio/"
+```
+
+Written as an `ask` a watch **behaves badly**: it sets `needs_input`, the UI
+derives **Blocked** from that, and it sits there looking like a question the human
+failed to answer. Then every remedy `doctor` offers is wrong for it — *nudge*
+(he knows), *re-ask* (resets a clock, changes no fact), *cancel* (throws away the
+trigger). If you catch yourself writing a "question" with no answer to choose, or
+writing a *this is deliberate* note on a task that shows Blocked, that is this.
+
+A watch **does not block**: the task is parked, not Blocked, and the human is not
+implicitly being chased. It gets its own `inbox` heading, `show`/`context` tag it
+`[watch]`, `standup` counts it apart from question traffic, and `doctor` leaves it
+alone until it is *weeks* old. Resolve it with `kanban answer Q-n "…"` when the
+event happens (that is what starts the work), or `kanban cancel Q-n` to drop the
+trigger. `--expires-at` drops it automatically.
 
 ## Decision tree
 
 ```
-need a human decision?
-  └─ kanban ask … ──► kanban await --timeout 60
-        ├─ exit 0 ► resolved: use answer & continue (or re-ask if cancelled/expired)
-        └─ exit 2 ► yield turn ──► (later) kanban inbox ► kanban context <id> ► continue
+need something from the human?
+  ├─ a decision (there is an answer to choose)
+  │    └─ kanban ask … ──► kanban await --timeout 60
+  │          ├─ exit 0 ► resolved: use answer & continue (or re-ask if cancelled/expired)
+  │          └─ exit 2 ► yield turn ──► (later) kanban inbox ► kanban context <id> ► continue
+  └─ an event to wait for (nothing to decide)
+       └─ kanban expect … ──► yield; it does not block the task. Resume when
+                              inbox/next shows it resolved.
 ```
 
 ## Setup / lifecycle
@@ -302,6 +331,6 @@ The full surface — nothing here is off-limits. Any read takes `--json` and
 - Search: `search "<query>" [--type task|doc|comment|idea] [--limit N]` — ranked hits with snippets across the whole board
 - Brainstorm: `brainstorm start "<topic>" [--task T-n]`, `brainstorm add <B-n> "<idea>" [--cluster N]`, `brainstorm show/list/close`, `idea score <I-n> <0-10>`, `idea cluster <I-n> <name>`, `idea promote <I-n> [--title|--prio|--parent]`, `idea drop <I-n>`
 - Git: `git branch T-n [--checkout]`, `git link [T-n] [--depth N]`, `git status [T-n]`, `git install-hooks [--force]`
-- HITL: `ask [--options|--freeform|--expires-at|--default X]`, `await [qid|--task|--any] [--timeout S]`, `answer`, `cancel`
+- HITL: `ask [--options|--freeform|--expires-at|--default X]` (a decision), `expect <id> "<event>" [--expires-at]` (a watch — does not block), `await [qid|--task|--any] [--timeout S]`, `answer`, `cancel`
 - Lifecycle: `board init/show/nudge`, `serve [--port]`, `export [--out FILE]`, `open`
 - Reporting (not the work loop): `stats [id] [--window N]` — board analytics / per-task timing, read-only; `doctor` — hygiene report, exit 2 on findings; `standup [--since seq|--days N]` — narrative catch-up diff.

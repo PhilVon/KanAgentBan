@@ -240,6 +240,12 @@ Key points the skill carries:
   `next` surfaces it implicitly; `inbox` is the explicit check.
 - **Multiple open questions** are fine. Wait on one (`await Q-7`), any on a task
   (`await --task T-12`), or anything (`await --any`).
+- **A watch is not a question.** When the agent needs an *event* rather than a
+  decision ("tell me when the files land"), it reaches for `kanban expect <id>
+  "<event>"`, not `ask`. A watch does not set `needs_input`, so the task is parked
+  instead of rendered Blocked and the human is not implicitly chased for an answer
+  that does not exist; it resolves with `answer` when the event happens, or
+  `cancel` to drop the trigger ([04 §2](04-human-in-the-loop.md)).
 - **Write a well-formed `ask`.** The human answers from the board alone — they
   don't see the agent's chat or reasoning. So the question must be **self-contained
   and carry the tradeoff** (not `"Which one?"`), each `ask` raises **one** decision

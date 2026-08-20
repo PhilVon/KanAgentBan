@@ -29,6 +29,18 @@ export type ActorType = 'agent' | 'user' | 'system';
 export type AuthorType = ActorType;
 
 export type InputStatus = 'open' | 'answered' | 'cancelled' | 'expired';
+
+/**
+ * What an open request is *for*. `ask` had one shape and two jobs: a **question**
+ * is a decision with an answer to choose, and it rightly parks the task
+ * `needs_input`. A **watch** ("tell me when the files land") has no answer to
+ * choose and nothing to chase — written as a question it set `needs_input`, the
+ * UI derived **Blocked** from that, and it sat for days looking like a question
+ * the human had failed to answer, with every remedy `doctor` offered wrong for
+ * it. A watch is *supposed* to be open, so it does not block.
+ */
+export type InputKind = 'question' | 'watch';
+export const INPUT_KINDS: readonly InputKind[] = ['question', 'watch'] as const;
 export type DepType = 'blocks' | 'relates' | 'duplicates';
 /** `commit` (`uri: git:<sha>`) and `branch` (`uri: branch:<name>`) are git
  *  references recorded by `kanban git link` — still references, never contents
@@ -93,7 +105,11 @@ export interface Comment {
 export interface InputRequest {
   id: string; // Q-n
   task_id: string;
+  /** The decision to make, or — for a `watch` — the event to wait for. */
   question: string;
+  /** `question` (blocks) or `watch` (does not). Boards predating this default to
+   *  `question`, which is what every pre-existing row was. */
+  kind: InputKind;
   options: string[] | null;
   answer_freeform: boolean;
   status: InputStatus;

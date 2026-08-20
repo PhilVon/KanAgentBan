@@ -166,7 +166,7 @@ program
 
 program
   .command('doctor')
-  .description('board hygiene report (stale claims, criteria-less WIP, aging tasks, ancient asks, stale summaries, closable parents) — exit 2 when findings')
+  .description('board hygiene report (stale claims, criteria-less WIP, aging tasks, ancient asks, questions left open on finished work, very old watches, stale summaries, closable parents); every finding names its fix and what its check cannot see — exit 2 when findings')
   .option('--max-tokens <n>', 'token budget (sheds trailing blocks)')
   .option('--full', 'ignore the token budget')
   .option('--json')
@@ -692,6 +692,22 @@ program.command('ask <id> <question>').option('--options <o>', 'answer option (r
   .action(async (id, question, o) => {
     const r = await api(await conn(), 'POST', `/api/tasks/${id}/input-requests`, { question, options: o.options, freeform: !!o.freeform, expires_at: o.expiresAt, default: o.default });
     out(`${r.id}  created on ${id} (task now needs input)${r.default_answer ? `  [defaults to "${r.default_answer}" at expiry]` : ''}`);
+  });
+
+// `expect` is not a second `ask`: `ask` is the mechanism for a decision, and this
+// is the one for an event to wait for. Named `expect` because `watch` is taken by
+// the event-delta read.
+program
+  .command('expect <id> <event>')
+  .description('watch for an event on a task ("tell me when X happens") — does NOT block the task')
+  .option('--expires-at <iso>', 'drop the watch automatically at this time')
+  .action(async (id, event, o) => {
+    const r = await api(await conn(), 'POST', `/api/tasks/${id}/input-requests`, {
+      question: event,
+      kind: 'watch',
+      expires_at: o.expiresAt,
+    });
+    out(`${r.id}  watching on ${id} (not blocking — resolve with: kanban answer ${r.id} "…")`);
   });
 
 program

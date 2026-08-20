@@ -10,6 +10,26 @@ Unreleased section describing its change.
 ## [Unreleased]
 
 ### Added
+- **`kanban expect` — an event to wait for is not a question to answer.** `ask` had
+  one shape and two jobs: a *question* is a decision with an answer to choose, and a
+  *watch* ("tell me when the files land") has none. Written as an ask, a watch set
+  `needs_input`, the UI derived **Blocked** from it, and it sat for days looking like
+  something the human had failed to do — with every remedy `doctor` offered wrong for
+  it (nudge: he knows; re-ask: resets a clock, changes no fact; cancel: throws away
+  the trigger). `input_request` now carries a `kind` (`question` | `watch`):
+  - a watch **does not set `needs_input`**, so the task is parked rather than Blocked
+  - `inbox` lists watches under their own heading; `show`/`context` tag them `[watch]`
+    and say they are not blocking; `standup` counts `watching` / `watch resolutions`
+    apart from question traffic; the web inbox offers **It happened** / **Drop watch**
+  - `doctor` never ages a watch as `ancient-ask`; the new `stale-watch` check fires
+    only past 14 days and names its blind spot (it cannot see whether the event
+    happened). `answered-elsewhere` stays about questions.
+  - `answer` resolves a watch, `cancel` withdraws it, `--expires-at` drops it;
+    `--options`/`--freeform` are **rejected** on a watch rather than ignored
+  - MCP gains an `expect` tool (curated cap 30→31) so an MCP client is not left
+    writing watches as questions
+  - SCHEMA_VERSION 10→11 (one column with a DEFAULT — every existing row becomes a
+    `question`, which is what it was); FORMAT_VERSION 20→21 (T-101, 2026-08-20)
 - Three small ones (T-104, 2026-08-20):
   - **Loose search retry.** Bare terms are AND-ed, so a three-word guess returned
     nothing — expensive, because search is the first thing an agent runs on a cold

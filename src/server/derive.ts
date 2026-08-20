@@ -20,8 +20,14 @@ export function blockedByDeps(db: DB, taskId: string): boolean {
 
 /** A task needs input if it has any open input_request. */
 export function needsInput(db: DB, taskId: string): boolean {
+  // Only a *question* blocks. A watch ("tell me when X happens") is supposed to
+  // sit open — counting it here is what made a task read Blocked for days with
+  // no remedy that fit, and made the Blocked projection mean two things.
   const row = db
-    .prepare(`SELECT 1 FROM input_request WHERE task_id = ? AND status = 'open' LIMIT 1`)
+    .prepare(
+      `SELECT 1 FROM input_request
+         WHERE task_id = ? AND status = 'open' AND kind = 'question' LIMIT 1`,
+    )
     .get(taskId);
   return !!row;
 }

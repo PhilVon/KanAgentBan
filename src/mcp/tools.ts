@@ -599,6 +599,24 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'expect',
+    description:
+      'Watch for an event on a task ("tell me when the files land") — an event to wait for, NOT a decision to make. Unlike ask this does NOT set needs_input, so the task is parked rather than Blocked and the human is not implicitly being chased. Resolve it with answer when the event happens, or cancel to drop the trigger. Use ask when there is something to choose.',
+    inputSchema: {
+      id: z.string().describe('task id the watch is on'),
+      event: z.string().describe('the event to wait for, stated so a reader knows when it has happened'),
+      expires_at: z.string().optional().describe('ISO timestamp; the watch is dropped after this'),
+    },
+    run: async (c, a) => {
+      const r = await api(c, 'POST', `/api/tasks/${a.id}/input-requests`, {
+        question: a.event,
+        kind: 'watch',
+        expires_at: a.expires_at,
+      });
+      return `${r.id} watching on ${a.id} — not blocking. Resolve with answer ${r.id} when it happens, or cancel to drop it.`;
+    },
+  },
+  {
     name: 'await',
     description: 'Long-poll briefly for a question to resolve. Provide qid for a specific question, or task / any for scoped waits. A timeout returns "pending" — that is NOT an error: yield this turn and resume later via inbox. Never blocks indefinitely.',
     inputSchema: {

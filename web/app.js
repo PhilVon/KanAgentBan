@@ -373,26 +373,35 @@ function renderInbox() {
 }
 
 function inboxItem(q) {
-  const wrap = el('div', 'inbox-item');
-  wrap.append(el('div', 'q-task', `${q.task_id} · ${q.id}`));
-  wrap.append(el('div', 'q-text', q.question));
+  // A watch is not a question: nothing is being asked of the reader, so it says
+  // so and offers "It happened" rather than an answer box it has no answer for.
+  const isWatch = q.kind === 'watch';
+  const wrap = el('div', isWatch ? 'inbox-item watch' : 'inbox-item');
+  wrap.append(el('div', 'q-task', `${q.task_id} · ${q.id}${isWatch ? ' · watch' : ''}`));
+  wrap.append(el('div', 'q-text', isWatch ? `waiting for: ${q.question}` : q.question));
   const form = el('div', 'q-form');
-  if (q.options && q.options.length) {
-    for (const opt of q.options) {
-      const b = el('button', 'opt', opt);
-      b.onclick = () => answer(q.id, opt);
-      form.append(b);
+  if (isWatch) {
+    const done = el('button', 'send', 'It happened');
+    done.onclick = () => answer(q.id, 'happened');
+    form.append(done);
+  } else {
+    if (q.options && q.options.length) {
+      for (const opt of q.options) {
+        const b = el('button', 'opt', opt);
+        b.onclick = () => answer(q.id, opt);
+        form.append(b);
+      }
+    }
+    if (!q.options || q.answer_freeform) {
+      const input = el('input', 'q-input');
+      input.placeholder = 'type an answer…';
+      input.addEventListener('keydown', (e) => e.key === 'Enter' && input.value && answer(q.id, input.value));
+      const send = el('button', 'send', 'Answer');
+      send.onclick = () => input.value && answer(q.id, input.value);
+      form.append(input, send);
     }
   }
-  if (!q.options || q.answer_freeform) {
-    const input = el('input', 'q-input');
-    input.placeholder = 'type an answer…';
-    input.addEventListener('keydown', (e) => e.key === 'Enter' && input.value && answer(q.id, input.value));
-    const send = el('button', 'send', 'Answer');
-    send.onclick = () => input.value && answer(q.id, input.value);
-    form.append(input, send);
-  }
-  const cancel = el('button', 'ghost q-cancel', 'Cancel');
+  const cancel = el('button', 'ghost q-cancel', isWatch ? 'Drop watch' : 'Cancel');
   cancel.onclick = () => cancelInput(q.id);
   form.append(cancel);
   wrap.append(form);

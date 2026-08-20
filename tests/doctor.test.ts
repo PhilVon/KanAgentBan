@@ -136,6 +136,10 @@ describe('doctor: hygiene checks', () => {
     const q = repo.ask(sum.id, 'ancient?');
     repo.db.prepare('UPDATE input_request SET created_at = ? WHERE id = ?').run(iso(3 * DAY), q.id);
 
+    // stale-watch — a far longer threshold, because a watch is meant to be open
+    const w = repo.expect(sum.id, 'the files land');
+    repo.db.prepare('UPDATE input_request SET created_at = ? WHERE id = ?').run(iso(30 * DAY), w.id);
+
     // answered-elsewhere + done-eligible-parent
     const parent = repo.createTask({ title: 'parent', status: 'In Progress', criteria: ['unmet'] });
     const kid = repo.createTask({ title: 'kid', parent: parent.id, status: 'Ready' });

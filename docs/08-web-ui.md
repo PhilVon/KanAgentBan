@@ -99,6 +99,12 @@ Each row shows:
 - **Options** as buttons when `options` is set; a free-text field when `options`
   is null *or* `answer_freeform` is true
   ([02-data-model §input_request](02-data-model.md)).
+- A **watch** (`kind: "watch"`, raised by `kanban expect`) is marked as one and
+  reads *"waiting for: …"*, with a single **It happened** button and **Drop
+  watch** in place of an answer box. Nothing is being asked of the reader: a
+  watch is an event to wait for, its task is **not** shown in Blocked, and
+  presenting it as an unanswered question is exactly the confusion `kind` exists
+  to remove ([04 §2](04-human-in-the-loop.md)).
 
 **Answering** issues `POST /api/input-requests/:qid/answer`
 ([07-api-reference](07-api-reference.md)). On success the server records the

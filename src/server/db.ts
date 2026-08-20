@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS input_request (
   id TEXT PRIMARY KEY,
   task_id TEXT NOT NULL,
   question TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'question',
   options TEXT,
   answer_freeform INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'open',
@@ -346,6 +347,13 @@ function migrate(db: DB): void {
 
   // v9 -> v10: task templates — purely additive `template` table; both fresh and
   // existing boards get it from the idempotent CREATE in SCHEMA_SQL above.
+
+  // v10 -> v11: request kind (question | watch). One column with a DEFAULT, so
+  // every pre-existing row becomes a `question` — which is exactly what it was:
+  // before `expect` existed, a watch had to be written as an ask. No data moves.
+  if (current > 0 && current < 11) {
+    addColumnIfMissing(db, 'input_request', 'kind', "TEXT NOT NULL DEFAULT 'question'");
+  }
 
   if (current < SCHEMA_VERSION) {
     db.prepare('INSERT OR REPLACE INTO meta(key, value) VALUES(?, ?)').run(
