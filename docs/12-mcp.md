@@ -116,6 +116,10 @@ surface; `idea_promote` creates the task atomically.
 board-native document surface (design/adr/spike/research/note — ADR 0007);
 `show` is budgeted by default and the only op that returns a body.
 
+`claim` and `brainstorm` (`op: start`) append the board's `affect:` line to their
+result when affect hints are on — its own line, never folded into the result
+sentence (ADR 0009). The MCP server never runs `eb` either; it passes the text on.
+
 **Human-in-the-loop:** `expect` (a watch — an event to wait for, which does not set `needs_input`; use it instead of `ask` when there is nothing to choose), `ask` (takes `expires_at` and `default` — a default
 auto-answers at expiry, flagged `defaulted`, keeping the agent unblocked),
 `await` (bounded; `qid` / `task` / `any`), `cancel`.

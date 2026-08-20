@@ -2,6 +2,13 @@ import type { Repo } from './repo';
 import type { DoctorFinding, DoctorReport } from './doctor';
 import type { StandupReport } from './standup';
 import { childProgress, countCriteria, deriveState, fmtCriteria, remainingBlockerCount } from './derive';
+import {
+  affectLine,
+  consultOptionsCommand,
+  cuesForLabels,
+  MAX_CONSULT_OPTIONS,
+  type AffectConfig,
+} from './affect';
 import { recommend, type BlockedSummary } from './recommend';
 import { LABEL_TOP_N, type BoardStats, type MetricSummary, type TaskTiming, type VelocityTrend } from './stats';
 import {
@@ -81,7 +88,12 @@ import {
 // v23: answer notes — `answer --note "<why>"` stores the reason beside the choice;
 //     `inbox` prints it under the answer, and `show`/`context` gain a `decisions`
 //     block (recent answered questions, `Q-n "…" → answer` + `why:`).
-export const FORMAT_VERSION = 23;
+// v24: affect hints (opt-in, off by default) — `next` with 2+ ready candidates,
+//     `claim` and `brainstorm start` emit an `affect: eb consult …` line, and
+//     `context` a `cues:` line from the task's labels. Text only: the board never
+//     runs `eb` (ADR 0009). The `next` hint sheds first under budget, never
+//     silently. Nothing is emitted by `ask`, and nothing appears on `doctor`.
+export const FORMAT_VERSION = 24;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;
@@ -258,12 +270,24 @@ export function renderList(
 /** `kanban next` — recommended task (+ optional full context). */
 export function renderNext(
   repo: Repo,
-  opts: { context?: boolean; n?: number; agent?: string; mine?: boolean; full?: boolean; maxTokens?: number },
+  opts: {
+    context?: boolean;
+    n?: number;
+    agent?: string;
+    mine?: boolean;
+    full?: boolean;
+    maxTokens?: number;
+    affect?: AffectConfig;
+  },
 ): string {
   const r = recommend(repo, opts.n ?? 1, opts.agent, opts.mine);
   if ('none' in r) return renderBlocked(r);
   if (opts.context && r[0]) {
-    const ctx = renderContext(repo, r[0].task.id, { full: opts.full, maxTokens: opts.maxTokens });
+    const ctx = renderContext(repo, r[0].task.id, {
+      full: opts.full,
+      maxTokens: opts.maxTokens,
+      affect: opts.affect,
+    });
     return `${renderRecLine(r[0].task)}\nwhy: ${r[0].why}\n\n${ctx}`;
   }
   const blocks = r.map((rec) => {
@@ -271,8 +295,25 @@ export function renderNext(
     const cp = checkpointLine(rec.task);
     return `${renderRecLine(rec.task)}\nwhy: ${rec.why}${cp ? `\n  ↳ ${cp}` : ''}${callout ? `\n${callout}` : ''}`;
   });
+  // The affect hint. A choice is only a choice with two or more candidates, so
+  // ask for up to the consult cap regardless of --n. It is always its own
+  // labelled line and never folded into `why:` — otherwise it reads as the
+  // board's judgement rather than the agent's, and the human cannot tell them
+  // apart (ADR 0009).
+  let hint: string | null = null;
+  if (opts.affect?.enabled) {
+    const cands = recommend(repo, Math.max(opts.n ?? 1, MAX_CONSULT_OPTIONS), opts.agent, opts.mine);
+    if (!('none' in cands)) hint = affectLine(consultOptionsCommand(cands.map((c) => c.task.title)));
+  }
+  // It sheds FIRST: a preference nudge is the cheapest thing to lose, and losing
+  // it is never silent.
+  const max = opts.full ? 0 : opts.maxTokens;
+  const fits = !max || !hint || estimateTokens(`${blocks.join('\n\n')}\n${hint}`) <= max;
   const body = budgetBlocks(blocks, opts, '\n\n', (n) => `[+${n} candidates hidden for token budget — kanban next --full]`);
-  return body.concat('\n(use: kanban context <id>  ·  kanban next --context)');
+  const tail = hint
+    ? `\n${fits ? hint : '[affect hint hidden for token budget — kanban next --full]'}`
+    : '';
+  return `${body}${tail}\n(use: kanban context <id>  ·  kanban next --context)`;
 }
 
 function renderRecLine(t: Task): string {
@@ -401,6 +442,8 @@ interface Fidelity {
   collapseSubtasks: boolean; // children list -> count line + footer
   dropSummary: boolean; // summary line -> trimmed footer
   dropDescription: boolean; // description line (summary fallback) -> trimmed footer
+  /** Affect config when hints are on — adds a `cues:` line (ADR 0009). */
+  affect?: AffectConfig;
 }
 
 /**
@@ -476,6 +519,16 @@ function buildContextSections(repo: Repo, id: string, t: Task, fid: Fidelity): s
           )
           .join('\n'),
     );
+
+  // 4.4 cues — the task's labels as `eb` cue keys, so an `eb feel` written during
+  //     this work inherits the vocabulary instead of reinventing it (cue sprawl
+  //     is how a brain becomes useless). Text only: the board never runs `eb` and
+  //     never reads the brain — ADR 0009.
+  if (fid.affect?.enabled) {
+    const cues = cuesForLabels(repo.getLabels(id), fid.affect.map);
+    if (cues.length)
+      sections.push(`cues: ${cues.join(', ')}  (use these with eb feel/consult — inherited, not invented)`);
+  }
 
   // 4.5 decisions — questions the human has answered, with the reason when one
   //     was given. Design intent outlives the moment it unblocked.
@@ -647,7 +700,7 @@ export function renderDoc(
 export function renderContext(
   repo: Repo,
   id: string,
-  opts: { full?: boolean; maxTokens?: number } = {},
+  opts: { full?: boolean; maxTokens?: number; affect?: AffectConfig } = {},
 ): string {
   const t = repo.requireTask(id);
   const userTotal = repo.countComments(id, 'user');
@@ -660,6 +713,7 @@ export function renderContext(
     collapseSubtasks: false,
     dropSummary: false,
     dropDescription: false,
+    affect: opts.affect,
   };
 
   // Resolve the effective budget: explicit value wins; `0` and `--full` opt out;

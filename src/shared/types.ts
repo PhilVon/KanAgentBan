@@ -352,4 +352,12 @@ export interface BoardMeta {
   /** Auto-archive policy: archive Done tasks untouched for this many days
    *  (server sweep; `kanban board autoarchive`). Absent/0 = off. */
   auto_archive_days?: number;
+  /**
+   * Affect hints (`kanban board affect`). Off unless `enabled` — the board
+   * emits `eb consult …` command TEXT at moments it knows are decisions and
+   * nothing else: it never runs `eb`, reads the brain, or stores a stance
+   * (ADR 0009). `map` turns board labels into `eb` cue keys; unmapped labels
+   * fall back to `activity:<label>`.
+   */
+  affect?: { enabled?: boolean; map?: Record<string, string> };
 }
