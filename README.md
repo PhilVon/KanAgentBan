@@ -14,9 +14,12 @@ The flagship design goal: **deliver task context to the agent token-efficiently.
 - The human **views the board in realtime** in a browser (WebSocket).
 - The agent can **request user input on a task and pause it** until the human
   answers — a durable, async request the agent yields on, resumable across sessions.
+  Waiting on an *event* rather than a decision is a separate thing with its own
+  command (`kanban expect`), and deliberately **does not** block the task.
 - Featureful: dependency DAG, subtasks, comments (agent + user), labels, artifacts,
-  acceptance criteria, durable docs/ADRs, board-wide search, brainstorm sessions,
-  task templates, and git linkage.
+  acceptance criteria (checkable, **retirable**, or marked as the human's to settle),
+  durable docs/ADRs, board-wide search, brainstorm sessions, task templates, git
+  linkage, and read-only analytics derived from the event log.
 - Built for **cross-session continuity**: per-task checkpoints, `kanban standup`
   catch-up digests, `kanban doctor` hygiene sweeps, claim leases that auto-release
   when an agent dies, and a first-class Review sign-off gate.
@@ -31,9 +34,20 @@ client, not a second writer (see [docs/12-mcp.md](docs/12-mcp.md)).
 
 ## Status
 
-**Scaffold + working vertical slice.** The full design lives in [`docs/`](docs/);
-a runnable Node + TypeScript implementation of the core is in [`src/`](src/),
-[`web/`](web/), and [`skill/`](skill/).
+**Complete and in daily use** — v1 shipped, and a run of post-v1 batches on top of
+it. The design lives in [`docs/`](docs/); the Node + TypeScript implementation is in
+[`src/`](src/), [`web/`](web/), and [`skill/`](skill/).
+
+Current: **schema 13**, plaintext format **24**, **470 tests across 38 suites**, MCP
+**31 tools**. Cloud sync / multi-machine is the one item still deferred
+([docs/11-roadmap](docs/11-roadmap.md)).
+
+The most recent batch is worth knowing about because of where it came from: an agent
+that had used this board hard for two sessions wrote down where **the board's own
+model** made it behave badly, and all eleven findings shipped
+([roadmap §2.1](docs/11-roadmap.md)). That is why `expect` exists separately from
+`ask`, why a criterion can be *retired*, and why every `doctor` finding now tells you
+what its check cannot see.
 
 ### Run it
 
@@ -132,9 +146,10 @@ When it needs a decision it raises a *durable* question and yields:
 
 You answer at your leisure in the Web UI (or `kanban answer Q-7 "Auth0" --note "the
 Cognito UI is a custom build"` — the note records *why*, which is the half that gets
-quoted in a code comment six months later), which flips the task back to *ready*. The next time Claude works the board — **even in a brand-new
-session** — `kanban inbox` / `kanban next` surface it and it resumes with your answer.
-So a paused task is normal and healthy, not stuck.
+quoted in a code comment six months later), which flips the task back to *ready*. The
+next time Claude works the board — **even in a brand-new session** — `kanban inbox` /
+`kanban next` surface it and it resumes with your answer. So a paused task is normal
+and healthy, not stuck.
 
 **Waiting on an event rather than a decision** is a different thing, and has its own
 command: `kanban expect T-12 "the design files land in assets/"`. A *watch* does not
@@ -215,7 +230,7 @@ npm test          # vitest: 470 tests across 38 suites
 Core suites:
 
 - `tests/repo.test.ts` — data layer: ids, DAG (self/dup/cycle rejection), the
-  two-flag derived state, event log + `seq`, scoped `watch`, HITL answer
+  derived state flags, event log + `seq`, scoped `watch`, HITL answer
   validation, inbox, optimistic concurrency, summary drift.
 - `tests/recommend.test.ts` — `next` ranking, blocked-summary reasons, sticky bias.
 - `tests/render.test.ts` — output contract: section order, criteria progress,
@@ -227,15 +242,19 @@ Core suites:
   replay + live stream, bad-token rejection.
 
 Each shipped feature carries its own suite alongside these — subtasks, compaction,
-docs/search/brainstorm/git linkage, analytics, and the continuity primitives
-(checkpoint, claim leases, doctor, review gate, standup, bulk ops, auto-archive,
-templates, default-on-expiry answers).
+docs/search/brainstorm/git linkage, analytics, the continuity primitives (checkpoint,
+claim leases, doctor, review gate, standup, bulk ops, auto-archive, templates,
+default-on-expiry answers), and the model-defect batch (watches, criterion states,
+answer notes, affect hints, the skill installer). Every schema migration has a test
+that builds a board at the previous version, migrates it, and asserts nothing was
+lost.
 
 ### What's implemented
 
 - **Data layer** (`src/server/`): SQLite/WAL schema, per-board counters, append-only
-  event log with `seq`, two-flag derived state (`blocked_by_deps` / `needs_input` /
-  `ready`), dependency DAG with cycle rejection.
+  event log with `seq`, derived state (`blocked_by_deps` / `needs_input` /
+  `blocked_by_children` / `ready` — never stored, always computed), dependency DAG
+  with cycle rejection.
 - **Server**: REST API + WebSocket broadcast + long-poll `await` + static UI host;
   localhost-only with per-board bearer token and Origin checks; auto port/pid files.
 - **CLI** (`src/cli/`): the `kanban` command surface, board resolution, server
@@ -249,7 +268,7 @@ templates, default-on-expiry answers).
 - **Web UI** (`web/`): realtime board, "Needs your input" inbox, card drawer,
   analytics panel, and per-board project identity (see [Web UI](#web-ui) below).
 - **Skill** (`skill/SKILL.md`): the Claude Code skill wrapping the CLI.
-- **MCP server** (`src/mcp/`, post-v1): `kanban-mcp` exposes a curated 30-tool
+- **MCP server** (`src/mcp/`, post-v1): `kanban-mcp` exposes a curated 31-tool
   subset over the Model Context Protocol (stdio) for non-skill agents — a thin
   client of the same sole-writer server. See [docs/12-mcp.md](docs/12-mcp.md).
 - **Knowledge surfaces** (post-v1): durable docs/ADRs (`kanban doc`), FTS5
@@ -264,18 +283,26 @@ templates, default-on-expiry answers).
   sign-off gate (`review approve/reject`), bulk multi-id ops, auto-archive
   policy for aged Done tasks, task `template`s, and `ask --default` answers
   that resolve on expiry.
-
-Verified end-to-end (create → dep → next → ask → answer/await → done → recompute)
-plus auth rejection and the pending-await exit code.
+- **Model fixes** (post-v1, [roadmap §2.1](docs/11-roadmap.md)): `kanban expect`
+  — a **watch** is an event to wait for, not a question, so it does not park the
+  task as needs-input; criterion states (`retire --because`, `--human`, `amend`);
+  `answer --note` plus a `decisions` block in `show`/`context`; `doctor` findings
+  that state **what their own check cannot see**; a loose OR search retry when an
+  all-terms query finds nothing; and opt-in affect hints that emit an `eb consult`
+  command as *text* at moments the board knows are decisions
+  ([ADR 0009](docs/adr/0009-affect-hints-are-text-not-linkage.md)).
+- **Skill installer**: `npm run install-skill` syncs `skill/` + `docs/` into the
+  Claude config dir; `-- --check` exits `2` on drift so divergence is detectable
+  rather than discovered by losing work.
 
 ### Deferred (see [docs/11-roadmap](docs/11-roadmap.md))
 
 Cloud sync / multi-machine is the last deferred item. Everything else on the
 original roadmap has shipped post-v1: the MCP interface, external-nudge
 auto-resume, event-log compaction, first-class subtasks, input cancel/expiry,
-analytics, docs/search/brainstorm/git linkage, and the continuity batch
-(checkpoint, leases, doctor, standup, review gate, bulk ops, auto-archive,
-templates, default-on-expiry) — see above.
+analytics, docs/search/brainstorm/git linkage, the continuity batch (checkpoint,
+leases, doctor, standup, review gate, bulk ops, auto-archive, templates,
+default-on-expiry), and the model-defect batch (§2.1 of the roadmap) — see above.
 
 ## Shell completion
 
@@ -303,10 +330,16 @@ live without polling.
   plus a derived **Blocked** projection; drag-and-drop to move tasks between
   columns.
 - **Card drawer** — full task detail with write surfaces: comments (agent + user),
-  acceptance criteria, labels, artifacts, priority/assignee.
+  acceptance criteria, labels, artifacts, priority/assignee. A criterion the agent
+  marked as **yours** to settle says so; one it **retired** is struck through with
+  its reason and has no checkbox, because there is nothing there to tick.
 - **"Needs your input" inbox** — surfaces the agent's open input requests and lets
-  the human answer them inline, resuming the paused task. Optional desktop
-  notifications when the agent needs you.
+  the human answer them inline, resuming the paused task. Every answer control has
+  an optional **why?** field beside it — the reasoning outlives the choice. A
+  **watch** (`kanban expect`) reads *"waiting for: …"* with an **It happened**
+  button instead of an answer box, and its task is **not** shown in Blocked:
+  nothing is being asked of you. Optional desktop notifications when the agent
+  needs you.
 - **Review sign-off** — approve/reject buttons on Review-column cards; a rejection
   records your reason as a comment and kicks the task back to In Progress.
 - **Analytics panel** — throughput, WIP, flow efficiency, burndown, CFD and more

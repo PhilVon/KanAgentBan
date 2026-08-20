@@ -140,7 +140,7 @@ Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficie
   board over the Model Context Protocol (stdio) as an alternative to the CLI so
   non-Claude-Code agents can drive it. It is a **thin MCP client of the same
   sole-writer server** (reusing `connect()`/`api()`), never a second writer, with
-  a curated 30-tool subset of the CLI that preserves the token-efficiency and
+  a curated 31-tool subset of the CLI that preserves the token-efficiency and
   durable-async contracts ([12-mcp](12-mcp.md)).
 - **Multi-agent support + `kanban claim`** — ✅ **shipped post-v1.** Atomic task
   claiming (`claim` / `release` / `claim --force`) so multiple agents share one

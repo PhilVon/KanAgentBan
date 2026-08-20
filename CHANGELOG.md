@@ -237,6 +237,15 @@ Unreleased section describing its change.
   `/api/templates`, grouped MCP `template` tool (SCHEMA_VERSION 9→10) (#30)
 
 ### Changed
+- README and GETTING-STARTED caught up. The README still opened with **"Scaffold +
+  working vertical slice"** — wrong by 470 tests, 42 PRs and every post-v1 batch — and
+  still described a **two-flag** derived state (it has been three since subtasks) and a
+  **30-tool** MCP surface (31 since `expect`). Status now states the real position
+  (schema 13, format 24, 470 tests / 38 suites, MCP 31, cloud sync the one deferred
+  item); the feature and web-UI sections cover watches, criterion states, answer notes
+  and affect hints; GETTING-STARTED gains "a watch is not a question", the optional
+  *why?* field, and retiring a wrong criterion. `docs/00-overview` records the batch as
+  a fourth pass that fixed the model rather than adding surface (2026-08-20)
 - Docs swept to the end of the model-defect batch. The standing drift is that per-PR
   docs updates land while the *user-facing* set lags a batch, and this sweep found it
   in the obvious place: the pinned format version was quoted as `11` in `docs/03`, `8`
@@ -265,11 +274,15 @@ Unreleased section describing its change.
   it — the finding prints the (pace-based) threshold it used (T-87, 2026-07-10)
 
 ### Fixed
-- The standing windows-latest `ui.test.ts` drawer-edit flake: the `until` poll ceiling
-  in `ui.test.ts` and `ui-realtime.test.ts` goes 4s -> 10s. It has timed out at ~4.1s
-  on three separate batches and passed on every rerun — a slow-runner symptom, not a
-  liveness bug. A healthy run finishes in ~2.4s, so the higher ceiling costs nothing
-  and stops buying a red pipeline plus a rerun each time (T-105, 2026-08-20)
+- The `until` poll ceiling in `ui.test.ts` and `ui-realtime.test.ts` goes 4s -> 10s.
+  A healthy run finishes in ~2.4s, so the headroom costs nothing.
+  **Correction (same day):** this was raised as a fix for the standing windows-latest
+  drawer-edit flake, on the reasoning that it had timed out at ~4.1s three times and
+  passed on every rerun — a slow-runner symptom. That was wrong. With the ceiling at
+  10s the same test timed out at **10169ms**, which rules slowness out: it is not a
+  test that needs longer, it is one that sometimes never completes. Diagnosed and
+  filed as T-107; the ceiling change is kept because the headroom is harmless, but it
+  fixes nothing (T-105, 2026-08-20)
 - `getLabels` now orders by name. Labels render in `list`/`context` and seed affect
   cues, so an unordered read let identical board state produce different text on
   different machines — which is how the affect test passed locally and failed on CI

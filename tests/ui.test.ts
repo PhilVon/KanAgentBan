@@ -21,17 +21,20 @@ const BODY = INDEX_HTML.replace(/^[\s\S]*<body>/i, '')
 
 let h: TestServer;
 let realFetch: typeof globalThis.fetch;
+/** Every non-GET request this test made, with its status — the context a bare
+ *  "until: timed out" is missing (T-107). */
+let mutations: string[];
 let realWS: any;
 let tornDown: { v: boolean };
 
 /**
  * Poll until `fn` returns a truthy value (or time out).
  *
- * 10s, not 4s: the drawer-edit test has timed out at ~4.1s on windows-latest
- * runners three times across batches. It is a slow-runner symptom, not a
- * liveness bug — the same assertion passes on a rerun — and a ceiling that a
- * healthy run finishes well inside costs nothing while a flaky one costs a red
- * pipeline and a rerun each time.
+ * 10s rather than 4s only for headroom — a healthy run of this file finishes in
+ * ~2.4s. It was raised on the theory that the windows-latest drawer-edit failures
+ * were slow-runner latency; the next run then timed out at 10169ms, consuming the
+ * whole raised budget, which rules slowness out. Do not raise it again expecting
+ * that to fix anything: the failing case never completes (T-107).
  */
 async function until<T>(fn: () => T | Promise<T>, ms = 10000): Promise<NonNullable<T>> {
   const start = Date.now();
@@ -89,11 +92,21 @@ beforeEach(async () => {
   // not escape just because test N+1 has already started.
   const torn = (tornDown = { v: false });
   realFetch = globalThis.fetch;
+  mutations = [];
   globalThis.fetch = (async (input: any, init?: any) => {
+    const url = typeof input === 'string' ? input : String(input?.url ?? input);
+    const method = (init?.method ?? 'GET').toUpperCase();
     try {
-      return await realFetch(typeof input === 'string' && input.startsWith('/') ? h.url + input : input, init);
+      const res = await realFetch(url.startsWith('/') ? h.url + url : (input as any), init);
+      // Record every write and its status. A test that polls for a mutation and
+      // times out otherwise reports only "until: timed out", which says nothing
+      // about WHY — and a silently-rejected write (409, 4xx) looks identical to
+      // one that was never sent. See T-107.
+      if (method !== 'GET') mutations.push(`${method} ${url} -> ${res.status}`);
+      return res;
     } catch (e) {
       if (torn.v) return new Promise(() => {});
+      if (method !== 'GET') mutations.push(`${method} ${url} -> threw ${(e as Error).message}`);
       throw e;
     }
   }) as any;
@@ -244,6 +257,16 @@ describe('web UI (real app.js against a real server)', () => {
     const t = await until(() => {
       const x = h.repo.getTask(created.id);
       return x && x.title === 'Edited title' ? x : null;
+    }).catch(() => {
+      // Report what the client actually did instead of just that time ran out.
+      // The save carries if-match from the drawer's snapshot, so a stale version
+      // yields a 409 that the UI only toasts — invisible to a poll (T-107).
+      const now = h.repo.getTask(created.id);
+      throw new Error(
+        'drawer save never landed. title=' + JSON.stringify(now?.title) +
+          ' version=' + now?.version +
+          ' | writes: ' + (mutations.length ? mutations.join('; ') : '(none sent)'),
+      );
     });
     expect(t.title).toBe('Edited title');
     expect(t.version).toBeGreaterThan(created.version);
