@@ -67,7 +67,7 @@ the agent stops as soon as it has enough.
 | Question the agent has | Command | Why it's cheapest |
 |------------------------|---------|-------------------|
 | "What happened while I was away?" | `kanban standup [--since <cursor>]` | one narrative diff instead of re-reading the board |
-| "Is the board healthy?" | `kanban doctor` | findings only, each naming its fix; exit `2` = act |
+| "Is the board healthy?" | `kanban doctor` | findings only, each naming its fix **and what its check cannot see**; exit `2` = act |
 | "What should I do next?" | `kanban next` | ~1 task, ~5 lines, + a *why* |
 | "I'm cold — give me a task and its working set" | `kanban next --context` | one call, no re-derive |
 | "Reload just this task" | `kanban context T-12` | flagship working set, truncated |

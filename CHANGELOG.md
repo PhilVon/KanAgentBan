@@ -10,11 +10,22 @@ Unreleased section describing its change.
 ## [Unreleased]
 
 ### Added
+- `doctor` findings state **what their own check cannot see**: each line now carries
+  a trailing `[cannot see: …]` clause (`blind_spot` under `--json`, a required field
+  so a new check cannot forget it) and phrases its pre-written command
+  conditionally. `done-eligible-parent` counts how many of the parent's *own*
+  criteria are unchecked and reads "close only if those are met or retired" instead
+  of the bare "close it:" that nearly closed a task whose criteria were unmet. New
+  `answered-elsewhere` check flags an open `Q-n` on a task that is now Done or in
+  Review — an answer given in chat and acted on but never written back leaves
+  finished work reading as still waiting on the human; on a `Review` task the clause
+  admits it cannot tell that from a legitimate sign-off gate. FORMAT_VERSION 18→19
+  (T-99, 2026-08-20)
 - `npm run install-skill`: sync `skill/` + `docs/` into
   `<CLAUDE_CONFIG_DIR>/skills/kanban/` (default `~/.claude`), removing files no
   longer in source and naming every removal. `-- --check` exits **2** on drift and
-  **0** when the installed copy matches, so divergence is detectable in CI instead
-  of discovered by losing work. Ships with the backport it made safe: two sections
+  **0** when the installed copy matches, so divergence is something you can check for instead
+  of discover by losing work. Ships with the backport it made safe: two sections
   written straight into the installed `SKILL.md` on 19 Aug — *when a criterion is
   knowable* (promises vs hypotheses) and `--options`/`--freeform` as **companions,
   not alternatives** — existed only there, and are now in `skill/SKILL.md` and

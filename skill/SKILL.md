@@ -75,7 +75,7 @@ question, so you don't burn tokens dumping the board when one task's working set
 would do:
 
 - `kanban standup [--since seq|--days N]` — cold-start catch-up: everything that happened since your last session (completed, kickbacks + reasons, moves, new tasks, question traffic, aging) in one call. Save the printed cursor; pass it next time.
-- `kanban doctor` — session-start hygiene sweep (exit `2` = findings, each naming its fix: stale claims, criteria-less WIP, aging tasks, ancient questions, closable parents). Run it when you sit down at a board; act on what it reports.
+- `kanban doctor` — session-start hygiene sweep (exit `2` = findings: stale claims, criteria-less WIP, aging tasks, ancient questions, questions left open on finished work, closable parents). Run it when you sit down at a board. Every finding names its fix **and, in a trailing `[cannot see: …]` clause, what its own check is blind to** — read that clause before you run the command it hands you. `done-eligible-parent` counts subtasks and cannot judge criteria; a finding can be locally right and globally wrong.
 - `kanban next` — "what should I work on?" (~5 lines; flags any waiting user comment)
 - `kanban next --context` — cold start: the task to do **and** its full working set, one call
 - `kanban context <id>` — full working set for a known task

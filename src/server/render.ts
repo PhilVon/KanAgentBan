@@ -60,7 +60,12 @@ import {
 //     rates render per-hour when fast (`fmtRate`), forecast ETA gains hour
 //     precision when the drain is near, and aging lines show the pace-derived
 //     threshold. Standup aging renders `fmtDur(age_ms)` against that threshold.
-export const FORMAT_VERSION = 18;
+// v19: doctor blind spots — every finding line carries a trailing
+//     `[cannot see: …]` clause naming what its own check is blind to, and the
+//     pre-written command in the finding is phrased conditionally to match. New
+//     `answered-elsewhere` check (open request on a Done/Review task), so the
+//     healthy line now reads "7 checks clean".
+export const FORMAT_VERSION = 19;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;
@@ -752,7 +757,12 @@ export function renderDoctor(
   for (const check of report.checks) {
     const fs = byCheck.get(check);
     if (!fs) continue;
-    blocks.push(`${check} (${fs.length}):\n` + fs.map((f) => `  ${f.id}  ${f.detail}`).join('\n'));
+    blocks.push(
+      `${check} (${fs.length}):\n` +
+        fs
+          .map((f) => `  ${f.id}  ${f.detail}` + (f.blind_spot ? ` [cannot see: ${f.blind_spot}]` : ''))
+          .join('\n'),
+    );
   }
   return budgetBlocks(blocks, opts, '\n', (n) => `[+${n} block(s) hidden for token budget — doctor --full]`);
 }
