@@ -11,8 +11,12 @@
 > shipped post-v1 — followed by a **knowledge batch** (board-native docs/ADRs,
 > FTS5 search, brainstorm sessions, git linkage) and a **continuity batch**
 > (checkpoints, claim leases, doctor, standup, review gate, bulk ops,
-> auto-archive, templates, default-on-expiry answers). Cloud sync /
-> multi-machine is the sole remaining deferred item.
+> auto-archive, templates, default-on-expiry answers), pace/age-aware analytics,
+> and a **model-defect batch** — the eleven findings an agent wrote down after
+> working this board for two sessions: watches (`expect`), criterion states
+> (`retire` / `--human` / `amend`), doctor blind spots, answer notes, loose
+> search, and opt-in affect hints (§2.1). Cloud sync / multi-machine is the sole
+> remaining deferred item.
 >
 > **Decisions:** v1 = single agent, single local board, CLI-driven, sole writer.
 > Model subtasks as deps + labels in v1. Build phases land in dependency order:
@@ -121,6 +125,13 @@ Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficie
 | Auto-archive policy for aged Done tasks | ✅ (post-v1) | |
 | Task templates (`template save/apply`) | ✅ (post-v1) | |
 | Default-on-expiry answers (`ask --default` + `--expires-at`) | ✅ (post-v1) | |
+| Watches — an event to wait for, not a question (`kanban expect`) | ✅ (post-v1) | |
+| Criterion states — `retire` (with a required reason), `--human`, `amend` | ✅ (post-v1) | |
+| Doctor blind spots (`[cannot see: …]`) + `answered-elsewhere` / `stale-watch` | ✅ (post-v1) | |
+| Answer notes — `answer --note` + a `decisions` block in show/context | ✅ (post-v1) | |
+| Loose search retry (OR-ranked, flagged) | ✅ (post-v1) | |
+| Affect hints — `eb consult` command TEXT at decision moments (ADR 0009, opt-in) | ✅ (post-v1) | |
+| Skill install + drift check (`npm run install-skill [-- --check]`) | ✅ (post-v1) | |
 | Cloud sync / multi-machine | | ✅ |
 
 ### Deferred to v2+ (detail)
@@ -181,6 +192,27 @@ Related: [00-overview](00-overview.md) · [03-token-efficiency](03-token-efficie
   `ask --default` answers that resolve as `answered (defaulted)` at expiry.
 - **Cloud sync / multi-machine** — v1 is one local process on one machine.
   **The sole remaining deferred item.**
+
+### 2.1 The model-defect batch (2026-08-20)
+
+Distinct from the feature batches above: these came from an agent that had just
+worked this board for two sessions and wrote down where **the board's model** made
+it behave badly — not features it wanted. Shipped as one batch:
+
+| Finding | Shipped as |
+|---|---|
+| A criterion had two states, so a *wrong* one could only be ticked falsely, left unchecked forever, or escalated | `criterion retire --because` (required reason, leaves both sides of the count), plus `amend` for a mistyped one |
+| Criteria only a human can settle had no representation — six of ten questions existed only to route them | `criterion add --human` |
+| `doctor` pre-wrote mutating commands from checks that could be locally right and globally wrong | every finding carries `[cannot see: …]` and phrases its command conditionally; `blind_spot` is a required field |
+| An answer given in chat never reached the board | the `answered-elsewhere` check + the skill line that stops it happening |
+| `ask` had one shape and two jobs — a watch written as a question read as **Blocked** for days | `kanban expect` (`input_request.kind`); a watch does not set `needs_input` |
+| An answer recorded the choice but not the reason | `answer --note`, plus a `decisions` block in `show`/`context` |
+| Search AND-ed bare terms, so a three-word guess returned nothing | the loose OR retry, flagged `[loose: …]` |
+| The consult nudge fired every turn and so fired at no moment in particular | affect hints at moments the board *knows* are decisions — text only (ADR 0009), off by default |
+| The skill's source of truth had drifted from the installed copy | `npm run install-skill [-- --check]` |
+
+**Batch canon:** `SCHEMA_VERSION` **13**, `FORMAT_VERSION` **24**, 470 tests across
+38 suites, MCP 31 tools.
 
 ---
 

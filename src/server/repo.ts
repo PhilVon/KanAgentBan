@@ -204,7 +204,12 @@ export class Repo {
 
   getLabels(taskId: string): string[] {
     return (
-      this.db.prepare('SELECT label_name FROM task_label WHERE task_id = ?').all(taskId) as {
+      // ORDER BY, not incidental table order: labels render in `list`/`context`
+      // and now seed affect cues, so an unordered read would make identical board
+      // state produce different text on different machines.
+      this.db
+        .prepare('SELECT label_name FROM task_label WHERE task_id = ? ORDER BY label_name ASC')
+        .all(taskId) as {
         label_name: string;
       }[]
     ).map((r) => r.label_name);

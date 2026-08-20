@@ -32,7 +32,7 @@ Related: [03-token-efficiency](03-token-efficiency.md) ·
 - **Auto-start:** any command health-checks the server and starts it detached if
   down (`kanban serve`), then proceeds.
 - **Output:** terse plaintext by default. `--json` emits a JSON object.
-  `--format-version <n>` pins the plaintext schema (current: `8`). No ANSI colour
+  `--format-version <n>` pins the plaintext schema (current: `24`). No ANSI colour
   when stdout is not a TTY.
 - **Token control:** read commands accept `--max-tokens N` and never silently
   truncate — they emit an explicit footer (see [03](03-token-efficiency.md)).
