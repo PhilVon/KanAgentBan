@@ -233,6 +233,12 @@ cues: activity:port, lang:ts  (use these with eb feel/consult — inherited, not
   `eb consult` instead of inventing new ones. Cue sprawl — `activity:test-fixing`
   invented beside an existing `activity:flaky-tests` — is how a brain becomes
   useless, because every cue stuck at `n=1` never crosses a threshold.
+- **Only *mapped* labels become cues.** An unmapped one emits nothing, and `context`
+  says which (`cues: none — unmapped: docs, feature — kanban board affect --map
+  <label>=<cue>`). The board deliberately emits less rather than guessing a cue for
+  you: its keys are permanent in `eb`, so a wrong one costs evidence forever. This
+  binds the *board*, not you — `eb feel --about <anything>` is as free as ever, and
+  when no cue fits the moment, naming a new one deliberately is the right move.
 - It is never on `doctor` and never on `ask`: affect adjusts preference, never
   permission, and by the time you are composing a question the options are already
   framed — framing them was the decision.

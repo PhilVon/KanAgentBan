@@ -312,10 +312,18 @@ string.
 | `claim` | `affect: eb consult "picking up T-n: <title>" --about <cues>` |
 | `context` | `cues: activity:port, lang:ts` |
 
-`--map port=activity:port` overrides the default `activity:<label>`; the cue is
+`--map port=activity:port` is what makes a label a cue: **an unmapped label emits no
+cue at all**, because a board minting vocabulary out of its own bookkeeping labels is
+cue sprawl at the source, and `eb` cue keys can never be renamed or merged. The cue is
 validated when you set it, so the board can never print a command `eb` would reject
-(`proj:` is refused outright — `eb` derives it from the cwd). A task with **no**
-labels emits no cues, never a guess from its title.
+(`proj:` is refused outright — `eb` derives it from the cwd). A task with **no** labels
+emits no cues, never a guess from its title.
+
+The silence is never unexplained: `context` names the labels that produced no cue and
+the command that fixes them (`cues: none — unmapped: docs, feature — kanban board affect
+--map <label>=<cue>`), and `board affect` reports an empty map. The hint shows `<cue>`
+rather than guessing a slug — picking the right cue is a judgement the agent makes, not
+one the board makes for it.
 
 Guard rails: the hint is always its own line and never folded into `why:`; it is
 never emitted by `ask` (framing the options *was* the decision — the consult needed

@@ -8,6 +8,7 @@ import {
   consultAboutCommand,
   consultOptionsCommand,
   cueError,
+  cuesFor,
   cuesForLabels,
   MAX_CONSULT_OPTIONS,
 } from '../src/server/affect';
@@ -24,31 +25,38 @@ import { boardPaths, readBoardMeta, writeBoardMeta } from '../src/shared/board-p
 const ON = { enabled: true, map: {} };
 
 describe('cues: the vocabulary half', () => {
-  it('turns labels into cue keys, defaulting to activity:', () => {
-    expect(cuesForLabels(['port', 'cli'])).toEqual(['activity:port', 'activity:cli']);
+  it('emits only mapped labels — an unmapped label emits no cue at all', () => {
+    // The board emits less, not the agent allowed less. eb cue keys are immutable
+    // (no rename, no merge), so a bad cue costs evidence permanently while silence
+    // costs one prompt.
+    expect(cuesForLabels(['port', 'cli'])).toEqual([]);
+    expect(cuesForLabels(['port', 'cli'], { port: 'activity:port' })).toEqual(['activity:port']);
+  });
+
+  it('names the labels it emitted nothing for, so the silence can be explained', () => {
+    expect(cuesFor(['port', 'docs'], { port: 'activity:port' })).toEqual({
+      cues: ['activity:port'],
+      unmapped: ['docs'],
+    });
   });
 
   it('honours an explicit map, and dedupes', () => {
-    expect(cuesForLabels(['port', 'ts', 'cli'], { ts: 'lang:ts', cli: 'activity:port' })).toEqual([
-      'activity:port',
-      'lang:ts',
-    ]);
+    expect(
+      cuesForLabels(['port', 'ts', 'cli'], { port: 'activity:port', ts: 'lang:ts', cli: 'activity:port' }),
+    ).toEqual(['activity:port', 'lang:ts']);
   });
 
-  it('a task with no labels emits no cues — never a guess from the title', () => {
+  it('a task with no labels emits no cues, and has nothing to report unmapped', () => {
     // Guessing is exactly the invented vocabulary this exists to stop.
-    expect(cuesForLabels([])).toEqual([]);
+    expect(cuesFor([])).toEqual({ cues: [], unmapped: [] });
   });
 
-  it('slugs a label into the cue value charset', () => {
-    expect(cuesForLabels(['Web UI'])).toEqual(['activity:web-ui']);
-  });
-
-  it('never emits proj:, however it is configured', () => {
+  it('never emits proj:, however it is configured — and counts that label unmapped', () => {
     // eb derives proj: from the cwd basename; a board emitting one would be
     // inventing a fact about a project rather than passing on a cue (EB ADR 0008).
+    // A cue eb would reject is no better than no mapping, and takes the same fix.
     expect(cueError('proj:privateeye')).toMatch(/derived by eb/);
-    expect(cuesForLabels(['x'], { x: 'proj:privateeye' })).toEqual([]);
+    expect(cuesFor(['x'], { x: 'proj:privateeye' })).toEqual({ cues: [], unmapped: ['x'] });
   });
 
   it('rejects an unknown namespace and a malformed value at config time', () => {
@@ -147,10 +155,34 @@ describe('emission points', () => {
   it('context prints a cues line from the task labels, only when on', () => {
     const repo = makeRepo();
     const t = repo.createTask({ title: 't', status: 'In Progress', labels: ['port', 'cli'] });
-    const on = renderContext(repo, t.id, { full: true, affect: ON });
+    const mapped = { enabled: true, map: { port: 'activity:port', cli: 'activity:cli' } };
+    const on = renderContext(repo, t.id, { full: true, affect: mapped });
     expect(on).toContain('cues: activity:cli, activity:port');
     expect(on).toContain('inherited, not invented');
     expect(renderContext(repo, t.id, { full: true })).not.toContain('cues:');
+  });
+
+  it('a partly-mapped task emits what it has and names the rest', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 't', status: 'In Progress', labels: ['docs', 'port'] });
+    const text = renderContext(repo, t.id, {
+      full: true,
+      affect: { enabled: true, map: { port: 'activity:port' } },
+    });
+    expect(text).toContain('cues: activity:port');
+    expect(text).toContain('unmapped: docs');
+    expect(text).toContain('kanban board affect --map <label>=<cue>');
+    // Never a slug suggestion: activity:docs is precisely the near-duplicate that
+    // eb's own starter vocabulary warns about, so the board must not propose it.
+    expect(text).not.toContain('activity:docs');
+  });
+
+  it('with nothing mapped it says none and names the fix — never an empty cues line', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 't', status: 'In Progress', labels: ['docs', 'feature'] });
+    const text = renderContext(repo, t.id, { full: true, affect: ON });
+    expect(text).toContain('cues: none — unmapped: docs, feature');
+    expect(text).toContain('kanban board affect --map <label>=<cue>');
   });
 
   it('context prints no cues line for a task with no labels', () => {

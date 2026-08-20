@@ -5,6 +5,7 @@ import { childProgress, countCriteria, deriveState, fmtCriteria, remainingBlocke
 import {
   affectLine,
   consultOptionsCommand,
+  cuesFor,
   cuesForLabels,
   MAX_CONSULT_OPTIONS,
   type AffectConfig,
@@ -93,7 +94,15 @@ import {
 //     `context` a `cues:` line from the task's labels. Text only: the board never
 //     runs `eb` (ADR 0009). The `next` hint sheds first under budget, never
 //     silently. Nothing is emitted by `ask`, and nothing appears on `doctor`.
-export const FORMAT_VERSION = 24;
+// v25: cues are map-only — a board label with no `board affect --map` entry emits
+//     NO cue, where it used to fall back to `activity:<label>`. The board minting
+//     vocabulary out of its own bookkeeping labels was cue sprawl at the source,
+//     and `eb` cue keys are immutable (no rename, no merge), so a bad cue costs
+//     evidence permanently while silence costs one prompt. The board therefore
+//     emits less rather than the agent being allowed less. `context` names the
+//     labels that went unmapped and how to map them, so the silence is never
+//     unexplained.
+export const FORMAT_VERSION = 25;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;
@@ -520,14 +529,22 @@ function buildContextSections(repo: Repo, id: string, t: Task, fid: Fidelity): s
           .join('\n'),
     );
 
-  // 4.4 cues — the task's labels as `eb` cue keys, so an `eb feel` written during
-  //     this work inherits the vocabulary instead of reinventing it (cue sprawl
-  //     is how a brain becomes useless). Text only: the board never runs `eb` and
-  //     never reads the brain — ADR 0009.
+  // 4.4 cues — the task's MAPPED labels as `eb` cue keys, so an `eb feel` written
+  //     during this work inherits the vocabulary instead of reinventing it (cue
+  //     sprawl is how a brain becomes useless). An unmapped label emits nothing,
+  //     but never nothing *silently*: the labels that produced no cue are named
+  //     with the one command that fixes them. Text only: the board never runs
+  //     `eb` and never reads the brain — ADR 0009.
   if (fid.affect?.enabled) {
-    const cues = cuesForLabels(repo.getLabels(id), fid.affect.map);
+    const { cues, unmapped } = cuesFor(repo.getLabels(id), fid.affect.map);
+    // The fix hint deliberately shows `<cue>` rather than a slug of the label:
+    // suggesting `activity:docs` would have the board proposing the very
+    // near-duplicate its own starter vocabulary flags. The choice is the agent's.
+    const fix = `kanban board affect --map <label>=<cue>`;
+    const tail = unmapped.length ? `; unmapped: ${unmapped.join(', ')} — ${fix}` : '';
     if (cues.length)
-      sections.push(`cues: ${cues.join(', ')}  (use these with eb feel/consult — inherited, not invented)`);
+      sections.push(`cues: ${cues.join(', ')}  (use these with eb feel/consult — inherited, not invented)${tail}`);
+    else if (unmapped.length) sections.push(`cues: none — unmapped: ${unmapped.join(', ')} — ${fix}`);
   }
 
   // 4.5 decisions — questions the human has answered, with the reason when one
