@@ -265,6 +265,10 @@ Unreleased section describing its change.
   it — the finding prints the (pace-based) threshold it used (T-87, 2026-07-10)
 
 ### Fixed
+- `getLabels` now orders by name. Labels render in `list`/`context` and seed affect
+  cues, so an unordered read let identical board state produce different text on
+  different machines — which is how the affect test passed locally and failed on CI
+  (T-105, 2026-08-20)
 - `pace.test.ts` failed on 2 calendar days in every 14: the 365d fall-through
   assertion hard-coded `<= 53`, but `bucketRange` floors *both* edges over a span
   that is 365/7 = 52.14 weekly steps wide, so the count is 53 **or** 54 depending on

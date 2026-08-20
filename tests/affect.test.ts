@@ -12,6 +12,7 @@ import {
   MAX_CONSULT_OPTIONS,
 } from '../src/server/affect';
 import { renderContext, renderNext } from '../src/server/render';
+import { recommend } from '../src/server/recommend';
 import { runDoctor } from '../src/server/doctor';
 import { renderDoctor } from '../src/server/render';
 import { boardPaths, readBoardMeta, writeBoardMeta } from '../src/shared/board-paths';
@@ -107,10 +108,19 @@ describe('emission points', () => {
   };
 
   it('next emits an affect line with two or more ready candidates', () => {
-    const text = renderNext(twoReady(), { affect: ON, full: true });
-    const line = text.split('\n').find((l) => l.startsWith('affect:'))!;
-    // Candidate order is `next`'s own rank order — the order to consult in.
-    expect(line).toBe('affect: eb consult --options "fix the drawer,port the exporter"');
+    const repo = twoReady();
+    const line = renderNext(repo, { affect: ON, full: true })
+      .split('\n')
+      .find((l) => l.startsWith('affect:'))!;
+
+    // The candidate order is `next`'s own rank order — the order to consult in —
+    // so it is DERIVED here rather than typed. Two equally-ready tasks tie-break
+    // on timestamps, which differ by machine: pinning the literal made this pass
+    // locally and fail on CI.
+    const ranked = recommend(repo, MAX_CONSULT_OPTIONS) as { task: { title: string } }[];
+    expect(line).toBe(`affect: eb consult --options "${ranked.map((r) => r.task.title).join(',')}"`);
+    expect(line).toContain('port the exporter');
+    expect(line).toContain('fix the drawer');
   });
 
   it('next emits nothing with one candidate, and nothing when affect is off', () => {
