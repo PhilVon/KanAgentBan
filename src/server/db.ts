@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -76,7 +76,11 @@ CREATE TABLE IF NOT EXISTS acceptance_criterion (
   text TEXT NOT NULL,
   checked INTEGER NOT NULL DEFAULT 0,
   checked_at TEXT,
-  position REAL NOT NULL DEFAULT 0
+  position REAL NOT NULL DEFAULT 0,
+  human INTEGER NOT NULL DEFAULT 0,
+  retired_at TEXT,
+  retire_reason TEXT,
+  successor_task_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS artifact (
@@ -347,6 +351,19 @@ function migrate(db: DB): void {
 
   // v9 -> v10: task templates — purely additive `template` table; both fresh and
   // existing boards get it from the idempotent CREATE in SCHEMA_SQL above.
+
+  // v11 -> v12: criterion states. A criterion had exactly two states, so a
+  // mis-specified one could only be ticked falsely, left unchecked forever, or
+  // escalated as a question the agent had created for itself. Four
+  // nullable/defaulted columns: `human` (only the human can settle it) and the
+  // retirement triple. Every existing row becomes an unretired, agent-checkable
+  // criterion, which is what it was.
+  if (current > 0 && current < 12) {
+    addColumnIfMissing(db, 'acceptance_criterion', 'human', 'INTEGER NOT NULL DEFAULT 0');
+    addColumnIfMissing(db, 'acceptance_criterion', 'retired_at', 'TEXT');
+    addColumnIfMissing(db, 'acceptance_criterion', 'retire_reason', 'TEXT');
+    addColumnIfMissing(db, 'acceptance_criterion', 'successor_task_id', 'TEXT');
+  }
 
   // v10 -> v11: request kind (question | watch). One column with a DEFAULT, so
   // every pre-existing row becomes a `question` — which is exactly what it was:

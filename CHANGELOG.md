@@ -10,6 +10,30 @@ Unreleased section describing its change.
 ## [Unreleased]
 
 ### Added
+- **Criterion states: `retire`, `--human`, `amend`.** A criterion had exactly two
+  states, so one that turned out to be *wrong* could only be ticked falsely, left
+  unchecked forever, or escalated as a question the agent raised about its own
+  planning error.
+  - `kanban criterion retire <AC-n> --because "<why>" [--successor T-n]` — the third
+    state. `--because` is **required** (the reason is the record). A retired criterion
+    leaves **both** sides of the count, cannot be ticked, never blocks `done`, and is
+    excluded from a `template save` blueprint. This is the exit for a **hypothesis**
+    criterion the code disproves.
+  - `kanban criterion add … --human` — only the person can settle it (a playtest,
+    "does it read right?"). It stays in the denominator, but `doctor` names it apart
+    from work the *agent* is failing to finish and the UI marks it *for you* — so an
+    agent stops raising one `Q-n` per such criterion (six of one session's ten
+    questions existed only to route these).
+  - `kanban criterion amend <AC-n> "<text>"` — the text was write-once, so a badly
+    typed criterion read that way permanently. Retire is for *wrong*, amend for
+    *mistyped*.
+  - Counting lives in one place (`derive.countCriteria`), and the count line grows its
+    `· N retired` / `· N for the human` tails **only when non-zero** — an ordinary task
+    still reads exactly `criteria 5/6`. `context` renders `[~] AC-n … — retired: <why>
+    (→ T-n)` and `[human]`; the web drawer strikes a retired row through (no checkbox)
+    and tags a human one. MCP `criterion` gains `op=retire|amend` and `human` on add.
+  - SCHEMA_VERSION 11→12 (four defaulted/nullable columns — every existing criterion
+    stays live, unretired and agent-checkable); FORMAT_VERSION 21→22 (T-100, 2026-08-20)
 - **`kanban expect` — an event to wait for is not a question to answer.** `ask` had
   one shape and two jobs: a *question* is a decision with an answer to choose, and a
   *watch* ("tell me when the files land") has none. Written as an ask, a watch set

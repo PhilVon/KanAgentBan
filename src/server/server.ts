@@ -26,7 +26,7 @@ import { recommend } from './recommend';
 import { runDoctor } from './doctor';
 import { standup } from './standup';
 import { boardStats, taskTiming } from './stats';
-import { childProgress, deriveState } from './derive';
+import { childProgress, countCriteria, deriveState } from './derive';
 import { ensureBoard, readToken, readBoardMeta } from '../shared/board-paths';
 import { attachNudge } from './nudge';
 import { DISPLAY_COLUMNS, type ActorType, type InputKind, type NudgeConfig } from '../shared/types';
@@ -159,8 +159,17 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
       column: d.blocked_by_deps || d.needs_input || d.blocked_by_children ? 'Blocked' : t.status,
       comments: repo.countComments(t.id),
       open_input: repo.getOpenRequests(t.id).length,
-      criteria_done: crit.filter((c) => c.checked).length,
-      criteria_total: crit.length,
+      ...(() => {
+        // Retired criteria leave both sides of the card count; `criteria_retired`
+        // and `criteria_human_open` are additive so an old client still reads.
+        const n = countCriteria(crit);
+        return {
+          criteria_done: n.done,
+          criteria_total: n.total,
+          criteria_retired: n.retired,
+          criteria_human_open: n.human_open,
+        };
+      })(),
       child_done: kids.done,
       child_total: kids.total,
       labels: repo.getLabels(t.id),
@@ -582,14 +591,32 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     res.json(repo.addComment(req.params.id, req.body.body, actor(req), req.body.author_name ?? 'claude')),
   ));
   app.post('/api/tasks/:id/criteria', wrap((req, res) =>
-    res.json({ id: repo.addCriterion(req.params.id, req.body.text, actor(req)) }),
+    res.json({
+      id: repo.addCriterion(req.params.id, req.body.text, actor(req), { human: !!req.body.human }),
+    }),
   ));
+  // PATCH carries the two in-place edits: `checked` ticks, `text` amends.
   app.patch(
     '/api/criteria/:acid',
     wrap((req, res) => {
+      if (typeof req.body.text === 'string')
+        return res.json(repo.amendCriterion(req.params.acid, req.body.text, actor(req)));
       repo.checkCriterion(req.params.acid, !!req.body.checked, actor(req));
       res.json({ ok: true });
     }),
+  );
+  // Retirement is its own route, not a PATCH field: it is a state transition
+  // with a REQUIRED reason, and the reason is the point of the state.
+  app.post(
+    '/api/criteria/:acid/retire',
+    wrap((req, res) =>
+      res.json(
+        repo.retireCriterion(req.params.acid, str(req.body.because) ?? '', {
+          successor: str(req.body.successor),
+          actor: actor(req),
+        }),
+      ),
+    ),
   );
   app.post(
     '/api/tasks/:id/labels',

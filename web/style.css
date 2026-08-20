@@ -343,6 +343,12 @@ input {
 .summary { color: var(--text); }
 .desc { color: var(--muted); white-space: pre-wrap; }
 .crit { display: block; margin: 0.2rem 0; }
+/* A retired criterion turned out to be wrong — struck through so it never reads
+   as outstanding work, with the reason (the point of the state) beside it. */
+.crit.retired .crit-text { text-decoration: line-through; color: var(--muted); }
+.crit-why { color: var(--muted); font-size: 0.85rem; font-style: italic; }
+/* Only the human settles this one — a nudge to look, not a scolding. */
+.crit-human { color: var(--accent); font-size: 0.8rem; }
 .deps { color: var(--muted); font-size: 0.85rem; margin: 0.2rem 0; }
 .parent-link { color: var(--accent); font-size: 0.85rem; margin: 0.3rem 0; cursor: pointer; }
 .parent-link:hover { text-decoration: underline; }

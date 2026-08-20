@@ -110,17 +110,18 @@ is derived, never stored ([02-data-model §5-6](02-data-model.md)).
 
 ## Dependencies, comments, criteria, labels, artifacts
 
-| Method | Path | CLI |
-|--------|------|-----|
-| `POST` / `DELETE` | `/api/tasks/:id/deps` | `dep add` / `dep rm` |
-| `POST` | `/api/tasks/:id/comments` | `comment` |
-| `POST` | `/api/tasks/:id/criteria` | `criterion add` |
-| `PATCH` | `/api/criteria/:acid` | `criterion check` |
-| `POST` / `DELETE` | `/api/tasks/:id/labels` | `label --add/--rm` |
-| `POST` | `/api/tasks/:id/artifacts` | `artifact` / `git link` |
-| `POST` | `/api/tasks/:id/summary` | `summarize` |
-| `POST` | `/api/tasks/:id/checkpoint` | `checkpoint` |
-| `POST` | `/api/tasks/bulk` | `move`/`done`/`archive`/`label` with `T-1,T-2,…` |
+| Method | Path | CLI | Notes |
+|--------|------|-----|-------|
+| `POST` / `DELETE` | `/api/tasks/:id/deps` | `dep add` / `dep rm` | |
+| `POST` | `/api/tasks/:id/comments` | `comment` | |
+| `POST` | `/api/tasks/:id/criteria` | `criterion add` | body `{text, human?}` — `human:true` marks a criterion only the human can settle |
+| `PATCH` | `/api/criteria/:acid` | `criterion check` / `amend` | `{checked}` ticks; `{text}` rewrites a badly-typed one and returns the criterion |
+| `POST` | `/api/criteria/:acid/retire` | `criterion retire` | `{because, successor?}` — `because` is **required** (`400` without it). Its own route, not a PATCH field: it is a state transition whose reason is the record |
+| `POST` / `DELETE` | `/api/tasks/:id/labels` | `label --add/--rm` | |
+| `POST` | `/api/tasks/:id/artifacts` | `artifact` / `git link` | |
+| `POST` | `/api/tasks/:id/summary` | `summarize` | |
+| `POST` | `/api/tasks/:id/checkpoint` | `checkpoint` | |
+| `POST` | `/api/tasks/bulk` | `move`/`done`/`archive`/`label` with `T-1,T-2,…` | |
 
 `POST /api/tasks/bulk` takes `{op: move|label|unlabel|archive, ids: [...],
 status?, name?}` — one transaction, one event per task, all-or-nothing (any

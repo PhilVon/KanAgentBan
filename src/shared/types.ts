@@ -131,6 +131,26 @@ export interface AcceptanceCriterion {
   checked: boolean;
   checked_at: string | null;
   position: number;
+  /**
+   * Only the human can settle this one (a playtest, "does it read right?").
+   * It stays in the denominator — it is still work — but `doctor` names it
+   * apart from work the *agent* is failing to finish. Without it an agent
+   * raises one `Q-n` per such criterion: six of one session's ten questions
+   * existed only to route criteria the board could not.
+   */
+  human: boolean;
+  /**
+   * Set when the criterion turned out to be **wrong**, not merely undone. With
+   * two states a mis-specified criterion can only be ticked falsely, left
+   * unchecked forever, or escalated; retiring one makes a planning error
+   * self-correcting. A retired criterion leaves BOTH sides of the count and
+   * never reads as unfinished work.
+   */
+  retired_at: string | null;
+  /** Why it was retired — required, and the point of the whole state. */
+  retire_reason: string | null;
+  /** The task that carries the work instead, when there is one. */
+  successor_task_id: string | null;
 }
 
 export interface Artifact {
@@ -265,6 +285,8 @@ export type EventType =
   | 'comment.added'
   | 'criterion.added'
   | 'criterion.checked'
+  | 'criterion.retired'
+  | 'criterion.amended'
   | 'criterion.unchecked'
   | 'label.added'
   | 'label.removed'

@@ -67,9 +67,25 @@ In all three, separate the two kinds of criterion and write them at different mo
   paper about the very pin you are asserting moves.
 
 A hypothesis that turns out wrong is still useful; testing it is often how the real
-mechanism gets found. When one does turn out wrong, say so in a comment naming what
-replaced it and file the successor, rather than leaving an unchecked box that reads as
-unfinished work.
+mechanism gets found. When one does turn out wrong, **retire it** — that is the exit,
+and it exists precisely for this:
+
+```
+kanban criterion retire AC-32 --because "the swing turns the paper about that pin, so the pin never moves" --successor T-41
+```
+
+The reason is the record, and a retired criterion leaves **both** sides of the count
+(`criteria 5/6 · 1 retired`) rather than sitting unchecked forever reading as unfinished
+work. Don't tick it falsely and don't spend one of the human's decisions on your own
+planning error. If a criterion is merely badly *typed*, `kanban criterion amend AC-32
+"<text>"` — retire is for wrong, amend is for mistyped.
+
+**A criterion only the human can settle gets `--human`.** "Does the tape read right on
+the page?" is not work you can finish:
+`kanban criterion add T-12 "the tape reads right on the page" --human`. It stays in the
+count (it is still work) but stops reading as work *you* are failing to finish, and the
+human sees it marked on the card — so you don't burn a `Q-n` per criterion asking them
+to look.
 
 ## Reading efficiently (see docs/03)
 
@@ -346,7 +362,7 @@ The full surface — nothing here is off-limits. Any read takes `--json` and
 `KANBAN_AGENT`) apply everywhere. Full flag detail: `docs/05-cli-reference.md`.
 
 - Read: `next [--context|--n N|--mine]`, `list [--status|--label|--limit]`, `show <id>`, `context <id>`, `watch <id> --since <seq> [--follow]`, `changes --since <seq> [--follow]` (`--follow` streams NDJSON until Ctrl-C — for humans/scripts, not agent turns), `inbox [--since]`, `compact [--keep N]`
-- Write: `add [--parent T-1|--depends|--label|--ac|--prio|--status]`, `update [--expect-version N]`, `move <id> <col>`, `done`, `archive`, `review approve/reject <id> --reason` (the human's gate), (`move`/`done`/`archive`/`label` take `T-1,T-2,…` — one atomic transaction), `claim [--force]`, `release [--force]`, `dep add/rm --on <id>`, `parent <id> --to <pid>|--clear`, `comment <id> "…"`, `criterion add/check [--off]`, `label --add/--rm`, `artifact --kind --title --uri`, `summarize`, `checkpoint <id> "…"|--clear` (resume pointer)
+- Write: `add [--parent T-1|--depends|--label|--ac|--prio|--status]`, `update [--expect-version N]`, `move <id> <col>`, `done`, `archive`, `review approve/reject <id> --reason` (the human's gate), (`move`/`done`/`archive`/`label` take `T-1,T-2,…` — one atomic transaction), `claim [--force]`, `release [--force]`, `dep add/rm --on <id>`, `parent <id> --to <pid>|--clear`, `comment <id> "…"`, `criterion add [--human]/check [--off]/retire <acid> --because "…" [--successor T-n]/amend <acid> "…"`, `label --add/--rm`, `artifact --kind --title --uri`, `summarize`, `checkpoint <id> "…"|--clear` (resume pointer)
 - Templates: `template save <name> --from T-n` (snapshot criteria/labels/subtask skeleton), `template apply <name> "<title>" [--prio|--status|--parent]` (atomic tree create), `template list/show/delete` — use for repeated shapes (PR checklist, spike) instead of re-authoring criteria.
 - Docs: `doc add "<title>" --kind design|adr|spike|research|note [--body|--body-file] [--summary] [--link T-n]`, `doc show <D-n> [--full]`, `doc update <D-n> [--status|--superseded-by D-n]`, `doc link/unlink <D-n> <T-n>`, `doc archive <D-n>`, `docs [--kind|--status|--task]`
 - Search: `search "<query>" [--type task|doc|comment|idea] [--limit N]` — ranked hits with snippets across the whole board
