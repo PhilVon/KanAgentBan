@@ -11,6 +11,7 @@ import {
   renderContext,
   renderDoc,
   renderDocList,
+  renderAffectCheck,
   renderDoctor,
   renderList,
   renderNext,
@@ -30,6 +31,7 @@ import { childProgress, countCriteria, deriveState } from './derive';
 import {
   affectLine,
   consultAboutCommand,
+  checkAffect,
   cuesForLabels,
   AFFECT_OFF,
   type AffectConfig,
@@ -163,6 +165,17 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
   app.get('/healthz', (_req, res) =>
     res.json({ ok: true, format_version: FORMAT_VERSION, seq: repo.maxSeq() }),
   );
+  // Affect config vs the labels actually in use (`board affect --check`). A read:
+  // it reports, and never edits the map.
+  app.get('/api/board/affect', (_req, res) => {
+    // Read the raw config, not affect(): that collapses to AFFECT_OFF when hints
+    // are off, which would hide the map from the one command whose job is to show
+    // it — you want to see what you have configured *before* turning it on.
+    const m = readBoardMeta(ensureBoard(root)).affect;
+    const check = checkAffect({ enabled: !!m?.enabled, map: m?.map ?? {} }, repo.labelUsage());
+    res.json({ ...check, text: renderAffectCheck(check) });
+  });
+
   app.get('/api/board', (_req, res) =>
     res.json({ root, name: boardName, format_version: FORMAT_VERSION, seq: repo.maxSeq() }),
   );

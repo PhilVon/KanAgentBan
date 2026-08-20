@@ -108,6 +108,64 @@ export function cuesForLabels(labels: string[], map: Record<string, string> = {}
   return cuesFor(labels, map).cues;
 }
 
+export interface LabelUse {
+  label: string;
+  tasks: number;
+}
+
+/**
+ * What `board affect --check` found. Four buckets, because they take four
+ * different actions — and only one of them is an error.
+ */
+export interface AffectCheck {
+  enabled: boolean;
+  /** Labels that will emit a cue. */
+  mapped: { label: string; cue: string; tasks: number }[];
+  /** Labels that emit nothing, commonest first — the ranking is the point: it
+   *  says which single mapping would buy the most evidence. */
+  unmapped: LabelUse[];
+  /** Map entries `eb` would reject. `--map` validates, so one of these can only
+   *  arrive by hand-editing board.json — an error, not a preference. */
+  invalid: { label: string; cue: string; reason: string }[];
+  /** Mapped, but no live task carries the label. Harmless, and worth saying:
+   *  a mapping nothing uses is usually a renamed or archived label. */
+  stale: { label: string; cue: string }[];
+}
+
+/**
+ * Compare the configured map against the labels actually in use.
+ *
+ * Pure: it is handed the usage counts rather than reading them, so this module
+ * stays a string-and-struct builder that touches neither a database nor a
+ * process (ADR 0009, and the structural test that enforces it).
+ */
+export function checkAffect(cfg: AffectConfig, usage: LabelUse[]): AffectCheck {
+  const map = cfg.map ?? {};
+  const check: AffectCheck = { enabled: cfg.enabled, mapped: [], unmapped: [], invalid: [], stale: [] };
+  const used = new Set(usage.map((u) => u.label));
+
+  for (const { label, tasks } of usage) {
+    const cue = map[label];
+    if (!cue) {
+      check.unmapped.push({ label, tasks });
+      continue;
+    }
+    const reason = cueError(cue);
+    if (reason) check.invalid.push({ label, cue, reason });
+    else check.mapped.push({ label, cue, tasks });
+  }
+
+  for (const [label, cue] of Object.entries(map)) {
+    if (used.has(label)) continue;
+    const reason = cueError(cue);
+    if (reason) check.invalid.push({ label, cue, reason });
+    else check.stale.push({ label, cue });
+  }
+  check.stale.sort((a, b) => a.label.localeCompare(b.label));
+  check.invalid.sort((a, b) => a.label.localeCompare(b.label));
+  return check;
+}
+
 /** Strip what would break the command's own quoting, and keep it short. */
 function clean(s: string, max = 48): string {
   const one = s.replace(/["`\\]/g, '').replace(/\s+/g, ' ').trim();

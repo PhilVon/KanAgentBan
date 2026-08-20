@@ -202,6 +202,25 @@ export class Repo {
       .all(taskId) as Artifact[];
   }
 
+  /**
+   * Every label on the board with the number of live (non-archived) tasks behind
+   * it, commonest first then alphabetical. `board affect --check` ranks by this:
+   * a label on twelve tasks buys twelve times the evidence of one on a single
+   * task, so it is the number that says which mapping is worth making first.
+   */
+  labelUsage(): { label: string; tasks: number }[] {
+    return this.db
+      .prepare(
+        `SELECT tl.label_name AS label, COUNT(*) AS tasks
+           FROM task_label tl
+           JOIN task t ON t.id = tl.task_id
+          WHERE t.archived_at IS NULL
+          GROUP BY tl.label_name
+          ORDER BY tasks DESC, tl.label_name ASC`,
+      )
+      .all() as { label: string; tasks: number }[];
+  }
+
   getLabels(taskId: string): string[] {
     return (
       // ORDER BY, not incidental table order: labels render in `list`/`context`

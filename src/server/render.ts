@@ -5,9 +5,11 @@ import { childProgress, countCriteria, deriveState, fmtCriteria, remainingBlocke
 import {
   affectLine,
   consultOptionsCommand,
+  checkAffect,
   cuesFor,
   cuesForLabels,
   MAX_CONSULT_OPTIONS,
+  type AffectCheck,
   type AffectConfig,
 } from './affect';
 import { recommend, type BlockedSummary } from './recommend';
@@ -102,7 +104,14 @@ import {
 //     emits less rather than the agent being allowed less. `context` names the
 //     labels that went unmapped and how to map them, so the silence is never
 //     unexplained.
-export const FORMAT_VERSION = 25;
+// v26: `board affect --check` — a read-only report of the label map against the
+//     labels actually in use: what emits a cue, what does not (commonest first,
+//     because the count is the advice), map entries `eb` would reject, and
+//     mappings for labels no longer on the board. An unmapped label is reported,
+//     never counted as a fault: it exits 0, and only a rejected cue exits 1.
+//     Deliberately its own command and never a `doctor` check — affect adjusts
+//     preference, never permission.
+export const FORMAT_VERSION = 26;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;
@@ -900,6 +909,55 @@ export function renderStandup(
  * peers — then missing definitions of done, aging work, unanswered questions,
  * drift, and easy closes). Budgeted like every read tier.
  */
+/**
+ * `board affect --check`. Deliberately NOT a doctor check: affect adjusts
+ * preference, never permission, so an unmapped label is reported and never
+ * counted as a fault (ADR 0009 guard rail). The only failure here is a map entry
+ * `eb` would reject, which is a config error rather than an affective one.
+ *
+ * Unmapped labels lead with their task count because that count is the whole
+ * advice: mapping the label on thirteen tasks buys thirteen times the evidence of
+ * mapping the one on a single task.
+ */
+export function renderAffectCheck(check: AffectCheck): string {
+  const total = check.mapped.length + check.unmapped.length + check.invalid.length;
+  const lines: string[] = [
+    `affect hints ${check.enabled ? 'on' : 'off'} · ${check.mapped.length} of ${total} label${total === 1 ? '' : 's'} mapped` +
+      (check.enabled ? '' : ' (hints are off — kanban board affect --on)'),
+  ];
+
+  if (check.invalid.length) {
+    lines.push('', `invalid (${check.invalid.length}) — eb would reject these, so they emit nothing:`);
+    for (const i of check.invalid) lines.push(`  ${i.label} -> ${i.cue}`, `      ${i.reason}`);
+  }
+
+  if (check.mapped.length) {
+    const w = Math.max(...check.mapped.map((m) => m.label.length));
+    lines.push('', `mapped (${check.mapped.length}):`);
+    for (const m of check.mapped)
+      lines.push(`  ${m.label.padEnd(w)}  -> ${m.cue}  (${m.tasks} task${m.tasks === 1 ? '' : 's'})`);
+  }
+
+  if (check.unmapped.length) {
+    lines.push('', `unmapped (${check.unmapped.length}) — these emit no cues:`);
+    const w = Math.max(...check.unmapped.map((u) => String(u.tasks).length));
+    for (const u of check.unmapped) lines.push(`  ${String(u.tasks).padStart(w)}  ${u.label}`);
+    // `<cue>`, never a slug of the label: proposing `activity:docs` would have the
+    // board suggesting the near-duplicate eb's own starter vocabulary warns about.
+    lines.push('  fix: kanban board affect --map <label>=<cue>');
+  }
+
+  if (check.stale.length) {
+    lines.push('', `stale (${check.stale.length}) — mapped, but no live task carries the label:`);
+    for (const s of check.stale) lines.push(`  ${s.label} -> ${s.cue}`);
+  }
+
+  if (!check.unmapped.length && !check.invalid.length && !check.stale.length)
+    lines.push('', 'every label in use is mapped.');
+
+  return lines.join("\n");
+}
+
 export function renderDoctor(
   report: DoctorReport,
   opts: { full?: boolean; maxTokens?: number } = {},

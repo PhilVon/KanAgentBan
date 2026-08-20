@@ -8,11 +8,12 @@ import {
   consultAboutCommand,
   consultOptionsCommand,
   cueError,
+  checkAffect,
   cuesFor,
   cuesForLabels,
   MAX_CONSULT_OPTIONS,
 } from '../src/server/affect';
-import { renderContext, renderNext } from '../src/server/render';
+import { renderAffectCheck, renderContext, renderNext } from '../src/server/render';
 import { recommend } from '../src/server/recommend';
 import { runDoctor } from '../src/server/doctor';
 import { renderDoctor } from '../src/server/render';
@@ -200,6 +201,80 @@ describe('emission points', () => {
   });
 });
 
+describe('board affect --check', () => {
+  // Commonest first: the count IS the advice, because mapping the label on 13
+  // tasks buys 13x the evidence of mapping the one on a single task.
+  const usage = [
+    { label: 'docs', tasks: 13 },
+    { label: 'cli', tasks: 7 },
+    { label: 'bug', tasks: 2 },
+  ];
+
+  it('splits the map into what emits, what does not, and what is broken', () => {
+    const c = checkAffect(
+      { enabled: true, map: { cli: 'activity:cli', bug: 'mood:sad', gone: 'activity:gone' } },
+      usage,
+    );
+    expect(c.mapped).toEqual([{ label: 'cli', cue: 'activity:cli', tasks: 7 }]);
+    expect(c.unmapped).toEqual([{ label: 'docs', tasks: 13 }]);
+    expect(c.invalid.map((i) => i.label)).toEqual(['bug']);
+    expect(c.invalid[0].reason).toMatch(/unknown cue namespace/);
+    // Mapped, but nothing on the board carries it — usually a renamed label.
+    expect(c.stale).toEqual([{ label: 'gone', cue: 'activity:gone' }]);
+  });
+
+  it('an unmapped label is never a fault — only a map eb would reject is', () => {
+    // The CLI exits non-zero on `invalid` alone. Exiting on `unmapped` would
+    // pressure a board into mapping every label mechanically, which is exactly
+    // the minting this strand removed (ADR 0009 amendment).
+    const c = checkAffect({ enabled: true, map: {} }, usage);
+    expect(c.unmapped.map((u) => u.label)).toEqual(['docs', 'cli', 'bug']);
+    expect(c.invalid).toEqual([]);
+  });
+
+  it('reports the map even when hints are off, so it can be seen before enabling', () => {
+    const c = checkAffect({ enabled: false, map: { cli: 'activity:cli' } }, usage);
+    expect(c.mapped).toHaveLength(1);
+    expect(renderAffectCheck(c)).toContain('affect hints off');
+  });
+
+  it('renders the counts and the fix, and never proposes a slug of the label', () => {
+    const text = renderAffectCheck(checkAffect({ enabled: true, map: {} }, usage));
+    expect(text).toContain('0 of 3 labels mapped');
+    expect(text).toContain('13  docs');
+    expect(text).toContain('fix: kanban board affect --map <label>=<cue>');
+    expect(text).not.toContain('activity:docs');
+  });
+
+  it('says so when every label in use is mapped', () => {
+    const map = { docs: 'activity:writing-docs', cli: 'activity:cli', bug: 'activity:bug' };
+    expect(renderAffectCheck(checkAffect({ enabled: true, map }, usage))).toContain(
+      'every label in use is mapped.',
+    );
+  });
+
+  it('counts live tasks only — an archived one is not evidence you can still act on', () => {
+    const repo = makeRepo();
+    repo.createTask({ title: 'a', labels: ['docs'] });
+    const gone = repo.createTask({ title: 'b', labels: ['docs'] });
+    expect(repo.labelUsage()).toEqual([{ label: 'docs', tasks: 2 }]);
+    repo.archiveTask(gone.id);
+    expect(repo.labelUsage()).toEqual([{ label: 'docs', tasks: 1 }]);
+  });
+
+  it('doctor stays clean and affect-free with every label unmapped', () => {
+    // Affect adjusts preference, never permission: an unmapped label must never
+    // reach a correctness-shaped surface.
+    const repo = makeRepo();
+    repo.createTask({ title: 'x', status: 'In Progress', labels: ['docs'] });
+    repo.createTask({ title: 'y', status: 'Ready', labels: ['cli'] });
+    const text = renderDoctor(runDoctor(repo));
+    expect(text).not.toContain('affect');
+    expect(text).not.toContain('unmapped');
+    expect(text).not.toContain('cue');
+  });
+});
+
 describe('over REST, with the board configured', () => {
   let h: TestServer;
   afterEach(async () => {
@@ -242,6 +317,27 @@ describe('over REST, with the board configured', () => {
     expect((await c('GET', '/api/next')).body.text).not.toContain('affect:');
     enable();
     expect((await c('GET', '/api/next')).body.text).toContain('affect: eb consult --options');
+  });
+
+  it('serves the check, and reflects the map with hints still off', async () => {
+    h = await startTestServer();
+    const c = client(h);
+    await c('POST', '/api/tasks', { title: 'a', labels: ['docs', 'cli'] });
+    await c('POST', '/api/tasks', { title: 'b', labels: ['docs'] });
+
+    const off = (await c('GET', '/api/board/affect')).body;
+    expect(off.enabled).toBe(false);
+    expect(off.unmapped).toEqual([
+      { label: 'docs', tasks: 2 },
+      { label: 'cli', tasks: 1 },
+    ]);
+
+    enable({ docs: 'activity:writing-docs' });
+    const on = (await c('GET', '/api/board/affect')).body;
+    expect(on.enabled).toBe(true);
+    expect(on.mapped).toEqual([{ label: 'docs', cue: 'activity:writing-docs', tasks: 2 }]);
+    expect(on.unmapped).toEqual([{ label: 'cli', tasks: 1 }]);
+    expect(on.text).toContain('1 of 2 labels mapped');
   });
 
   it('ask never emits a hint — framing the options WAS the decision', async () => {

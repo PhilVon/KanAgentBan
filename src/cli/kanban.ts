@@ -783,7 +783,22 @@ board
   .option('--off', 'disable hints')
   .option('--map <label=cue>', 'map a board label to an eb cue — an unmapped label emits no cue')
   .option('--unmap <label>', 'drop a label mapping')
-  .action((o) => {
+  .option('--check', 'report the map against the labels actually in use (read-only)')
+  .action(async (o) => {
+    if (o.check) {
+      // Read-only and exclusive: a flag that both reports and edits would make
+      // the report a description of state the same command just changed.
+      if (o.on || o.off || o.map || o.unmap)
+        throw new CliError('--check is read-only — run it on its own', 1);
+      const r = await api(await conn(), 'GET', '/api/board/affect');
+      out(r.text);
+      // An unmapped label is NOT a fault — affect adjusts preference, never
+      // permission (ADR 0009), and exiting non-zero on one would pressure a board
+      // into mapping every label mechanically, which is the minting this whole
+      // strand removed. Only a map `eb` would reject is an error.
+      if (r.invalid.length) process.exitCode = 1;
+      return;
+    }
     const root = program.opts().board ?? findBoardRoot(process.cwd());
     if (!root) throw new CliError('no board here — run `kanban board init` first', 3);
     const paths = boardPaths(root);
