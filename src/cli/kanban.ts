@@ -749,7 +749,14 @@ program
     out(r.status === 'answered' ? `${id} answered${r.defaulted ? ' (defaulted)' : ''}: ${r.answer}` : `${id} ${r.status}`);
   });
 
-program.command('answer <qid> <text>').action(async (qid, text) => { const r = await api(await conn(), 'POST', `/api/input-requests/${qid}/answer`, { answer: text, answered_by: 'cli' }); out(`${qid} -> ${r.answer}`); });
+program
+  .command('answer <qid> <text>')
+  .description('record an answer (parity with the UI). --note carries the WHY, which is the half a reader in six months needs')
+  .option('--note <why>', 'why that answer — reasoning, not just the choice')
+  .action(async (qid, text, o) => {
+    const r = await api(await conn(), 'POST', `/api/input-requests/${qid}/answer`, { answer: text, answered_by: 'cli', note: o.note });
+    out(`${qid} -> ${r.answer}${r.answer_note ? `  (why: ${r.answer_note})` : ''}`);
+  });
 program.command('cancel <qid>').description('withdraw an open input request').action(async (qid) => { await api(await conn(), 'POST', `/api/input-requests/${qid}/cancel`); out(`${qid} cancelled`); });
 
 // ---- lifecycle -----------------------------------------------------------

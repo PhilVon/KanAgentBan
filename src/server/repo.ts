@@ -219,6 +219,23 @@ export class Repo {
     return (rows as any[]).map(this.mapRequest);
   }
 
+  /**
+   * Answered requests for a task, newest first — the *decisions* record. An
+   * answer is design intent (they get quoted in code comments), so it outlives
+   * the moment it unblocked and belongs in a task's working set, not only in
+   * the inbox delta that carried it once.
+   */
+  getAnsweredRequests(taskId: string, limit = 3): InputRequest[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM input_request WHERE task_id = ? AND status = 'answered'
+             ORDER BY answered_at DESC LIMIT ?`,
+        )
+        .all(taskId, limit) as any[]
+    ).map(this.mapRequest);
+  }
+
   getRequest(id: string): InputRequest | undefined {
     const r = this.db.prepare('SELECT * FROM input_request WHERE id = ?').get(id);
     return r ? this.mapRequest(r) : undefined;
@@ -1947,7 +1964,7 @@ export class Repo {
     return this.ask(taskId, event, { ...opts, kind: 'watch' });
   }
 
-  answer(requestId: string, answer: string, answeredBy: string): InputRequest {
+  answer(requestId: string, answer: string, answeredBy: string, note?: string): InputRequest {
     return this.mutate((rec) => {
       const r = this.getRequest(requestId);
       if (!r) throw new NotFoundError(`request ${requestId} not found`);
@@ -1955,14 +1972,17 @@ export class Repo {
       if (r.options && !r.answer_freeform && !r.options.includes(answer)) {
         throw new ValidationError(`answer must be one of: ${r.options.join(', ')}`);
       }
+      const why = (note ?? '').trim() || null;
       this.db
-        .prepare(`UPDATE input_request SET status='answered', answer=?, answered_by=?, answered_at=? WHERE id=?`)
-        .run(answer, answeredBy, now(), requestId);
+        .prepare(
+          `UPDATE input_request SET status='answered', answer=?, answer_note=?, answered_by=?, answered_at=? WHERE id=?`,
+        )
+        .run(answer, why, answeredBy, now(), requestId);
       rec({
         type: 'input.answered',
         task_id: r.task_id,
         actor_type: 'user',
-        payload: { request_id: requestId, answer, kind: r.kind },
+        payload: { request_id: requestId, answer, kind: r.kind, ...(why ? { note: why } : {}) },
       });
       return this.getRequest(requestId)!;
     });

@@ -287,6 +287,11 @@ If the `ask` is a **sign-off gate** (work is finished and you need approval befo
 proceeding), move the task to `Review` first so the board shows *why* it's parked,
 then `ask`.
 
+> **Record why, not only what.** `kanban answer <qid> "<choice>" --note "<why>"` —
+> the choice records the decision and loses the reasoning, and answers get quoted in
+> code comments where the reasoning is the half that matters. It renders in a
+> `decisions` block in `show`/`context`, so the next session reads the reason too.
+
 > **An answer given in chat is not an answer.** When the human replies in
 > conversation rather than on the card — which, in a chat-plus-board setup, is most
 > of the time — write it back with `kanban answer <qid> "<their choice>"` **before**

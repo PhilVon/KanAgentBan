@@ -380,6 +380,12 @@ function inboxItem(q) {
   wrap.append(el('div', 'q-task', `${q.task_id} · ${q.id}${isWatch ? ' · watch' : ''}`));
   wrap.append(el('div', 'q-text', isWatch ? `waiting for: ${q.question}` : q.question));
   const form = el('div', 'q-form');
+  // Optional "why" carried alongside the choice. An answer gets quoted in code
+  // comments, where the reasoning is the part a reader in six months needs — so
+  // it is offered beside every control, and never required by any of them.
+  const note = isWatch ? null : el('input', 'q-note');
+  if (note) note.placeholder = 'why? (optional — the reasoning outlives the choice)';
+  const why = () => (note && note.value ? note.value : undefined);
   if (isWatch) {
     const done = el('button', 'send', 'It happened');
     done.onclick = () => answer(q.id, 'happened');
@@ -388,16 +394,16 @@ function inboxItem(q) {
     if (q.options && q.options.length) {
       for (const opt of q.options) {
         const b = el('button', 'opt', opt);
-        b.onclick = () => answer(q.id, opt);
+        b.onclick = () => answer(q.id, opt, why());
         form.append(b);
       }
     }
     if (!q.options || q.answer_freeform) {
       const input = el('input', 'q-input');
       input.placeholder = 'type an answer…';
-      input.addEventListener('keydown', (e) => e.key === 'Enter' && input.value && answer(q.id, input.value));
+      input.addEventListener('keydown', (e) => e.key === 'Enter' && input.value && answer(q.id, input.value, why()));
       const send = el('button', 'send', 'Answer');
-      send.onclick = () => input.value && answer(q.id, input.value);
+      send.onclick = () => input.value && answer(q.id, input.value, why());
       form.append(input, send);
     }
   }
@@ -405,14 +411,15 @@ function inboxItem(q) {
   cancel.onclick = () => cancelInput(q.id);
   form.append(cancel);
   wrap.append(form);
+  if (note) wrap.append(note);
   return wrap;
 }
 
-const answer = (qid, text) =>
+const answer = (qid, text, note) =>
   api(`/api/input-requests/${qid}/answer`, {
     method: 'POST',
     headers: userJson,
-    body: JSON.stringify({ answer: text, answered_by: 'user' }),
+    body: JSON.stringify({ answer: text, answered_by: 'user', note }),
   }).catch((err) => toast(`answer failed: ${err.message}`));
 
 const cancelInput = (qid) =>

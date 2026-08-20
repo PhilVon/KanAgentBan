@@ -34,6 +34,9 @@ export function renderInbox(v: InboxView): string {
     // A default applied at expiry is still an answer — but never silently so.
     const defaulted = q.answered_by === 'system:default' ? ' (defaulted)' : '';
     lines.push(`${q.id}  answered${defaulted}: ${q.answer ?? ''}   (task ${q.task_id})`);
+    // The reason, under the choice it explains — an answer gets quoted in code
+    // comments, and the reasoning is the part that has to survive with it.
+    if (q.answer_note) lines.push(`    why: ${q.answer_note}`);
   }
   for (const q of v.resolved ?? []) {
     lines.push(`${q.id}  ${q.status}: ${q.question}   (task ${q.task_id})`);

@@ -78,7 +78,10 @@ import {
 //     flagged `human` (only the human settles it; renders `[human]`). The count
 //     line grows `· N retired` / `· N for the human` tails ONLY when non-zero, so
 //     an ordinary task still reads `criteria 5/6`.
-export const FORMAT_VERSION = 22;
+// v23: answer notes — `answer --note "<why>"` stores the reason beside the choice;
+//     `inbox` prints it under the answer, and `show`/`context` gain a `decisions`
+//     block (recent answered questions, `Q-n "…" → answer` + `why:`).
+export const FORMAT_VERSION = 23;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;
@@ -139,6 +142,25 @@ function rel(iso: string): string {
 
 function fmtComment(c: Comment): string {
   return `  ${c.author_type}/${c.author_name} ${rel(c.created_at)}  "${c.body}"`;
+}
+
+/**
+ * Resolved questions — the decisions section. The answer is the record of a
+ * choice the human made, and `answer --note` carries the *why*, which is the
+ * half a reader in six months actually needs (these get quoted in code
+ * comments). Empty when nothing has been answered, so an ordinary task is
+ * unaffected.
+ */
+function decisionsBlock(repo: Repo, id: string, limit: number): string | null {
+  if (limit <= 0) return null;
+  const answered = repo.getAnsweredRequests(id, limit);
+  if (!answered.length) return null;
+  const rows = answered.map((q) => {
+    const defaulted = q.answered_by === 'system:default' ? ' (defaulted)' : '';
+    const head = `  ${q.id} "${q.question}" → ${q.answer}${defaulted}`;
+    return q.answer_note ? `${head}\n      why: ${q.answer_note}` : head;
+  });
+  return `decisions (${answered.length}):\n` + rows.join('\n');
 }
 
 /**
@@ -311,6 +333,15 @@ function buildShow(repo: Repo, id: string, t: Task, fid: ShowFidelity): string {
         ? `  [open input hidden — show ${id} --full]`
         : open.map((q) => `  ${q.id} ${q.kind === 'watch' ? '[watch] ' : ''}"${q.question}"`).join('\n'),
     );
+  // Decisions ride with the open-input rung: both are the HITL channel, and a
+  // tight budget sheds the resolved half before the pending half — but never
+  // silently, so a dropped block still leaves its footer.
+  if (repo.getAnsweredRequests(id, 1).length)
+    lines.push(
+      fid.dropOpen
+        ? `  [decisions hidden — show ${id} --full]`
+        : decisionsBlock(repo, id, 2)!,
+    );
   const userBlock = userCommentBlock(repo, id, fid.dropUserComments ? 0 : 3, false, 'show');
   if (userBlock) lines.push(userBlock);
   const agentBlock = agentNoteBlock(repo, id, fid.dropAgentNotes ? 0 : 3, false, 'show');
@@ -445,6 +476,11 @@ function buildContextSections(repo: Repo, id: string, t: Task, fid: Fidelity): s
           )
           .join('\n'),
     );
+
+  // 4.5 decisions — questions the human has answered, with the reason when one
+  //     was given. Design intent outlives the moment it unblocked.
+  const decisions = decisionsBlock(repo, id, 3);
+  if (decisions) sections.push(decisions);
 
   // 5. comments — the user's directives (protected) first, then agent notes
   //    (shed first). Each block carries its own never-silent truncation footer.

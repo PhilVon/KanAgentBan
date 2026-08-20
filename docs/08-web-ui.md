@@ -106,6 +106,10 @@ Each row shows:
   presenting it as an unanswered question is exactly the confusion `kind` exists
   to remove ([04 §2](04-human-in-the-loop.md)).
 
+Every answer control sits above an optional **why?** field, sent as `note`: the
+reasoning outlives the choice (answers get quoted in code comments), and it is
+offered on every answer while blocking none of them.
+
 **Answering** issues `POST /api/input-requests/:qid/answer`
 ([07-api-reference](07-api-reference.md)). On success the server records the
 answer, flips the task's `needs_input` → ready, and broadcasts `input.answered`;
