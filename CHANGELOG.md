@@ -187,6 +187,16 @@ Unreleased section describing its change.
   `/api/templates`, grouped MCP `template` tool (SCHEMA_VERSION 9→10) (#30)
 
 ### Changed
+- Skill: two agent-side failure modes written down where the board can enforce them.
+  **An answer given in chat is not an answer** — when the human replies in
+  conversation rather than on the card (most of the time, in a chat-plus-board
+  setup), write it back with `kanban answer <qid> "…"` *before* acting on it, or the
+  durable record and the thing acted on are two different objects and a question sits
+  open beside finished, merged work. **Measure the numbers in an `ask`, or mark them
+  as estimates** — a request renders every sentence with the same authority to a
+  reader who cannot see where any of it came from, so an unmeasured figure reads as a
+  fact; unmeasured ones carry *roughly* / *I estimate* in the sentence. Both in
+  `skill/SKILL.md` and `docs/06-skill.md` (T-98, 2026-08-20)
 - **Breaking (analytics response shape):** `stats` JSON time-series points are keyed
   by `t` (ISO 8601 UTC bucket start) instead of `date` (`YYYY-MM-DD`); `forecast.eta`
   is now a full ISO timestamp (with new `ms_to_drain`); `window` gains `span_ms`,
