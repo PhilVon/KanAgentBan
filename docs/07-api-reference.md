@@ -203,7 +203,7 @@ linked docs **without bodies** — a body loads only via `GET /api/docs/:id`.
 | Method | Path | CLI | Notes |
 |--------|------|-----|-------|
 | `POST` | `/api/tasks/:id/input-requests` | `ask` / `expect` | returns `Q-n`, non-blocking. Body `kind: "watch"` raises a **watch** (an event to wait for) instead of a question: it does not set `needs_input`, and `options`/`freeform` are rejected with it |
-| `POST` | `/api/input-requests/:qid/answer` | `answer` / UI | also used by the UI |
+| `POST` | `/api/input-requests/:qid/answer` | `answer` / UI | also used by the UI. Body `{answer, answered_by?, note?}` — `note` is the *why*, optional, and rides `input.answered` only when present |
 | `POST` | `/api/input-requests/:qid/cancel` | `cancel` | withdraw an open request; fires `input.cancelled` |
 | `GET` | `/api/input-requests/:qid/await?timeout=S` | `await` | **long-poll**; resolves on answer/cancel/expiry (`{status, answer?}`); checks committed state before parking; `204` on timeout → exit `2` |
 | `GET` | `/api/await?task=&any=&timeout=S` | `await --task/--any` | long-poll variants; same resolution statuses |

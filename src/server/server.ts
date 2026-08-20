@@ -666,7 +666,7 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     ),
   ));
   app.post('/api/input-requests/:qid/answer', wrap((req, res) =>
-    res.json(repo.answer(req.params.qid, req.body.answer, req.body.answered_by ?? 'user')),
+    res.json(repo.answer(req.params.qid, req.body.answer, req.body.answered_by ?? 'user', str(req.body.note))),
   ));
   app.post('/api/input-requests/:qid/cancel', wrap((req, res) =>
     res.json(repo.cancel(req.params.qid, actor(req))),

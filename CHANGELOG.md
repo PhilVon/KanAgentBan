@@ -10,6 +10,17 @@ Unreleased section describing its change.
 ## [Unreleased]
 
 ### Added
+- **Answer notes: record *why*, not only *what*.** `answer` was a single TEXT field,
+  so a decision came back as `lift-it` and the reasoning was lost — and answers get
+  quoted in code comments, where the reasoning is the half a reader in six months
+  actually needs. `kanban answer <Q-n> "<choice>" --note "<why>"` stores it (optional;
+  blank is stored as none), the web inbox offers a quiet **why?** field beside every
+  answer control, and it rides `input.answered` only when present. It renders wherever
+  the answer does: under the answer in `inbox`, and in a new `decisions (n):` block in
+  `show` (last 2) and `context` (last 3) — `Q-7 "…" → Postgres` with `why: …` beneath.
+  A task with nothing answered renders exactly as before, and under a tight budget the
+  block sheds with the open-input rung leaving a never-silent footer.
+  SCHEMA_VERSION 12→13; FORMAT_VERSION 22→23 (T-102, 2026-08-20)
 - **Criterion states: `retire`, `--human`, `amend`.** A criterion had exactly two
   states, so one that turned out to be *wrong* could only be ticked falsely, left
   unchecked forever, or escalated as a question the agent raised about its own

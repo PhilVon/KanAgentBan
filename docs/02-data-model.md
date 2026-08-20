@@ -118,6 +118,7 @@ prioritize `user`/`agent` comments and collapse `system` ones to a count.
 | `answer_freeform` | INTEGER (bool) | allow free text even when options given |
 | `status` | TEXT | `open` \| `answered` \| `cancelled` \| `expired` |
 | `answer` | TEXT NULL | validated ∈ options when constrained |
+| `answer_note` | TEXT NULL | *why* that answer (`answer --note`). Optional. The choice alone records the decision and loses the reasoning — and answers get quoted in code comments, where the reasoning is the part that has to survive |
 | `answered_by` | TEXT NULL | |
 | `created_at` / `answered_at` | TEXT | |
 | `expires_at` | TEXT NULL | optional TTL; once passed, a server sweep marks the request `expired` (fires `input.expired`) |

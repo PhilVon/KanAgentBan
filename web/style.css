@@ -96,6 +96,10 @@ header h1::before {
 .q-task { color: var(--muted); font-size: 0.8rem; }
 .q-text { margin: 0.2rem 0 0.4rem; }
 .q-form { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+/* The optional "why". Sits under the controls, quiet by design: worth offering
+   on every answer, never worth blocking one. */
+.q-note { width: 100%; margin-top: 0.35rem; font-size: 0.85rem; opacity: 0.85; }
+.q-note:focus { opacity: 1; }
 
 .metrics-panel {
   margin: 0.8rem 1rem;

@@ -114,6 +114,13 @@ export interface InputRequest {
   answer_freeform: boolean;
   status: InputStatus;
   answer: string | null;
+  /**
+   * Why that answer — the part a reader in six months actually needs. The
+   * choice alone (`lift-it`) records the decision and loses the reasoning, and
+   * answers end up quoted in code comments where the reasoning is the point.
+   * Optional: a note is worth prompting for, never worth blocking on.
+   */
+  answer_note: string | null;
   answered_by: string | null;
   created_at: string;
   answered_at: string | null;

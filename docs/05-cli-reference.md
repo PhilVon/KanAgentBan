@@ -577,8 +577,18 @@ $ kanban await Q-7 --timeout 60
 Q-7 answered: Auth0
 ```
 
-### `kanban answer <Q-id> "<text>"`
-Records an answer from the CLI (parity with the UI; mostly for testing/automation).
+### `kanban answer <Q-id> "<text>" [--note "<why>"]`
+Records an answer from the CLI (parity with the UI). `--note` carries the **why**
+beside the choice: `answer` was a single field, so a decision came back as
+`lift-it` and the reasoning was lost — and answers get quoted in code comments,
+where the reasoning is the half a reader in six months actually needs. The note is
+optional, never required, and blank is stored as none.
+
+It renders wherever the answer does: under the answer line in `inbox`, and in a
+`decisions (n):` block in `show` (last 2) and `context` (last 3) —
+`Q-7 "Redis or Postgres?" → Postgres` with `why: …` beneath. Under a tight budget
+the block sheds with the open-input rung, leaving a never-silent footer. A task
+with nothing answered renders exactly as before.
 
 ### `kanban cancel <Q-id>`
 Withdraws an open input request the agent no longer needs (fires `input.cancelled`).

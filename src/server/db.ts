@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -67,7 +67,8 @@ CREATE TABLE IF NOT EXISTS input_request (
   created_at TEXT NOT NULL,
   answered_at TEXT,
   expires_at TEXT,
-  default_answer TEXT
+  default_answer TEXT,
+  answer_note TEXT
 );
 
 CREATE TABLE IF NOT EXISTS acceptance_criterion (
@@ -351,6 +352,15 @@ function migrate(db: DB): void {
 
   // v9 -> v10: task templates — purely additive `template` table; both fresh and
   // existing boards get it from the idempotent CREATE in SCHEMA_SQL above.
+
+  // v12 -> v13: answer notes. `answer` was a single TEXT field, so a decision
+  // came back as `lift-it` and the *reason* was lost — and answers get quoted in
+  // code comments, where the reasoning is the part a reader in six months
+  // actually needs. One nullable column; every existing answer keeps its choice
+  // and simply has no note.
+  if (current > 0 && current < 13) {
+    addColumnIfMissing(db, 'input_request', 'answer_note', 'TEXT');
+  }
 
   // v11 -> v12: criterion states. A criterion had exactly two states, so a
   // mis-specified one could only be ticked falsely, left unchecked forever, or
