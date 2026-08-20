@@ -24,6 +24,18 @@ export interface DoctorFinding {
   /** The task (T-n) or request (Q-n) the finding is about. */
   id: string;
   detail: string;
+  /**
+   * What this check *cannot* see — required, not optional.
+   *
+   * Every finding pre-writes a command, and a reader handed a pre-written
+   * command is inclined to run it. `done-eligible-parent` counts subtasks and is
+   * blind to the parent's own criteria; phrased as a bare imperative it nearly
+   * talked a session into closing a task whose playtest had not happened. A
+   * check that can be locally right and globally wrong has to say which, so the
+   * reader knows what to verify before complying — and the command in `detail`
+   * is phrased conditionally to match.
+   */
+  blind_spot: string;
 }
 
 export interface DoctorReport {
@@ -38,6 +50,7 @@ export const CHECKS = [
   'wip-no-criteria',
   'aging-wip',
   'ancient-ask',
+  'answered-elsewhere',
   'stale-summary',
   'done-eligible-parent',
 ] as const;
@@ -49,7 +62,8 @@ const hours = (ms: number): string => (ms >= DAY_MS ? days(ms) : `${Math.floor(m
 /**
  * One read-only hygiene sweep over the live board. Exit-code contract (CLI):
  * `0` healthy, `2` findings — so a session-start hook can branch on it the same
- * way `await` signals pending. Never mutates; every finding names its fix.
+ * way `await` signals pending. Never mutates; every finding names its fix *and*
+ * what its own check cannot see (see DoctorFinding.blind_spot).
  */
 export function runDoctor(repo: Repo, nowMs: number = Date.now()): DoctorReport {
   const findings: DoctorFinding[] = [];
@@ -57,6 +71,7 @@ export function runDoctor(repo: Repo, nowMs: number = Date.now()): DoctorReport 
   const pace = boardPace(repo, nowMs);
   const paceTag = pace.basis === 'cycle-time' ? ', pace-based' : '';
   const tasks = repo.listTasks({});
+  const byId = new Map(tasks.map((t) => [t.id, t]));
   const active = (t: Task) => t.status === 'Ready' || t.status === 'In Progress' || t.status === 'Review';
 
   for (const t of tasks) {
@@ -69,12 +84,16 @@ export function runDoctor(repo: Repo, nowMs: number = Date.now()): DoctorReport 
           check: 'stale-claim',
           id: t.id,
           detail: `lease of ${t.assignee} expired ${hours(age(t.claim_expires_at, nowMs))} ago — sweep will release, or take over: kanban claim ${t.id}`,
+          blind_spot:
+            'an expired lease is a missed renewal, not a stopped agent — the holder may still be mid-task',
         });
       } else if (!t.claim_expires_at && age(t.updated_at, nowMs) > STALE_CLAIM_MS) {
         findings.push({
           check: 'stale-claim',
           id: t.id,
-          detail: `claimed by ${t.assignee}, untouched ${hours(age(t.updated_at, nowMs))} — release --force if abandoned`,
+          detail: `claimed by ${t.assignee}, untouched ${hours(age(t.updated_at, nowMs))} — release --force only if it really is abandoned`,
+          blind_spot:
+            'updated_at moves on board writes only, so work done without touching the board looks identical to abandonment',
         });
       }
     }
@@ -84,7 +103,9 @@ export function runDoctor(repo: Repo, nowMs: number = Date.now()): DoctorReport 
       findings.push({
         check: 'wip-no-criteria',
         id: t.id,
-        detail: `In Progress with no acceptance criteria — kanban criterion add ${t.id} "…"`,
+        detail: `In Progress with no acceptance criteria — unless the definition of done is already written down: kanban criterion add ${t.id} "…"`,
+        blind_spot:
+          'reads the criteria table only — a definition of done living in the description or a linked doc is invisible to it',
       });
     }
 
@@ -95,6 +116,8 @@ export function runDoctor(repo: Repo, nowMs: number = Date.now()): DoctorReport 
         check: 'aging-wip',
         id: t.id,
         detail: `${t.status}, untouched ${fmtDur(age(t.updated_at, nowMs))} (threshold ${fmtDur(pace.stale_ms)}${paceTag}) — still real? move it or archive it`,
+        blind_spot:
+          'measures time since the last board write, not since the last work — long real work that never writes ages exactly like abandoned work',
       });
     }
 
@@ -107,30 +130,59 @@ export function runDoctor(repo: Repo, nowMs: number = Date.now()): DoctorReport 
       findings.push({
         check: 'stale-summary',
         id: t.id,
-        detail: `description changed after the summary — kanban summarize ${t.id} "…"`,
+        detail: `description changed after the summary — re-summarize if the change touched what the summary claims: kanban summarize ${t.id} "…"`,
+        blind_spot:
+          'compares two timestamps and has read neither text — a typo fix and a rewrite look the same from here',
       });
     }
 
-    // 6. Done-eligible parent: every child Done but the parent still open.
+    // 6. Done-eligible parent: every child Done but the parent still open. The
+    //    rollup says "closable"; the parent's own criteria may flatly disagree,
+    //    so count them and state the conflict rather than the half of it this
+    //    check happens to measure.
     if (t.status !== 'Done') {
       const kids = childProgress(repo.db, t.id);
       if (kids.total > 0 && kids.done === kids.total) {
+        const own = repo.getCriteria(t.id);
+        const openOwn = own.filter((c) => !c.checked).length;
+        const conflict = openOwn > 0 ? `, but ${openOwn} of its own ${own.length} criteria unchecked` : '';
         findings.push({
           check: 'done-eligible-parent',
           id: t.id,
-          detail: `all ${kids.total} subtask(s) Done — close it: kanban done ${t.id}`,
+          detail: `all ${kids.total} subtask(s) Done${conflict} — close only if those are met or retired: kanban done ${t.id}`,
+          blind_spot:
+            'rolls up subtask status only — it cannot judge whether a criterion is met, and an unchecked box never says whether the work is outstanding or the criterion was mis-specified',
         });
       }
     }
   }
 
-  // 4. ancient open questions — the human likely never saw them.
   for (const q of repo.getOpenRequests()) {
+    // 4. ancient open questions — the human likely never saw them.
     if (age(q.created_at, nowMs) > ANCIENT_ASK_MS) {
       findings.push({
         check: 'ancient-ask',
         id: q.id,
         detail: `open ${days(age(q.created_at, nowMs))} on ${q.task_id}: "${q.question}" — nudge the human, re-ask, or cancel`,
+        blind_spot: `cannot see the chat — if the human already answered there, none of those three is the fix: kanban answer ${q.id} "…"`,
+      });
+    }
+
+    // 7. answered elsewhere: an open request on a task that has moved on. Nearly
+    //    always an answer that arrived in conversation and was acted on but never
+    //    written back, which leaves finished work reading as still waiting on the
+    //    human — and leaves the durable record and the thing acted on as two
+    //    different objects.
+    const owner = byId.get(q.task_id);
+    if (owner && (owner.status === 'Done' || owner.status === 'Review')) {
+      findings.push({
+        check: 'answered-elsewhere',
+        id: q.id,
+        detail: `open on ${q.task_id}, which is ${owner.status}: "${q.question}" — if it was answered in chat, write it back: kanban answer ${q.id} "…"`,
+        blind_spot:
+          owner.status === 'Review'
+            ? 'Review plus an open ask is also the documented sign-off gate — this check cannot tell that from a question the board never got the answer to'
+            : 'cannot see where the answer went; if the decision was never actually made, cancel it rather than inventing one',
       });
     }
   }

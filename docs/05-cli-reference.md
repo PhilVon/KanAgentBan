@@ -222,11 +222,36 @@ Read-only; reuses the event log + stats internals.
 One read-only hygiene sweep, findings grouped by check: `stale-claim` (expired
 lease, or an indefinite claim untouched >24h), `wip-no-criteria` (In Progress
 with no acceptance criteria), `aging-wip` (Ready/In Progress/Review untouched
->7d), `ancient-ask` (open `Q-n` >48h), `stale-summary` (description newer than
-summary), `done-eligible-parent` (all subtasks Done, parent still open). Every
-finding names its fix. **Exit `0` = healthy, exit `2` = findings** (same
-semantic-exit pattern as `await`'s pending) — run it at session start and act on
-what it reports. Thresholds are deliberately fixed, not flags.
+past the pace-derived stale threshold, which the finding prints), `ancient-ask`
+(open `Q-n` >48h), `answered-elsewhere` (an open `Q-n` on a task that is now Done
+or in Review), `stale-summary` (description newer than summary),
+`done-eligible-parent` (all subtasks Done, parent still open). **Exit `0` =
+healthy, exit `2` = findings** (same semantic-exit pattern as `await`'s pending)
+— run it at session start and act on what it reports.
+
+Every finding names its fix **and what its own check cannot see**, as a trailing
+`[cannot see: …]` clause (`blind_spot` under `--json`):
+
+```
+done-eligible-parent (1):
+  T-4  all 18 subtask(s) Done, but 3 of its own 3 criteria unchecked — close only
+       if those are met or retired: kanban done T-4  [cannot see: rolls up subtask
+       status only — it cannot judge whether a criterion is met, …]
+```
+
+This is a safety property, not a courtesy. A finding pre-writes a mutating
+command, and a reader handed a pre-written command is inclined to run it — the
+bare earlier form of that line (`all 18 subtask(s) Done — close it:`) nearly
+closed a task whose own acceptance criteria were unmet. So any check that can be
+locally right and globally wrong says which, and phrases its command
+conditionally. `answered-elsewhere` is the same shape pointed at the human
+channel: an answer given in chat and acted on but never written back leaves
+finished work reading as still waiting on them — and the check cannot tell that
+from a legitimate `Review` sign-off gate, so it says so.
+
+Thresholds are deliberately not flags: the claim/question ones are fixed (they
+measure human latency), and the aging one derives from the board's own completion
+pace.
 
 ### `kanban checkpoint <id> ["did X, next Y, watch Z"] [--clear]`
 The **one-slot resume pointer** for cross-session continuity: set it whenever you
