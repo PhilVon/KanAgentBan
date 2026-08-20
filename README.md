@@ -78,30 +78,24 @@ For the full install/skill/walkthrough guide, see
 The CLI is the surface; the **Claude Code skill** (`skill/SKILL.md`) is what makes
 Claude reach for the board on its own — and asks the human through durable on-board
 requests instead of vanishing chat-only questions. **Installing it is part of normal
-setup, not optional.** Claude Code loads skills from a `skills/` directory where each
-skill is a folder containing a `SKILL.md`; copy this repo's `skill/SKILL.md` into a
-`kanban` folder under your Claude config.
-
-**Personal skill** (available in every project):
-
-PowerShell (Windows):
-
-```powershell
-$dest = "$env:USERPROFILE\.claude\skills\kanban"
-New-Item -ItemType Directory -Force $dest | Out-Null
-Copy-Item .\skill\SKILL.md $dest
-```
-
-bash (macOS/Linux):
+setup, not optional.** There is a script for it — the same command on every platform:
 
 ```bash
-mkdir -p ~/.claude/skills/kanban
-cp skill/SKILL.md ~/.claude/skills/kanban/
+npm run install-skill              # skill/ + docs/ -> <CLAUDE_CONFIG_DIR>/skills/kanban/
+npm run install-skill -- --check   # exit 0 = in sync, 2 = drift (lists each file)
 ```
 
-**Project-scoped** (one repo only): put it at `.claude/skills/kanban/SKILL.md`
-instead — use this to commit the skill alongside a project. Restart Claude Code (or
-start a new session) so it picks up the skill.
+It copies `docs/` too, so the skill's references to `docs/05-cli-reference.md` and
+friends actually resolve. Re-run it after pulling.
+
+> **If `--check` says a file `differs`, diff it before you sync.** The installed copy
+> is editable in place, and an edit made *there* exists nowhere else — two sections of
+> `SKILL.md` once lived only in the installed copy for a month. `install-skill`
+> overwrites from source; it does not merge.
+
+**Project-scoped** (one repo only): `CLAUDE_CONFIG_DIR=.claude npm run install-skill`
+lands it at `.claude/skills/kanban/` — use this to commit the skill alongside a
+project. Restart Claude Code (or start a new session) so it picks up the skill.
 
 ### Driving the board with Claude
 
@@ -120,6 +114,8 @@ kanban standup                     # cold-start: everything that happened since 
 kanban next --context              # load one task + its full working set in one call
 kanban move T-12 "In Progress"     # status goes current on pickup
 kanban criterion add T-12 "handles error responses"
+kanban criterion add T-12 "the tape reads right on the page" --human   # only you can settle it
+kanban criterion retire AC-9 --because "the client has no transcripts" --successor T-41
 kanban comment T-12 "chose Auth0 — Cognito needs a custom UI"   # records the decision
 kanban checkpoint T-12 "did X, next Y"   # resume pointer if pausing mid-task
 kanban done T-12                   # completion recomputes what's now unblocked
@@ -134,10 +130,17 @@ When it needs a decision it raises a *durable* question and yields:
 3. If you haven't answered, Claude **yields the turn** — picks up other ready work or
    ends cleanly ("Paused T-12 on Q-7, awaiting your input").
 
-You answer at your leisure in the Web UI (or `kanban answer Q-7 "Auth0"`), which flips
-the task back to *ready*. The next time Claude works the board — **even in a brand-new
+You answer at your leisure in the Web UI (or `kanban answer Q-7 "Auth0" --note "the
+Cognito UI is a custom build"` — the note records *why*, which is the half that gets
+quoted in a code comment six months later), which flips the task back to *ready*. The next time Claude works the board — **even in a brand-new
 session** — `kanban inbox` / `kanban next` surface it and it resumes with your answer.
 So a paused task is normal and healthy, not stuck.
+
+**Waiting on an event rather than a decision** is a different thing, and has its own
+command: `kanban expect T-12 "the design files land in assets/"`. A *watch* does not
+park the task as needs-input, so it shows in its real column rather than **Blocked**,
+and you are not implicitly being chased for an answer that does not exist. Click *It
+happened* in the UI (or `kanban answer`) when it does.
 
 Full behavioural spec: [docs/06-skill.md](docs/06-skill.md). The skill's own
 cheat-sheet is the canonical CLI quick reference (`skill/SKILL.md`).
@@ -206,7 +209,7 @@ the UI degrades gracefully (labels/counts render, just without glyphs).
 ### Test
 
 ```bash
-npm test          # vitest: 354 tests across 31 suites
+npm test          # vitest: 470 tests across 38 suites
 ```
 
 Core suites:

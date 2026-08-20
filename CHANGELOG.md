@@ -237,6 +237,15 @@ Unreleased section describing its change.
   `/api/templates`, grouped MCP `template` tool (SCHEMA_VERSION 9→10) (#30)
 
 ### Changed
+- Docs swept to the end of the model-defect batch. The standing drift is that per-PR
+  docs updates land while the *user-facing* set lags a batch, and this sweep found it
+  in the obvious place: the pinned format version was quoted as `11` in `docs/03`, `8`
+  in `docs/05` and `4` in `docs/07` — three different wrong numbers for one contract,
+  all now `24`. `docs/11-roadmap` gains a §2.1 recording the batch finding-by-finding
+  with its canon (SCHEMA 13, FORMAT 24, 470 tests / 38 suites, MCP 31 tools);
+  `docs/04` gains answer notes and the answer-given-in-chat rule; `README` points at
+  `npm run install-skill` instead of two hand-rolled copy recipes and shows `expect`,
+  `--human`/`retire` and `answer --note` in the worked example (T-105, 2026-08-20)
 - Skill: two agent-side failure modes written down where the board can enforce them.
   **An answer given in chat is not an answer** — when the human replies in
   conversation rather than on the card (most of the time, in a chat-plus-board

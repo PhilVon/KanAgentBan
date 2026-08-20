@@ -188,6 +188,18 @@ Because the request is durable, nothing is lost when a turn or session ends.
   - `kanban await --task T-12` — any request on that task
   - `kanban await --any` — the next answer anywhere on the board
 - Each question is answered independently in the UI.
+- **An answer records the choice; `--note` records the *why*.** `kanban answer Q-7
+  "lift-it" --note "the press decides, not the page"` — optional, never required.
+  The choice alone loses the reasoning, and answers get quoted in code comments
+  where the reasoning is the part a reader in six months needs. The UI offers a
+  quiet *why?* field beside every answer control, `inbox` prints it under the
+  answer, and `show`/`context` carry a `decisions` block so the reason reaches the
+  next session, not just the one that asked.
+- **An answer given in chat is not an answer.** In a chat-plus-board setup the human
+  usually replies in conversation; write it back with `kanban answer` **before**
+  acting on it, or the durable record and the thing acted on are two different
+  objects and the question sits open beside finished work. `doctor`'s
+  `answered-elsewhere` check catches the residue.
 
 ---
 

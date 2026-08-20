@@ -5,7 +5,7 @@
 > other LLM frameworks, any MCP client — can drive it. It is a **thin MCP client of
 > the existing sole-writer HTTP server**, reusing the same `connect()` + `api()`
 > path as the `kanban` CLI; it never opens its own database. The tool surface is a
-> **curated** subset of the CLI (30 tools), not a 1:1 mirror, to keep an agent's
+> **curated** subset of the CLI (31 tools), not a 1:1 mirror, to keep an agent's
 > tool-context cost low while preserving the token-efficiency and durable-async
 > contracts.
 >

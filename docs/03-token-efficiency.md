@@ -161,7 +161,7 @@ The trailing bracketed lines are **truncation footers** — see §4.
 - Terse plaintext default; `--json` opt-in for machine parsing.
 - Stable field order, stable section headers, no decorative noise.
 - No ANSI colour when stdout is not a TTY.
-- Versioned: `--format-version` (current `11`); changes bump the version so a
+- Versioned: `--format-version` (current `24`); changes bump the version so a
   pinned agent/skill never silently breaks. **v2** added the `est_tokens` field to
   `--json` reads and the context-tier graceful-degradation truncation footers (§4);
   **v3** extended `--max-tokens` budgeting (and its never-silent footers) to the
