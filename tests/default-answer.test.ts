@@ -45,7 +45,8 @@ describe('repo: ask --default (default-on-expiry answers)', () => {
     const ev = repo.changes(0).filter((e) => e.type === 'input.answered');
     expect(ev).toHaveLength(1);
     expect(ev[0].actor_type).toBe('system');
-    expect(ev[0].payload).toEqual({ request_id: q.id, answer: 'b', defaulted: true });
+    // `kind` rides every input event so delta readers can count watches apart.
+    expect(ev[0].payload).toEqual({ request_id: q.id, answer: 'b', defaulted: true, kind: 'question' });
     // The task's needs_input clears — the agent is unblocked.
     expect(repo.getOpenRequests(t.id)).toHaveLength(0);
   });

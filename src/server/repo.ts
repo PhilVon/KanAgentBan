@@ -11,7 +11,7 @@ import {
   nextSeq,
   nextTaskId,
 } from './ids';
-import { DOC_KINDS, DOC_STATUSES, WORKFLOW_STATUSES } from '../shared/types';
+import { DOC_KINDS, DOC_STATUSES, INPUT_KINDS, WORKFLOW_STATUSES } from '../shared/types';
 import type {
   AcceptanceCriterion,
   Artifact,
@@ -25,6 +25,7 @@ import type {
   DocStatus,
   EventType,
   Idea,
+  InputKind,
   InputRequest,
   Priority,
   SearchOutcome,
@@ -384,11 +385,16 @@ export class Repo {
    */
   inbox(sinceSeq = 0): {
     open: InputRequest[];
+    /** Open watches, split out: they are not waiting on the human and must not
+     *  read as unanswered questions (which is the mistake `expect` exists for). */
+    watching: InputRequest[];
     answered: InputRequest[];
     resolved: InputRequest[];
     cursor: number;
   } {
-    const open = this.getOpenRequests();
+    const allOpen = this.getOpenRequests();
+    const open = allOpen.filter((r) => r.kind !== 'watch');
+    const watching = allOpen.filter((r) => r.kind === 'watch');
     const since = this.changes(sinceSeq);
     const requestsOfType = (type: EventType) =>
       since
@@ -397,7 +403,7 @@ export class Repo {
         .filter((r): r is InputRequest => !!r);
     const answered = requestsOfType('input.answered');
     const resolved = [...requestsOfType('input.cancelled'), ...requestsOfType('input.expired')];
-    return { open, answered, resolved, cursor: this.maxSeq() };
+    return { open, watching, answered, resolved, cursor: this.maxSeq() };
   }
 
   /** All input requests, any status (for export). */
@@ -1771,9 +1777,18 @@ export class Repo {
       expiresAt?: string;
       defaultAnswer?: string;
       actor?: ActorType;
+      /** `question` (default, blocks) or `watch` — see `expect()`. */
+      kind?: InputKind;
     } = {},
   ): InputRequest {
     const actor = opts.actor ?? 'agent';
+    const kind = opts.kind ?? 'question';
+    if (!INPUT_KINDS.includes(kind)) throw new ValidationError(`invalid request kind "${kind}"`);
+    // A watch has no answer to choose, so the answer-shaping flags are not just
+    // unused — accepting them would let a caller build something that looks like
+    // a decision but never blocks. Reject rather than ignore.
+    if (kind === 'watch' && (opts.options || opts.freeform))
+      throw new ValidationError('a watch has nothing to choose: drop --options/--freeform, or use ask');
     // A default only ever applies at expiry — without a deadline it would be
     // unreachable dead state, so require the pairing up front.
     if (opts.defaultAnswer !== undefined && !opts.expiresAt)
@@ -1791,22 +1806,46 @@ export class Repo {
       const ts = now();
       this.db
         .prepare(
-          `INSERT INTO input_request(id,task_id,question,options,answer_freeform,status,created_at,expires_at,default_answer)
-           VALUES(?,?,?,?,?, 'open', ?, ?, ?)`,
+          `INSERT INTO input_request(id,task_id,question,kind,options,answer_freeform,status,created_at,expires_at,default_answer)
+           VALUES(?,?,?,?,?,?, 'open', ?, ?, ?)`,
         )
         .run(
           id,
           taskId,
           question,
+          kind,
           opts.options ? JSON.stringify(opts.options) : null,
           opts.freeform ? 1 : 0,
           ts,
           opts.expiresAt ?? null,
           opts.defaultAnswer ?? null,
         );
-      rec({ type: 'input.requested', task_id: taskId, actor_type: actor, payload: { request_id: id, question } });
+      // `kind` rides the event so the delta readers (standup) can count watches
+      // apart from questions without re-reading rows that may since have moved.
+      rec({
+        type: 'input.requested',
+        task_id: taskId,
+        actor_type: actor,
+        payload: { request_id: id, question, kind },
+      });
       return this.getRequest(id)!;
     });
+  }
+
+  /**
+   * Raise a **watch**: an event to wait for, not a decision to make. Same row as
+   * an `ask` with `kind='watch'`, and the difference is the whole point — it does
+   * not set `needs_input`, so the task is *parked* rather than Blocked and the
+   * human is not implicitly being chased for an answer that does not exist.
+   * Resolve it with `answer` when the event happens, or `cancel` to drop the
+   * trigger.
+   */
+  expect(
+    taskId: string,
+    event: string,
+    opts: { expiresAt?: string; actor?: ActorType } = {},
+  ): InputRequest {
+    return this.ask(taskId, event, { ...opts, kind: 'watch' });
   }
 
   answer(requestId: string, answer: string, answeredBy: string): InputRequest {
@@ -1824,7 +1863,7 @@ export class Repo {
         type: 'input.answered',
         task_id: r.task_id,
         actor_type: 'user',
-        payload: { request_id: requestId, answer },
+        payload: { request_id: requestId, answer, kind: r.kind },
       });
       return this.getRequest(requestId)!;
     });
@@ -1844,7 +1883,7 @@ export class Repo {
       this.db
         .prepare(`UPDATE input_request SET status='cancelled', answered_at=? WHERE id=?`)
         .run(now(), requestId);
-      rec({ type: 'input.cancelled', task_id: r.task_id, actor_type: actor, payload: { request_id: requestId } });
+      rec({ type: 'input.cancelled', task_id: r.task_id, actor_type: actor, payload: { request_id: requestId, kind: r.kind } });
       return this.getRequest(requestId)!;
     });
   }
@@ -1881,12 +1920,12 @@ export class Repo {
             type: 'input.answered',
             task_id: r.task_id,
             actor_type: 'system',
-            payload: { request_id: r.id, answer: r.default_answer, defaulted: true },
+            payload: { request_id: r.id, answer: r.default_answer, defaulted: true, kind: r.kind },
           });
           defaulted++;
         } else {
           expire.run(nowTs, r.id);
-          rec({ type: 'input.expired', task_id: r.task_id, actor_type: 'system', payload: { request_id: r.id } });
+          rec({ type: 'input.expired', task_id: r.task_id, actor_type: 'system', payload: { request_id: r.id, kind: r.kind } });
           expired++;
         }
       }

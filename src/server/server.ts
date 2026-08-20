@@ -29,7 +29,7 @@ import { boardStats, taskTiming } from './stats';
 import { childProgress, deriveState } from './derive';
 import { ensureBoard, readToken, readBoardMeta } from '../shared/board-paths';
 import { attachNudge } from './nudge';
-import { DISPLAY_COLUMNS, type ActorType, type NudgeConfig } from '../shared/types';
+import { DISPLAY_COLUMNS, type ActorType, type InputKind, type NudgeConfig } from '../shared/types';
 
 const WEB_DIR = path.resolve(__dirname, '../../web');
 // Non-sensitive client assets served without a token (see auth middleware).
@@ -632,6 +632,9 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
         expiresAt: req.body.expires_at,
         defaultAnswer: str(req.body.default),
         actor: actor(req),
+        // `kind: 'watch'` (kanban expect) — an event to wait for rather than a
+        // decision to make, so it does not set needs_input.
+        kind: str(req.body.kind) as InputKind | undefined,
       }),
     ),
   ));

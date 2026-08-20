@@ -116,7 +116,7 @@ surface; `idea_promote` creates the task atomically.
 board-native document surface (design/adr/spike/research/note — ADR 0007);
 `show` is budgeted by default and the only op that returns a body.
 
-**Human-in-the-loop:** `ask` (takes `expires_at` and `default` — a default
+**Human-in-the-loop:** `expect` (a watch — an event to wait for, which does not set `needs_input`; use it instead of `ask` when there is nothing to choose), `ask` (takes `expires_at` and `default` — a default
 auto-answers at expiry, flagged `defaulted`, keeping the agent unblocked),
 `await` (bounded; `qid` / `task` / `any`), `cancel`.
 

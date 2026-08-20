@@ -118,7 +118,7 @@ set when a dep edge on the task changes.
 ### `kanban inbox [--since <seq>] [--json]`
 Resume entry point. Terse one-line-per-request plaintext (resolutions first — the
 resume signal: `answered`, then `cancelled`/`expired` — then still-open); `--json`
-emits the raw `{open, answered, resolved, cursor}` payload. `--since <seq>` returns
+emits the raw `{open, watching, answered, resolved, cursor}` payload — `watching` is the open **watches** (`kanban expect`), listed under their own heading because nothing in it is waiting on the human. `--since <seq>` returns
 only requests answered or resolved after that event `seq`
 (pass back the `cursor` from a prior call); without it, all open + answered
 requests are listed. A `--since` cursor below the compaction floor prints a
@@ -226,7 +226,7 @@ One read-only hygiene sweep, findings grouped by check: `stale-claim` (expired
 lease, or an indefinite claim untouched >24h), `wip-no-criteria` (In Progress
 with no acceptance criteria), `aging-wip` (Ready/In Progress/Review untouched
 past the pace-derived stale threshold, which the finding prints), `ancient-ask`
-(open `Q-n` >48h), `answered-elsewhere` (an open `Q-n` on a task that is now Done
+(open **question** >48h — never a watch), `stale-watch` (an open watch >14d), `answered-elsewhere` (an open `Q-n` on a task that is now Done
 or in Review), `stale-summary` (description newer than summary),
 `done-eligible-parent` (all subtasks Done, parent still open). **Exit `0` =
 healthy, exit `2` = findings** (same semantic-exit pattern as `await`'s pending)
@@ -503,6 +503,40 @@ the deadline always wins.
 $ kanban ask T-12 "Which auth provider?" --options Auth0,Cognito
 Q-7  created on T-12 (task now needs input)
 ```
+
+### `kanban expect <id> "<event>" [--expires-at ISO]`
+Raises a **watch** — an event to wait for, not a decision to make. Same
+`input_request` row as an `ask`, with `kind = 'watch'`, and the difference is the
+whole point: **it does not set `needs_input`**, so the task is *parked* rather
+than rendered Blocked and the human is not implicitly being chased for an answer
+that does not exist.
+
+```
+$ kanban expect T-88 "the producer's seventeen files land in public/audio/"
+Q-14  watching on T-88 (not blocking — resolve with: kanban answer Q-14 "…")
+```
+
+Written as an `ask`, a watch behaves badly and *stays* badly: it sets
+`needs_input`, the UI derives **Blocked** from that, and it reads as a question
+the human failed to answer — while every remedy `doctor` offers is wrong for it
+(*nudge*: he knows; *re-ask*: resets a clock, changes no fact; *cancel*: throws
+away the trigger). Splitting the kinds is what stops the Blocked projection
+meaning two different things.
+
+A watch:
+- **never blocks** — `next` still recommends the task, the UI shows its real column
+- gets its **own heading** in `inbox`, and a `[watch]` tag in `show` / `context`
+- is counted apart from question traffic in `standup` (`watching` /
+  `watch resolutions`)
+- is **not** aged by `ancient-ask`; `doctor`'s `stale-watch` leaves it alone until
+  it is 14 days old, and says outright that it cannot see whether the event
+  happened
+- resolves with `kanban answer <Q-n> "…"` (that resolution is what starts the
+  work) or `kanban cancel <Q-n>` to drop the trigger; `--expires-at` drops it
+  automatically
+
+Answer-shaping flags are **rejected**, not ignored: a watch has nothing to
+choose, so `--options`/`--freeform` mean you wanted `ask`.
 
 ### `kanban await <Q-id | --task <id> | --any> [--timeout S] [--json]`
 Long-polls for any terminal resolution. **Use only for short gates.** Checks

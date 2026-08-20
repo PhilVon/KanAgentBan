@@ -4,6 +4,8 @@ import type { InputRequest } from '../shared/types';
 
 export interface InboxView {
   open?: InputRequest[];
+  /** Open watches — waiting for an event, not for the human. */
+  watching?: InputRequest[];
   answered?: InputRequest[];
   /** Cancelled/expired since the cursor — kept never-silent for a resuming agent. */
   resolved?: InputRequest[];
@@ -38,6 +40,14 @@ export function renderInbox(v: InboxView): string {
   }
   for (const q of v.open ?? []) {
     lines.push(`${q.id}  open: ${q.question}   (task ${q.task_id})`);
+  }
+  // Watches get their own heading rather than a fourth kind of line in the same
+  // list: nothing here is waiting on the human, and listing them alongside open
+  // questions is exactly what made one read as a question nobody had answered.
+  const watching = v.watching ?? [];
+  if (watching.length) {
+    lines.push(`watching (${watching.length}) — waiting for an event, not for you:`);
+    for (const w of watching) lines.push(`  ${w.id}  ${w.question}   (task ${w.task_id})`);
   }
   return lines.length ? lines.join('\n') : 'inbox empty — no open or answered requests';
 }

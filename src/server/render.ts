@@ -68,7 +68,11 @@ import {
 // v20: loose search — when an all-terms query finds nothing, `search` retries
 //     OR-ranked and the result set leads with a `[loose: …]` header naming what
 //     it did; `--json` carries `loose`.
-export const FORMAT_VERSION = 20;
+// v21: watches (`kanban expect`) — a request carries a `kind`, so `show`/`context`
+//     tag an open watch `[watch]` and say it is not blocking, `inbox` lists
+//     watches under their own heading, and `standup` counts them in `watching` /
+//     `watch resolutions` rather than as question traffic.
+export const FORMAT_VERSION = 21;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;
@@ -283,7 +287,9 @@ function buildShow(repo: Repo, id: string, t: Task, fid: ShowFidelity): string {
   );
   if (open.length)
     lines.push(
-      fid.dropOpen ? `  [open input hidden — show ${id} --full]` : open.map((q) => `  ${q.id} "${q.question}"`).join('\n'),
+      fid.dropOpen
+        ? `  [open input hidden — show ${id} --full]`
+        : open.map((q) => `  ${q.id} ${q.kind === 'watch' ? '[watch] ' : ''}"${q.question}"`).join('\n'),
     );
   const userBlock = userCommentBlock(repo, id, fid.dropUserComments ? 0 : 3, false, 'show');
   if (userBlock) lines.push(userBlock);
@@ -406,7 +412,9 @@ function buildContextSections(repo: Repo, id: string, t: Task, fid: Fidelity): s
   if (blockedBy.length)
     sections.push(`blocks (${blockedBy.length}): ` + blockedBy.map((b) => b.id).join(', '));
 
-  // 4. open input requests
+  // 4. open input requests. A watch is tagged: it is waiting for an event, not
+  //    for the human, and reading it as an unanswered question is the mistake
+  //    `expect` exists to prevent.
   const open = repo.getOpenRequests(id);
   if (open.length)
     sections.push(
@@ -414,7 +422,7 @@ function buildContextSections(repo: Repo, id: string, t: Task, fid: Fidelity): s
         open
           .map(
             (q) =>
-              `  ${q.id} "${q.question}"${q.options ? `  options: ${q.options.join(' | ')}` : ''}${q.default_answer ? `  [default on expiry: ${q.default_answer}]` : ''}`,
+              `  ${q.id} ${q.kind === 'watch' ? '[watch] ' : ''}"${q.question}"${q.options ? `  options: ${q.options.join(' | ')}` : ''}${q.default_answer ? `  [default on expiry: ${q.default_answer}]` : ''}${q.kind === 'watch' ? '  (not blocking — waiting for this to happen)' : ''}`,
           )
           .join('\n'),
     );
@@ -730,6 +738,18 @@ export function renderStandup(
     blocks.push(
       `question resolutions (${r.resolved.length}):\n` +
         r.resolved.map((q) => `  ${q.id} ${q.status} (task ${q.task_id})`).join('\n'),
+    );
+  // Watches are counted apart from questions: they are not the human's queue, and
+  // folding them in makes a quiet board look like it is waiting on someone.
+  if (r.watched.length)
+    blocks.push(
+      `watching (${r.watched.length}):\n` +
+        r.watched.map((w) => `  ${w.id} on ${w.task_id}: "${w.event}"`).join('\n'),
+    );
+  if (r.watch_resolved.length)
+    blocks.push(
+      `watch resolutions (${r.watch_resolved.length}):\n` +
+        r.watch_resolved.map((w) => `  ${w.id} ${w.status} (task ${w.task_id})`).join('\n'),
     );
   if (r.aging.length) {
     const paceTag = r.pace.basis === 'cycle-time' ? ' (pace)' : '';

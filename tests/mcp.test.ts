@@ -31,11 +31,14 @@ describe('mcp tool surface', () => {
   it('exposes a curated, unique tool set including the read ladder + HITL', () => {
     const names = TOOLS.map((t) => t.name);
     expect(new Set(names).size).toBe(names.length); // no dupes
-    for (const expected of ['next', 'list', 'show', 'context', 'watch', 'changes', 'inbox', 'add', 'move', 'claim', 'dep', 'ask', 'await', 'inbox']) {
+    // `expect` sits beside `ask`/`await`/`cancel` on purpose: without it an MCP
+    // client has only `ask`, and writes a watch as a question — the failure the
+    // whole `kind` distinction exists to prevent.
+    for (const expected of ['next', 'list', 'show', 'context', 'watch', 'changes', 'inbox', 'add', 'move', 'claim', 'dep', 'ask', 'expect', 'await', 'cancel']) {
       expect(names).toContain(expected);
     }
-    // Curated, not the full CLI surface (~35 commands incl. git/board/completion).
-    expect(names.length).toBeLessThanOrEqual(30);
+    // Curated, not the full CLI surface (~36 commands incl. git/board/completion).
+    expect(names.length).toBeLessThanOrEqual(31);
     expect(names.length).toBeGreaterThanOrEqual(16);
   });
 

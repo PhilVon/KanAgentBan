@@ -47,6 +47,40 @@ human:  answers Q-7 in the web UI  (or kanban answer Q-7 "Auth0")
 agent:  kanban inbox   → sees Q-7 answered: Auth0 → resumes T-12
 ```
 
+### Two jobs, two kinds: `ask` vs `expect`
+
+`ask` is the mechanism for a **decision** — something with an answer to choose,
+which rightly parks the task `needs_input` until it is chosen. The *other* thing
+an agent needs from a human is a **watch**: *tell me when X happens*. There is
+nothing to decide; there is an event to wait for.
+
+Before `expect`, a watch had no mechanism, so it got written as an `ask` and
+behaved badly. It set `needs_input`, the UI derived **Blocked** from that, and it
+sat for days looking like a question the human had failed to answer. The tell is
+that **every remedy `doctor` offered was wrong for it**: *nudge the human* (there
+is nothing to nudge — he knows), *re-ask* (resets a clock, changes no fact),
+*cancel* (throws away the trigger). It survived three sessions, each writing a
+*this is deliberate* note on the task rather than noticing the mechanism was
+wrong for the job.
+
+```
+agent: kanban expect T-88 "the producer's seventeen files land in public/audio/"
+        → input_request Q-14 created (status=open, kind=watch)
+        → task T-88 does NOT become needs_input — it is parked, not Blocked
+        → event input.requested (payload kind=watch) broadcast
+
+human:  clicks "It happened" in the UI  (or kanban answer Q-14 "all seventeen arrived")
+        → status = answered; that resolution is what starts the work
+```
+
+Same row, one column (`kind`), and the difference is the whole point: it stops the
+**Blocked** projection meaning two different things. A watch is not counted as
+question traffic in `standup`, gets its own `inbox` heading, is tagged `[watch]`
+in `show`/`context`, and `doctor` never ages it as an `ancient-ask` — only as a
+`stale-watch`, at 14 days, in a finding that says outright it **cannot see whether
+the event happened**. Answer-shaping flags (`--options`/`--freeform`) are rejected
+on a watch rather than ignored: if there is something to choose, you wanted `ask`.
+
 ### input_request state diagram
 
 ```

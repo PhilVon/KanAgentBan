@@ -21,6 +21,13 @@ export interface StandupReport {
   answered: { id: string; task_id: string; answer: string; defaulted: boolean }[];
   /** Cancelled/expired — resolutions a resuming agent must still see. */
   resolved: { id: string; task_id: string; status: string }[];
+  /** Watches raised in the window, counted apart from questions: a watch is
+   *  not question traffic, and rolling them together makes a quiet board look
+   *  like it is waiting on the human. Events predating `kind` read as
+   *  questions, which is what they were. */
+  watched: { id: string; task_id: string; event: string }[];
+  /** Watches that resolved (the event happened, or the trigger was dropped). */
+  watch_resolved: { id: string; task_id: string; status: string }[];
   rejected: { id: string; title: string; reason: string }[];
   /** Tasks in active columns untouched past the pace-aware stale threshold. */
   aging: { id: string; title: string; status: string; age_ms: number }[];
@@ -71,6 +78,8 @@ export function standup(
   const asked: StandupReport['asked'] = [];
   const answered: StandupReport['answered'] = [];
   const resolved: StandupReport['resolved'] = [];
+  const watched: StandupReport['watched'] = [];
+  const watchResolved: StandupReport['watch_resolved'] = [];
 
   for (const e of events) {
     const p = e.payload as any;
@@ -90,14 +99,21 @@ export function standup(
           rejected.push({ id: e.task_id, title: title(e.task_id), reason: p.reason ?? '' });
         break;
       case 'input.requested':
-        if (e.task_id) asked.push({ id: p.request_id, task_id: e.task_id, question: p.question });
+        if (!e.task_id) break;
+        if (p.kind === 'watch') watched.push({ id: p.request_id, task_id: e.task_id, event: p.question });
+        else asked.push({ id: p.request_id, task_id: e.task_id, question: p.question });
         break;
       case 'input.answered':
-        if (e.task_id) answered.push({ id: p.request_id, task_id: e.task_id, answer: p.answer, defaulted: !!p.defaulted });
+        if (!e.task_id) break;
+        if (p.kind === 'watch') watchResolved.push({ id: p.request_id, task_id: e.task_id, status: 'happened' });
+        else answered.push({ id: p.request_id, task_id: e.task_id, answer: p.answer, defaulted: !!p.defaulted });
         break;
       case 'input.cancelled':
       case 'input.expired':
-        if (e.task_id) resolved.push({ id: p.request_id, task_id: e.task_id, status: e.type.slice('input.'.length) });
+        if (!e.task_id) break;
+        if (p.kind === 'watch')
+          watchResolved.push({ id: p.request_id, task_id: e.task_id, status: e.type.slice('input.'.length) });
+        else resolved.push({ id: p.request_id, task_id: e.task_id, status: e.type.slice('input.'.length) });
         break;
     }
   }
@@ -136,6 +152,8 @@ export function standup(
     asked,
     answered,
     resolved,
+    watched,
+    watch_resolved: watchResolved,
     rejected,
     aging,
     pace,

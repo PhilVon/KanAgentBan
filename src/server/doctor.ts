@@ -17,6 +17,13 @@ const DAY_MS = 24 * HOUR_MS;
 const STALE_CLAIM_MS = 24 * HOUR_MS;
 /** An open question this old has probably been missed by the human. */
 const ANCIENT_ASK_MS = 48 * HOUR_MS;
+/**
+ * A watch is *supposed* to sit open — it is waiting for an event, not for the
+ * human — so it is aged against a far longer threshold than a question, and
+ * never by `ancient-ask`. Two weeks says "is this trigger still a thing?", not
+ * "someone has failed to answer you".
+ */
+const STALE_WATCH_MS = 14 * DAY_MS;
 
 export interface DoctorFinding {
   /** Stable check key — see CHECKS. */
@@ -50,6 +57,7 @@ export const CHECKS = [
   'wip-no-criteria',
   'aging-wip',
   'ancient-ask',
+  'stale-watch',
   'answered-elsewhere',
   'stale-summary',
   'done-eligible-parent',
@@ -158,8 +166,13 @@ export function runDoctor(repo: Repo, nowMs: number = Date.now()): DoctorReport 
   }
 
   for (const q of repo.getOpenRequests()) {
-    // 4. ancient open questions — the human likely never saw them.
-    if (age(q.created_at, nowMs) > ANCIENT_ASK_MS) {
+    const watch = q.kind === 'watch';
+
+    // 4. ancient open questions — the human likely never saw them. Questions
+    //    only: every remedy on this line is wrong for a watch (he knows; re-asking
+    //    resets a clock and changes no fact; cancelling throws the trigger away),
+    //    and offering them anyway is what kept a watch looking like a failure.
+    if (!watch && age(q.created_at, nowMs) > ANCIENT_ASK_MS) {
       findings.push({
         check: 'ancient-ask',
         id: q.id,
@@ -168,13 +181,28 @@ export function runDoctor(repo: Repo, nowMs: number = Date.now()): DoctorReport 
       });
     }
 
+    // 8. a watch that has been waiting a very long time. Not "unanswered" — a
+    //    watch is meant to be open — just old enough to be worth confirming the
+    //    trigger still matters.
+    if (watch && age(q.created_at, nowMs) > STALE_WATCH_MS) {
+      findings.push({
+        check: 'stale-watch',
+        id: q.id,
+        detail: `watching ${days(age(q.created_at, nowMs))} on ${q.task_id}: "${q.question}" (threshold ${days(STALE_WATCH_MS)}) — still worth waiting for? resolve it or cancel the trigger`,
+        blind_spot:
+          'cannot see whether the event happened — a watch resolves only when someone tells the board, so a long wait is not evidence of anything being wrong',
+      });
+    }
+
     // 7. answered elsewhere: an open request on a task that has moved on. Nearly
     //    always an answer that arrived in conversation and was acted on but never
     //    written back, which leaves finished work reading as still waiting on the
     //    human — and leaves the durable record and the thing acted on as two
     //    different objects.
+    //    Questions only: a watch on a finished task is covered by stale-watch,
+    //    and "the answer arrived in chat" is not a thing that happens to a watch.
     const owner = byId.get(q.task_id);
-    if (owner && (owner.status === 'Done' || owner.status === 'Review')) {
+    if (!watch && owner && (owner.status === 'Done' || owner.status === 'Review')) {
       findings.push({
         check: 'answered-elsewhere',
         id: q.id,
