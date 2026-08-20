@@ -2,11 +2,10 @@
 
 ## Status
 
-**Proposed.** [ADR 0009](0009-affect-hints-are-text-not-linkage.md) sanctioned the
-board emitting a *read*. Whether it may emit a *write* was put to the human as a
-board question and answered **"yes, with guardrails"** — without naming them. The
-rails below are therefore the agent's proposal, and this ADR is the thing being
-ratified. It is not Accepted until the human says so.
+**Accepted** (2026-08-21). [ADR 0009](0009-affect-hints-are-text-not-linkage.md)
+sanctioned the board emitting a *read*. Whether it may emit a *write* was put to the
+human as a board question and answered **"yes, with guardrails"** without naming
+them, so the rails below were drafted as a proposal and ratified separately.
 
 ## Context
 
@@ -101,20 +100,22 @@ Its own labelled line, never folded into `why:`; never on `doctor` or anything
 correctness-shaped; never on `ask`; off by default; sheds first under a token budget
 and never silently.
 
-### The one sub-choice left genuinely open
+### 6. A separate opt-in
 
-**A separate opt-in — `kanban board affect --writes` — distinct from `--on`.**
+**`kanban board affect --writes`, distinct from `--on`.**
 
-The argument for: a read hint offers a question the agent may ignore; a write hint
-asks it to put something in a permanent store. Someone who turned on consult hints
-did not thereby ask to be prompted to write, and "the board emits less" (ADR 0009 as
-amended) says the narrower default wins.
+This was drafted as the one sub-choice left open, and it is settled by the principle
+ratified alongside it rather than by a separate decision. A read hint offers a
+question the agent may ignore; a write hint asks it to put something in a permanent
+store. Someone who turned on consult hints did not thereby ask to be prompted to
+write, and **"the board emits less"** (ADR 0009 as amended) says the narrower default
+wins whenever the two readings are close.
 
-The argument against: a second flag for a feature already off by default is config
-surface nobody asked for, and the salience rule already makes it quiet.
-
-This is the sub-decision most worth overturning, and it is flagged rather than
-buried.
+The case against — a second flag for a feature already off by default and quiet by
+construction — is real but weaker, and it is the cheaper mistake to correct: merging
+two flags later costs nothing, while a board that started prompting for writes the
+moment consult hints went on would have written into a permanent store on an opt-in
+nobody gave.
 
 ## Consequences
 
