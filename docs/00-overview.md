@@ -19,7 +19,11 @@
 > FTS5 board-wide search, brainstorm sessions, git linkage), **analytics**
 > (read-only flow metrics derived from the event log, [13-analytics](13-analytics.md)),
 > and **continuity** (checkpoints, standup digests, doctor hygiene sweeps, claim
-> leases, a Review sign-off gate, templates, default-on-expiry answers).
+> leases, a Review sign-off gate, templates, default-on-expiry answers). A fourth
+> pass fixed **defects in the model itself** rather than adding surface: a watch is
+> no longer written as a question (`expect`), a criterion that turns out wrong can
+> be retired instead of ticked falsely, and every `doctor` finding states what its
+> own check cannot see ([11-roadmap §2.1](11-roadmap.md)).
 >
 > **Open questions:** none currently — the external-nudge transport shipped
 > ([adr/0006](adr/0006-external-nudge-transport.md)); cloud sync / multi-machine
@@ -62,9 +66,12 @@ the one doing data entry.
    it happens over WebSocket ([08-web-ui](08-web-ui.md)).
 3. **Agent can request user input and pause** — the agent raises a durable input
    request on a task, which becomes `needs_input` until the human answers; the
-   agent yields its turn rather than blocking ([04-human-in-the-loop](04-human-in-the-loop.md)).
+   agent yields its turn rather than blocking. A **watch** (`expect`) is the other
+   shape: an event to wait for, which deliberately does *not* set `needs_input`
+   ([04-human-in-the-loop](04-human-in-the-loop.md)).
 4. **Featureful** — a dependency DAG, comments (agent + user), labels, artifacts,
-   and acceptance criteria are all first-class ([02-data-model](02-data-model.md)).
+   and acceptance criteria (checkable, retirable, or the human's to settle) are all
+   first-class ([02-data-model](02-data-model.md)).
 5. **Claude Code skill over a CLI** — a `SKILL.md` teaches the agent when and how
    to use the thin `kanban` CLI ([06-skill](06-skill.md)).
 6. **PRIMARY GOAL — token-efficient context delivery** — every read is tiered,

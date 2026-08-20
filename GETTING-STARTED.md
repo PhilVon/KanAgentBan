@@ -165,10 +165,11 @@ A healthy session looks roughly like this — you'll see it reflected live in th
 
 ```
 kanban standup                 # cold start: what happened since the last session
-kanban doctor                  # hygiene sweep: stale claims, aging WIP, ancient questions
+kanban doctor                  # hygiene sweep; every finding says what its check CANNOT see
 kanban next --context          # Claude loads one task + its working set in a single call
 kanban move T-12 "In Progress" # status goes current on pickup
 kanban criterion add T-12 "handles error responses"
+kanban criterion add T-12 "the button feels right" --human   # only you can settle this one
 kanban comment T-12 "chose Auth0 — Cognito needs a custom UI"
 kanban artifact T-12 --kind pr --title "auth PR" --uri https://github.com/...
 kanban checkpoint T-12 "did X, next Y"   # resume pointer whenever it pauses mid-task
@@ -191,6 +192,12 @@ Claude is coached to:
 - **Store artifacts as references** (links, PRs, paths) — never paste contents.
 - **Checkpoint before pausing** — a one-slot resume pointer per task, so the next
   session picks up where this one left off instead of re-deriving state.
+- **Retire a criterion that turned out wrong**, rather than ticking it falsely or
+  leaving it unchecked forever — `kanban criterion retire AC-9 --because "…"`. The
+  reason is the record, and a retired criterion stops reading as unfinished work.
+- **Write your chat answers back to the board.** If you answer in conversation
+  rather than on the card, Claude records it with `kanban answer` before acting on
+  it — otherwise the board would still show the question open beside finished work.
 
 Two more surfaces you drive from the UI: cards in the **Review** column carry
 approve/reject buttons (your sign-off gate — a rejection records the reason and
@@ -215,8 +222,23 @@ Answering flips the task back to *ready*. Next time Claude works the board —
 even in a brand-new session — `kanban inbox` and `kanban next` surface it and it
 resumes with your answer. Nothing is lost across sessions.
 
+Beside every answer control there is an optional **why?** box (`--note` on the CLI).
+It is worth using when the reason is design intent rather than a preference: the
+choice alone records *what* was decided and loses *why*, and these answers end up
+quoted in code comments where the reasoning is the part that matters.
+
 So: **a paused task is normal and healthy, not stuck.** Just answer the question
 when you see it pop up in the UI.
+
+#### A watch is not a question
+
+Sometimes Claude is waiting on an **event** rather than a decision — *"tell me when
+the design files land"*. That is `kanban expect`, not `kanban ask`, and it behaves
+differently on purpose: the task is **not** parked as needs-input, so it stays in its
+real column instead of showing as **Blocked**, and you are not implicitly being
+chased for an answer that does not exist. Those rows read *"waiting for: …"* with an
+**It happened** button. Click it when it does (or **Drop watch** if it stopped
+mattering).
 
 #### Optional: enforce it with a Stop hook
 
@@ -273,7 +295,7 @@ config:
 }
 ```
 
-It exposes a curated 30-tool subset of the CLI (the same read ladder, write
+It exposes a curated 31-tool subset of the CLI (the same read ladder, write
 vocabulary, and ask → yield → inbox loop, plus docs/search/brainstorm, templates,
 checkpoint, standup, doctor, and the review gate). Most users on Claude Code should use the
 skill (§3) and can ignore this. Full detail: `docs/12-mcp.md`.
