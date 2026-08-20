@@ -64,29 +64,33 @@ in PowerShell.
 ## 3. Install the Claude Code skill
 
 Claude Code loads skills from a `skills/` directory. Each skill is a folder
-containing a `SKILL.md`. Copy this project's `skill/SKILL.md` into a folder named
-`kanban` under your Claude config.
-
-**Personal skill (available in every project):**
-
-PowerShell (Windows):
-
-```powershell
-$dest = "$env:USERPROFILE\.claude\skills\kanban"
-New-Item -ItemType Directory -Force $dest | Out-Null
-Copy-Item .\skill\SKILL.md $dest
-```
-
-bash (macOS/Linux):
+containing a `SKILL.md`. There is a script for it — same command on every platform:
 
 ```bash
-mkdir -p ~/.claude/skills/kanban
-cp skill/SKILL.md ~/.claude/skills/kanban/
+npm run install-skill
 ```
 
-**Project-scoped skill (this repo only):** put it under the project's
-`.claude/skills/kanban/SKILL.md` instead. Use this when you only want the board in
-one codebase, or want to commit the skill alongside the project.
+That syncs `skill/SKILL.md` **and** `docs/` into
+`<CLAUDE_CONFIG_DIR>/skills/kanban/` (default `~/.claude`), so the cross-references
+the skill makes to `docs/05-cli-reference.md` and friends actually resolve. It prints
+what it added, updated and removed.
+
+Re-run it after pulling; to know whether you need to, ask first:
+
+```bash
+npm run install-skill -- --check   # exit 0 = in sync, 2 = drift (lists each file)
+```
+
+> **If `--check` says a file `differs`, diff it before you sync.** The installed copy
+> is editable in place, and an edit made *there* exists nowhere else — which is not
+> hypothetical: two sections of `SKILL.md` lived only in the installed copy for a
+> month, and any install during that window would have erased them. `install-skill`
+> overwrites from source; it does not merge.
+
+**Project-scoped skill (this repo only):** point the installer at the project's own
+config dir — `CLAUDE_CONFIG_DIR=.claude npm run install-skill` lands it at
+`.claude/skills/kanban/`. Use this when you only want the board in one codebase, or
+want to commit the skill alongside the project.
 
 The skill's frontmatter `name` is `kanban`, so once it's in place Claude can also
 be nudged explicitly with `/kanban`-style references, but the point of the skill is

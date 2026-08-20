@@ -10,6 +10,15 @@ Unreleased section describing its change.
 ## [Unreleased]
 
 ### Added
+- `npm run install-skill`: sync `skill/` + `docs/` into
+  `<CLAUDE_CONFIG_DIR>/skills/kanban/` (default `~/.claude`), removing files no
+  longer in source and naming every removal. `-- --check` exits **2** on drift and
+  **0** when the installed copy matches, so divergence is detectable in CI instead
+  of discovered by losing work. Ships with the backport it made safe: two sections
+  written straight into the installed `SKILL.md` on 19 Aug — *when a criterion is
+  knowable* (promises vs hypotheses) and `--options`/`--freeform` as **companions,
+  not alternatives** — existed only there, and are now in `skill/SKILL.md` and
+  mirrored in `docs/06-skill.md` (T-97, 2026-08-20)
 - Pace/age-aware analytics: `stats` time-series (burndown / throughput / CFD) now
   **auto-scale their bucket width** to the board's age (ladder `5m…7d`, ≤~32 points)
   so a hours-old board renders a readable multi-point series instead of one daily

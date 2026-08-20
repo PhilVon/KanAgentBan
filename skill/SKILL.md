@@ -30,6 +30,43 @@ UI and answers your questions. Full design: `docs/`. CLI contract:
 - Need a human decision → **`kanban ask`**, then resume (see below) — **never ask in chat only**.
 - **Skip it** for trivial one-shot requests.
 
+## Writing the task — when a criterion is knowable
+
+"Plan this on the board" means three different jobs, and the difference is **what you
+already know when you write the criteria**. Getting this wrong is the commonest way a
+board goes stale: a criterion written before its premise was checked is a promise you
+may not be able to keep, and the only ways out of it are to tick it falsely, leave it
+unchecked forever, or spend one of the human's decisions on your own mistake.
+
+**From a document or a spec.** The doc is the source of truth, so every criterion is
+derivable now. Write the full set up front — this is the case the rest of this skill
+assumes.
+
+**From a plan you have already made** (plan mode, or a design agreed in chat). This is
+**transcription, not planning.** Put the plan you agreed on the board; do not re-derive
+it and quietly arrive somewhere else.
+
+**From a reported defect** — a symptom, a screenshot, "this feels wrong". Here the task
+is not writable yet, and neither is most of the criteria list. **Diagnose first, then
+write the task.** The description you can write once you know the cause is worth more
+than anything you could write before, and the criteria fall out of it. Filing the task
+after the investigation is correct, not sloppy.
+
+In all three, separate the two kinds of criterion and write them at different moments:
+
+- **Promises** — what a person will be able to do, or see. Stable under any
+  implementation, so write them as early as you like. *"A drag across a sentence that
+  wraps offers the sentence."*
+- **Hypotheses** — claims about mechanism, which embed assumptions about code you may
+  not have read. **Wait until you have read it.** *"A pin on a swinging item is grabbed
+  where it is drawn"* is a reasonable guess and can be flatly false — a swing may turn
+  paper about the very pin you are asserting moves.
+
+A hypothesis that turns out wrong is still useful; testing it is often how the real
+mechanism gets found. When one does turn out wrong, say so in a comment naming what
+replaced it and file the successor, rather than leaving an unchecked box that reads as
+unfinished work.
+
 ## Reading efficiently (see docs/03)
 
 You drive this board — the **whole** command surface (cheat-sheet below) is yours to
@@ -203,10 +240,16 @@ not your chat or your reasoning. So make each `ask` count:
 - **Shape the answer.** `--options a,b,c` for a closed, mutually-exclusive set (keep
   each option short and distinct); `--freeform` for an open answer (a value, a path,
   prose) when the set isn't enumerable.
+- **They are companions, not alternatives.** Pass **both** whenever your options are
+  your best guesses rather than an exhaustive set: the human picks one of yours, or
+  says the thing you failed to imagine. Options are your imagination imposed on their
+  answer, and a set of three you invented is a poor reason for someone to have to reach
+  for "Other" to tell you something you needed to hear.
 
 ```
 kanban ask T-12 "Token store — Redis (fast, +infra to run) or Postgres (simpler, already deployed)?" --options Redis,Postgres
 kanban ask T-12 "What callback URL should I register with the provider?" --freeform
+kanban ask T-12 "Does the tape read right on the page?" --options looks-right,too-heavy --freeform
 ```
 
 If the `ask` is a **sign-off gate** (work is finished and you need approval before

@@ -16,6 +16,7 @@
     "cli": "tsx src/cli/kanban.ts",
     "mcp": "tsx src/mcp/server.ts",
     "start": "node dist/server/server.js",
+    "install-skill": "node scripts/install-skill.cjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
