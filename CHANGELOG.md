@@ -10,6 +10,21 @@ Unreleased section describing its change.
 ## [Unreleased]
 
 ### Added
+- **Affect hints (opt-in, off by default) — `kanban board affect --on`.** The board
+  emits a labelled `affect: eb consult …` line at the moments it knows a choice is
+  being made (`brainstorm start`; `next` with 2+ ready candidates, capped at the
+  four-option limit `eb` enforces; `claim`), and `context` prints a `cues:` line from
+  the task's labels. **Text and nothing else** — the board never executes `eb`, never
+  reads the brain, never stores a stance, never renders affect to the human (ADR 0009;
+  EmotionalBrain ADR 0008 forbids the linkage form and leaves this door open). The
+  point is the *writes*: labels become cue keys (`--map port=activity:port`, else
+  `activity:<label>`), so the cue vocabulary is inherited rather than reinvented each
+  session — cue sprawl is how a brain becomes useless. A task with no labels emits no
+  cues, and `proj:` is refused (`eb` derives it from the cwd). Guard rails: always its
+  own line, never folded into `why:`; never emitted by `ask` (framing the options was
+  the decision) and never on `doctor`; sheds first under `--max-tokens`, never
+  silently. Config is read per request, so `--on` needs no restart.
+  FORMAT_VERSION 23→24 (T-103, 2026-08-20)
 - **Answer notes: record *why*, not only *what*.** `answer` was a single TEXT field,
   so a decision came back as `lift-it` and the reasoning was lost — and answers get
   quoted in code comments, where the reasoning is the half a reader in six months

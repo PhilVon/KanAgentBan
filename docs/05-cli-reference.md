@@ -294,6 +294,35 @@ pointer, not a log — detail belongs in comments or docs.
 ### `kanban done <id>` / `kanban archive <id>`
 `done` moves to Done (recomputes dependents' readiness); `archive` soft-deletes.
 
+### `kanban board affect [--on|--off] [--map label=cue] [--unmap label]`
+Opt into **affect hints** (ADR 0009) — **off by default**. With hints on, the board
+emits a labelled `affect: eb consult …` line at the moments it knows a choice is
+being made, and `context` prints a `cues:` line from the task's labels.
+
+The board emits **text and nothing else**: it never executes `eb`, never reads the
+brain, never stores a stance, and never renders affect to the human. EmotionalBrain's
+ADR 0008 forbids the linkage form by name and leaves exactly this door open ("the
+agent does it"). A machine with no `eb` installed is unaffected — the feature is a
+string.
+
+| Moment | Emitted |
+|--------|---------|
+| `brainstorm start` | `affect: eb consult "<topic>" --about <cues>` |
+| `next` with **2+** ready candidates | `affect: eb consult --options "<t1>,<t2>,…"` (capped at 4) |
+| `claim` | `affect: eb consult "picking up T-n: <title>" --about <cues>` |
+| `context` | `cues: activity:port, lang:ts` |
+
+`--map port=activity:port` overrides the default `activity:<label>`; the cue is
+validated when you set it, so the board can never print a command `eb` would reject
+(`proj:` is refused outright — `eb` derives it from the cwd). A task with **no**
+labels emits no cues, never a guess from its title.
+
+Guard rails: the hint is always its own line and never folded into `why:`; it is
+never emitted by `ask` (framing the options *was* the decision — the consult needed
+to happen a step earlier) and never appears on `doctor` or anything
+correctness-shaped; under `--max-tokens` it sheds **first**, leaving a never-silent
+footer. Config lives in `.kanban/board.json` and is read per request — no restart.
+
 ### `kanban board autoarchive [--days N | --off]`
 Auto-archive policy: Done tasks untouched for `N` days archive automatically on
 the server sweep (≤5 min lag; also once at server start). Config lives in

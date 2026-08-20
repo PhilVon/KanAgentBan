@@ -216,6 +216,30 @@ Bare terms are AND-ed; if nothing matches all of them you get an OR-ranked retry
 led by a `[loose: …]` line — read those hits as approximate, and spell `AND` out
 when you want the strict answer.
 
+## `affect:` and `cues:` lines (only if the board has them on)
+
+If a board runs `kanban board affect --on`, some commands print an extra labelled
+line. It is **text the board hands you**, not something it did:
+
+```
+affect: eb consult --options "port the exporter,fix the drawer"
+cues: activity:port, lang:ts  (use these with eb feel/consult — inherited, not invented)
+```
+
+- The `affect:` line appears where the board knows a choice is being made —
+  `brainstorm start`, `next` with two or more ready candidates, `claim`. Running it
+  is **your** call, and a stance is one input, not the answer.
+- The `cues:` line on `context` is the vocabulary: pass those cues to `eb feel` /
+  `eb consult` instead of inventing new ones. Cue sprawl — `activity:test-fixing`
+  invented beside an existing `activity:flaky-tests` — is how a brain becomes
+  useless, because every cue stuck at `n=1` never crosses a threshold.
+- It is never on `doctor` and never on `ask`: affect adjusts preference, never
+  permission, and by the time you are composing a question the options are already
+  framed — framing them was the decision.
+
+Off by default. If you don't see these lines, the board doesn't have them on, and
+nothing here applies.
+
 ## Brainstorming — when the solution space is wide
 
 For **more than ~3 candidate approaches** (a binary choice is just `kanban ask`),

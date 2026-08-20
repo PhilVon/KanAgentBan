@@ -7,6 +7,7 @@ import { normalizeShell, renderCompletion, specFromCommand } from './completion'
 import { followChanges, followTask, type FollowHandle } from './follow';
 import { renderInbox } from './format';
 import { boardPaths, findBoardRoot, readBoardMeta, writeBoardMeta } from '../shared/board-paths';
+import { cueError } from '../server/affect';
 import type { NudgeConfig } from '../shared/types';
 
 const program = new Command();
@@ -274,6 +275,8 @@ program.command('claim <id>')
     if (o.ttl) body.ttl = Number(o.ttl);
     const t = await api(await conn(), 'POST', `/api/tasks/${id}/claim`, Object.keys(body).length ? body : undefined);
     out(`${t.id} claimed by ${t.assignee}${t.claim_expires_at ? `  (lease until ${t.claim_expires_at})` : ''}`);
+    // Its own line, never folded into the claim line (ADR 0009).
+    if (t.affect) out(t.affect);
   });
 program.command('release <id>').option('--force', 'release a claim held by another agent').action(async (id, o) => {
   const t = await api(await conn(), 'POST', `/api/tasks/${id}/release`, o.force ? { force: true } : undefined);
@@ -535,6 +538,7 @@ brainstorm
   .action(async (topic, o) => {
     const s = await api(await conn(), 'POST', '/api/brainstorms', { topic, task: o.task });
     out(`${s.id}  started "${s.topic}"${s.task_id ? `  (anchored to ${s.task_id})` : ''}`);
+    if (s.affect) out(s.affect);
   });
 brainstorm
   .command('add <id> <text>')
@@ -767,6 +771,41 @@ board.command('show').action(async () => {
   const meta = readBoardMeta(boardPaths(r.root));
   out(JSON.stringify({ ...r, nudge: meta.nudge ? redactNudge(meta.nudge) : null }, null, 2));
 });
+
+// Affect hints (ADR 0009) — local board.json edit; the server reads it per
+// request, so no restart. The board emits `eb consult …` TEXT at moments it
+// knows are decisions and nothing else: it never runs eb, never reads the
+// brain, never stores a stance. Off by default.
+board
+  .command('affect')
+  .description('emit eb consult hints at decision moments (text only — the board never runs eb). Off by default.')
+  .option('--on', 'enable hints')
+  .option('--off', 'disable hints')
+  .option('--map <label=cue>', 'map a board label to an eb cue (default: activity:<label>)')
+  .option('--unmap <label>', 'drop a label mapping')
+  .action((o) => {
+    const root = program.opts().board ?? findBoardRoot(process.cwd());
+    if (!root) throw new CliError('no board here — run `kanban board init` first', 3);
+    const paths = boardPaths(root);
+    const meta = readBoardMeta(paths);
+    const cfg = (meta.affect ??= {});
+    cfg.map ??= {};
+    if (o.on) cfg.enabled = true;
+    if (o.off) cfg.enabled = false;
+    if (o.unmap) delete cfg.map[o.unmap];
+    if (o.map) {
+      const at = String(o.map).indexOf('=');
+      if (at <= 0) throw new CliError('--map takes label=cue, e.g. --map port=activity:port', 1);
+      const label = String(o.map).slice(0, at);
+      const cue = String(o.map).slice(at + 1);
+      const bad = cueError(cue);
+      if (bad) throw new CliError(bad, 1);
+      cfg.map[label] = cue;
+    }
+    writeBoardMeta(paths, meta);
+    const pairs = Object.entries(cfg.map);
+    out(`affect hints ${cfg.enabled ? 'on' : 'off'}${pairs.length ? `; map: ${pairs.map(([l, c]) => `${l}=${c}`).join(', ')}` : ' (no label map — labels default to activity:<label>)'}`);
+  });
 
 // Auto-archive policy config — local board.json edit; the server reads it at
 // each sweep (≤5 min), so no restart is needed. KANBAN_AUTO_ARCHIVE_DAYS overrides.

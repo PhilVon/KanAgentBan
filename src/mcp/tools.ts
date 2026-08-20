@@ -251,7 +251,9 @@ export const TOOLS: ToolDef[] = [
       if (op === 'claim' && a.ttl != null) body.ttl = a.ttl;
       const t = await api(c, 'POST', `/api/tasks/${a.id}/${op}`, Object.keys(body).length ? body : undefined);
       if (op === 'release') return t.assignee ? `${t.id} still claimed by ${t.assignee}` : `${t.id} released`;
-      return `${t.id} claimed by ${t.assignee}`;
+      // The affect hint rides as its own line, never folded into the result
+      // sentence (ADR 0009). Absent unless the board has hints on.
+      return `${t.id} claimed by ${t.assignee}` + (t.affect ? `\n${t.affect}` : '');
     },
   },
   {
@@ -542,7 +544,10 @@ export const TOOLS: ToolDef[] = [
         case 'start': {
           if (!a.topic) throw new CliError('brainstorm start needs topic', 1);
           const s = await api(c, 'POST', '/api/brainstorms', { topic: a.topic, task: a.task });
-          return `${s.id} started "${s.topic}"${s.task_id ? ` (anchored to ${s.task_id})` : ''}`;
+          return (
+            `${s.id} started "${s.topic}"${s.task_id ? ` (anchored to ${s.task_id})` : ''}` +
+            (s.affect ? `\n${s.affect}` : '')
+          );
         }
         case 'close': {
           if (!a.id) throw new CliError('brainstorm close needs id', 1);

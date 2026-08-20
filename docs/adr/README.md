@@ -20,3 +20,4 @@ docs in [`../`](../) (data model, token efficiency, human-in-the-loop, and more)
 | [0006](0006-external-nudge-transport.md) | External-Nudge Transport: Webhook + Local Command | Accepted |
 | [0007](0007-docs-store-content.md) | Docs and Ideas Store Content; Artifacts Remain References | Accepted |
 | [0008](0008-git-linkage-is-client-side.md) | Git Linkage Is Client-Side; the Server Never Shells Out | Accepted |
+| [0009](0009-affect-hints-are-text-not-linkage.md) | Affect Hints Are Text, Not Linkage | Accepted |

@@ -27,6 +27,13 @@ import { runDoctor } from './doctor';
 import { standup } from './standup';
 import { boardStats, taskTiming } from './stats';
 import { childProgress, countCriteria, deriveState } from './derive';
+import {
+  affectLine,
+  consultAboutCommand,
+  cuesForLabels,
+  AFFECT_OFF,
+  type AffectConfig,
+} from './affect';
 import { ensureBoard, readToken, readBoardMeta } from '../shared/board-paths';
 import { attachNudge } from './nudge';
 import { DISPLAY_COLUMNS, type ActorType, type InputKind, type NudgeConfig } from '../shared/types';
@@ -106,6 +113,20 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     if (got !== token) return res.status(401).json(errBody('unauthorized', 'bad or missing token'));
     next();
   });
+
+  // Affect config is read per request, not cached at boot: `kanban board affect
+  // --on` writes board.json locally, and a restart to pick it up would be a
+  // surprising cost for a preference nudge. Off unless explicitly enabled.
+  const affect = (): AffectConfig => {
+    const m = readBoardMeta(ensureBoard(root)).affect;
+    return m?.enabled ? { enabled: true, map: m.map ?? {} } : AFFECT_OFF;
+  };
+  /** The hint for a prospective action, or null when hints are off. */
+  const actionHint = (what: string, labels: string[]): string | null => {
+    const cfg = affect();
+    if (!cfg.enabled) return null;
+    return affectLine(consultAboutCommand(what, cuesForLabels(labels, cfg.map)));
+  };
 
   const actor = (req: Request): ActorType => (req.get('x-actor') as ActorType) || 'agent';
   // Agent *identity* (multi-agent claim), distinct from the actor *type* above.
@@ -263,6 +284,7 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
       mine,
       full: req.query.full !== undefined,
       maxTokens: num(req.query.max_tokens),
+      affect: affect(),
     });
     if (req.query.json !== undefined) {
       const r = recommend(repo, n ?? 1, agent, mine);
@@ -292,6 +314,7 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
           ? renderContext(repo, req.params.id, {
               full: req.query.full !== undefined,
               maxTokens: num(req.query.max_tokens),
+              affect: affect(),
             })
           : renderShow(repo, req.params.id, {
               full: req.query.full !== undefined,
@@ -459,9 +482,14 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     if (req.query.json !== undefined) return res.json({ sessions, est_tokens: estimateTokens(text) });
     res.json({ text });
   });
-  app.post('/api/brainstorms', wrap((req, res) =>
-    res.json(repo.startBrainstorm(req.body.topic, { task: req.body.task, actor: actor(req) })),
-  ));
+  app.post('/api/brainstorms', wrap((req, res) => {
+    const s = repo.startBrainstorm(req.body.topic, { task: req.body.task, actor: actor(req) });
+    // The strongest moment by construction: more than ~3 candidate approaches
+    // IS the definition of an open choice.
+    const labels = s.task_id ? repo.getLabels(s.task_id) : [];
+    const hint = actionHint(s.topic, labels);
+    res.json(hint ? { ...s, affect: hint } : s);
+  }));
   app.get(
     '/api/brainstorms/:id',
     wrap((req, res) => {
@@ -554,15 +582,16 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
     res.json(repo.setParent(req.params.id, req.body.parent ?? null, actor(req))),
   ));
   app.delete('/api/tasks/:id/parent', wrap((req, res) => res.json(repo.setParent(req.params.id, null, actor(req)))));
-  app.post('/api/tasks/:id/claim', wrap((req, res) =>
-    res.json(
-      repo.claimTask(req.params.id, agentId(req), {
-        force: !!req.body?.force,
-        ttlSeconds: num(req.body?.ttl),
-        actor: actor(req),
-      }),
-    ),
-  ));
+  app.post('/api/tasks/:id/claim', wrap((req, res) => {
+    const t = repo.claimTask(req.params.id, agentId(req), {
+      force: !!req.body?.force,
+      ttlSeconds: num(req.body?.ttl),
+      actor: actor(req),
+    });
+    // Committing to a piece of work is the estimating-difficulty moment.
+    const hint = actionHint(`picking up ${t.id}: ${t.title}`, repo.getLabels(t.id));
+    res.json(hint ? { ...t, affect: hint } : t);
+  }));
   app.post('/api/tasks/:id/release', wrap((req, res) =>
     res.json(repo.releaseTask(req.params.id, agentId(req), { force: !!req.body?.force, actor: actor(req) })),
   ));
