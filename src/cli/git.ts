@@ -12,6 +12,61 @@ export interface CommitMention {
   sha: string;
   subject: string;
   ids: string[];
+  /** Languages this commit's files belong to, commonest first. Empty when the
+   *  commit touched nothing in LANG_BY_EXT (or is a merge, which lists no files). */
+  langs: string[];
+}
+
+/**
+ * Extension -> language name. A **fixed, closed table**, and deliberately not a
+ * slug of the extension.
+ *
+ * T-109 withdrew the board's licence to mint cue vocabulary out of its own free
+ * text. This stays on the right side of that line for one reason: an extension
+ * maps to a single canonical language name that already exists in the world, so
+ * the board is *applying* a convention rather than inventing one — the same thing
+ * `eb`'s own static alias map does. An extension absent from this table
+ * contributes nothing, which is exactly the rule an unmapped label gets.
+ *
+ * Only languages you **author code in**. `json`, `yaml`, `toml` and `md` are
+ * excluded on purpose: nobody works *in* JSON, it rides along with whatever the
+ * real work was, and a cue on 90% of commits discriminates nothing. Writing docs
+ * genuinely does feel different from writing code — but that is an `activity:`,
+ * not a `lang:`, and putting it here would file it under the wrong question.
+ */
+export const LANG_BY_EXT: Readonly<Record<string, string>> = {
+  ts: 'ts', tsx: 'ts', mts: 'ts',
+  js: 'js', jsx: 'js', mjs: 'js', cjs: 'js',
+  py: 'python', rb: 'ruby', go: 'go', rs: 'rust', java: 'java',
+  kt: 'kotlin', swift: 'swift', dart: 'dart', scala: 'scala',
+  c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', hpp: 'cpp', cs: 'csharp',
+  php: 'php', sh: 'shell', bash: 'shell', ps1: 'powershell', sql: 'sql',
+  css: 'css', scss: 'css', html: 'html', vue: 'vue', svelte: 'svelte',
+  gd: 'gdscript', lua: 'lua', ex: 'elixir', exs: 'elixir', r: 'r', m: 'objc',
+};
+
+/** How many languages one commit may contribute. A commit spanning more than a
+ *  few is a sweep, and a sweep is not evidence about any one language. */
+export const MAX_COMMIT_LANGS = 4;
+
+/**
+ * The languages a set of changed paths belongs to, commonest first then
+ * alphabetical, capped. Pure — the parsing half, so it is unit-testable without
+ * a repository.
+ */
+export function langsForPaths(paths: string[], cap = MAX_COMMIT_LANGS): string[] {
+  const counts = new Map<string, number>();
+  for (const p of paths) {
+    const dot = p.lastIndexOf('.');
+    if (dot < 0) continue;
+    const lang = LANG_BY_EXT[p.slice(dot + 1).toLowerCase()];
+    if (!lang) continue;
+    counts.set(lang, (counts.get(lang) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, cap)
+    .map(([lang]) => lang);
 }
 
 export interface BranchMention {
@@ -37,20 +92,40 @@ export function taskIdsIn(text: string): string[] {
   return [...new Set(text.match(TASK_ID_RE) ?? [])];
 }
 
-/** Parse `git log --pretty=format:%H%x09%s` output into commit mentions. */
+/**
+ * Parse `git log --name-only --pretty=format:%H%x09%s` into commit mentions.
+ *
+ * The format interleaves a `sha<TAB>subject` header with the paths that commit
+ * touched, so paths are attributed to the header above them. Tolerant of the
+ * plain (no `--name-only`) form, where every commit simply reports no languages.
+ */
 export function parseLogMentions(log: string): CommitMention[] {
   const out: CommitMention[] = [];
-  for (const line of log.split('\n')) {
-    const tab = line.indexOf('\t');
-    if (tab <= 0) continue;
-    const sha = line.slice(0, tab);
-    const subject = line.slice(tab + 1);
-    const ids = taskIdsIn(subject);
-    if (ids.length) out.push({ sha, subject, ids });
+  let paths: string[] = [];
+  const flush = () => {
+    if (out.length) out[out.length - 1].langs = langsForPaths(paths);
+    paths = [];
+  };
+  for (const raw of log.split("\n")) {
+    const line = raw.trimEnd();
+    const tab = line.indexOf("\t");
+    // A header is `<sha><TAB><subject>`; anything else with content is a path.
+    // Two things separate them: a path never contains a tab (git quotes the ones
+    // that would), and the part before the tab is bare hex. Testing the sha shape
+    // rather than a fixed width keeps abbreviated shas working.
+    if (tab > 0 && /^[0-9a-f]{6,40}$/.test(line.slice(0, tab))) {
+      flush();
+      const subject = line.slice(tab + 1);
+      // Every commit is pushed so paths attach to the right one; the ones that
+      // mention no task are dropped at the end.
+      out.push({ sha: line.slice(0, tab), subject, ids: taskIdsIn(subject), langs: [] });
+      continue;
+    }
+    if (line) paths.push(line);
   }
-  return out;
+  flush();
+  return out.filter((c) => c.ids.length > 0);
 }
-
 /**
  * The report lines for commits that name more than one task — empty when there
  * are none. Task boundaries and commit boundaries drift and nothing says so, so
@@ -71,7 +146,10 @@ export function straddleNote(commits: CommitMention[], show = 5): string[] {
 
 /** Commits (recent `depth`) whose subject mentions a task id. */
 export function scanCommits(cwd?: string, depth = 500): CommitMention[] {
-  const log = run(`git log --pretty=format:%H%x09%s -n ${depth | 0}`, cwd);
+  // `--name-only` so a commit's languages come from the same walk that finds it:
+  // a second `git show` per commit would be one process per commit, and this runs
+  // over 500 of them by default.
+  const log = run(`git log --name-only --pretty=format:%H%x09%s -n ${depth | 0}`, cwd);
   return parseLogMentions(log);
 }
 

@@ -167,6 +167,10 @@ export interface Artifact {
   title: string;
   uri: string;
   created_at: string;
+  /** Comma-joined language names for a `commit` artifact — computed CLI-side at
+   *  `git link` time, since the server never shells out (ADR 0008). NULL on other
+   *  kinds, and on commits linked before the column existed. */
+  langs?: string | null;
 }
 
 export interface Label {

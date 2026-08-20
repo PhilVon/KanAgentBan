@@ -1339,26 +1339,60 @@ export class Repo {
    * the existing artifact and emits no duplicate event — `kanban git link`
    * re-scans a repo safely (docs/07). The title is not part of the identity.
    */
+  /**
+   * Every language across a task`s linked commits — or the whole board`s, with no
+   * touching each — commonest first, then alphabetical. The board is the only
+   * thing that knows this: `eb` cannot see a repository, and the agent would have
+   * to re-derive it every session.
+   */
+  langUsage(taskId?: string): { lang: string; commits: number }[] {
+    const where = "kind = 'commit' AND langs IS NOT NULL AND langs <> ''";
+    const rows = (
+      taskId === undefined
+        ? this.db.prepare(`SELECT langs FROM artifact WHERE ${where}`).all()
+        : this.db.prepare(`SELECT langs FROM artifact WHERE task_id = ? AND ${where}`).all(taskId)
+    ) as { langs: string }[];
+    const counts = new Map<string, number>();
+    for (const r of rows)
+      for (const lang of new Set(r.langs.split(','))) {
+        if (lang) counts.set(lang, (counts.get(lang) ?? 0) + 1);
+      }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([lang, commits]) => ({ lang, commits }));
+  }
+
   addArtifact(
     taskId: string,
     kind: Artifact['kind'],
     title: string,
     uri: string,
     actor: ActorType = 'agent',
+    langs?: string[],
   ): Artifact {
     return this.mutate((rec) => {
       this.requireTask(taskId);
       const existing = this.db
         .prepare('SELECT * FROM artifact WHERE task_id = ? AND kind = ? AND uri = ?')
         .get(taskId, kind, uri) as Artifact | undefined;
-      if (existing) return existing;
+      const joined = langs?.length ? langs.join(',') : null;
+      if (existing) {
+        // Idempotent, but not inert: a commit linked before this feature (or
+        // before the column) carries no languages, and re-running `git link`
+        // should fill them in rather than silently keep the older, emptier row.
+        if (joined && !existing.langs) {
+          this.db.prepare('UPDATE artifact SET langs = ? WHERE id = ?').run(joined, existing.id);
+          return { ...existing, langs: joined };
+        }
+        return existing;
+      }
       const id = nextArtifactId(this.db);
       const ts = now();
       this.db
-        .prepare('INSERT INTO artifact(id,task_id,kind,title,uri,created_at) VALUES(?,?,?,?,?,?)')
-        .run(id, taskId, kind, title, uri, ts);
+        .prepare('INSERT INTO artifact(id,task_id,kind,title,uri,created_at,langs) VALUES(?,?,?,?,?,?,?)')
+        .run(id, taskId, kind, title, uri, ts, joined);
       rec({ type: 'artifact.added', task_id: taskId, actor_type: actor, payload: { id, kind } });
-      return { id, task_id: taskId, kind, title, uri, created_at: ts };
+      return { id, task_id: taskId, kind, title, uri, created_at: ts, langs: joined };
     });
   }
 

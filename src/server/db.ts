@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -90,7 +90,11 @@ CREATE TABLE IF NOT EXISTS artifact (
   kind TEXT NOT NULL,
   title TEXT NOT NULL,
   uri TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  -- Comma-joined language names for a 'commit' artifact, computed CLI-side at
+  -- 'kanban git link' time (the server never shells out — ADR 0008). NULL on
+  -- every other kind, and on commits linked before this column existed.
+  langs TEXT
 );
 
 CREATE TABLE IF NOT EXISTS label (
@@ -380,6 +384,13 @@ function migrate(db: DB): void {
   // before `expect` existed, a watch had to be written as an ask. No data moves.
   if (current > 0 && current < 11) {
     addColumnIfMissing(db, 'input_request', 'kind', "TEXT NOT NULL DEFAULT 'question'");
+  }
+
+  // v13 -> v14: languages on a commit artifact. Nullable, so every existing
+  // artifact stays exactly as it was and no data moves; re-running `kanban git
+  // link` backfills the commits it can still see.
+  if (current > 0 && current < 14) {
+    addColumnIfMissing(db, 'artifact', 'langs', 'TEXT');
   }
 
   if (current < SCHEMA_VERSION) {

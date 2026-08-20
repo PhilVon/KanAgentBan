@@ -10,6 +10,20 @@ Unreleased section describing its change.
 ## [Unreleased]
 
 ### Added
+- **`lang:` cues derived from a task`s linked commits.** The languages a task`s
+  commits touched join its `cues:` line (commonest first, capped at three), and
+  `board affect --check` lists them under `derived from linked commits`. The board is
+  the only thing that knows this — `eb` cannot see a repository. Deriving is what
+  T-109 withdrew for labels; it is allowed here for one reason that does not
+  generalise: the extension→language table is **closed and canonical**, so the board
+  applies a convention rather than inventing a name, and an extension outside it
+  contributes nothing. `json`/`yaml`/`toml`/`md` are excluded on purpose — nobody
+  works *in* JSON, and a cue on 90% of commits discriminates nothing (docs feel
+  different, but that is an `activity:`, not a `lang:`). Computed CLI-side at
+  `git link` time and stored on the commit artifact, so the server still never shells
+  out; re-running `git link` is idempotent and backfills older commits.
+  SCHEMA_VERSION 13→14 (nullable column, no data moves), FORMAT_VERSION 26→27
+  (T-111, 2026-08-21)
 - **`kanban board affect --check`.** Reports the label map against the labels actually
   in use: what emits a cue, what does not, map entries `eb` would reject, and mappings
   for labels no longer on the board. Unmapped labels lead with their live-task count,

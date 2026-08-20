@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { makeRepo } from './helpers';
 import {
   branchNameFor,
+  langsForPaths,
   parseLogMentions,
   postCommitHook,
   prepareCommitMsgHook,
@@ -29,8 +30,38 @@ describe('task-id scanning', () => {
     ].join('\n');
     const m = parseLogMentions(log);
     expect(m).toHaveLength(2);
-    expect(m[0]).toEqual({ sha: 'aaa111', subject: 'feat: wire callback [T-12]', ids: ['T-12'] });
+    expect(m[0]).toEqual({
+      sha: 'aaa111',
+      subject: 'feat: wire callback [T-12]',
+      ids: ['T-12'],
+      langs: [],
+    });
     expect(m[1].ids).toEqual(['T-12', 'T-9']);
+  });
+
+  it('attributes --name-only paths to the commit above them, as languages', () => {
+    const log = [
+      'aaa111	feat: wire callback [T-12]',
+      'src/auth.ts',
+      'src/token.ts',
+      'web/app.js',
+      'package-lock.json',
+      'README',
+      '',
+      'bbb222	chore: bump deps',
+      'package.json',
+    ].join(String.fromCharCode(10));
+    const m = parseLogMentions(log);
+    expect(m).toHaveLength(1);
+    // Commonest first; json/md/extensionless contribute nothing — nobody works
+    // *in* JSON, and a cue on every commit discriminates nothing.
+    expect(m[0].langs).toEqual(['ts', 'js']);
+  });
+
+  it('maps only extensions in the closed table, and caps a sweep', () => {
+    expect(langsForPaths(['a.rs', 'b.rs', 'c.go'])).toEqual(['rust', 'go']);
+    expect(langsForPaths(['notes.md', 'data.json', 'x.yml', 'Makefile'])).toEqual([]);
+    expect(langsForPaths(['a.ts', 'b.go', 'c.rs', 'd.py', 'e.rb'], 2)).toHaveLength(2);
   });
 });
 

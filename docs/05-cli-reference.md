@@ -319,6 +319,22 @@ validated when you set it, so the board can never print a command `eb` would rej
 (`proj:` is refused outright — `eb` derives it from the cwd). A task with **no** labels
 emits no cues, never a guess from its title.
 
+A task`s linked commits also contribute **`lang:` cues** — the languages its
+commits touched, commonest first, capped at three. This is the one thing the board
+derives rather than being told, and it is allowed for a narrow reason: the
+extension → language table is **closed and canonical**, so the board applies a
+convention the world already agreed rather than inventing a name. An extension
+outside the table contributes nothing, exactly as an unmapped label does.
+
+`json`, `yaml`, `toml` and `md` are deliberately absent — nobody works *in* JSON,
+it rides along with whatever the real work was, and a cue on 90% of commits
+discriminates nothing. Writing docs genuinely does feel different from writing
+code, but that is an `activity:`, not a `lang:`.
+
+Languages are computed **CLI-side at `kanban git link` time** and stored on the
+commit artifact — the server never shells out ([ADR 0008](adr/)). Re-running
+`git link` stays idempotent and backfills commits linked before the column existed.
+
 `kanban board affect --check` reports the map against the labels actually in use —
 what emits a cue, what does not, map entries `eb` would reject, and mappings for
 labels no longer on the board. Unmapped labels lead with the number of live tasks

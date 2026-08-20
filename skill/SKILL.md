@@ -239,6 +239,10 @@ cues: activity:port, lang:ts  (use these with eb feel/consult — inherited, not
   you: its keys are permanent in `eb`, so a wrong one costs evidence forever. This
   binds the *board*, not you — `eb feel --about <anything>` is as free as ever, and
   when no cue fits the moment, naming a new one deliberately is the right move.
+- **Linked commits add `lang:` cues** — the languages a task actually touched,
+  from a fixed extension table (so `json`/`md` never appear; docs are an
+  `activity:`, not a language). They come from `kanban git link`, so a task with
+  no linked commits has none.
 - `kanban board affect --check` shows the whole picture: which labels emit a cue,
   which don't (commonest first — that count is which mapping is worth making), and
   any broken or stale entries. Read-only; an unmapped label is never a fault.

@@ -1,7 +1,11 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { execFileSync, execSync } from 'node:child_process';
 import * as fs from 'node:fs';
-import { startTestServer, stopTestServer, client, makeRepo, type TestServer } from './helpers';
+import * as path from 'node:path';
+import Database from 'better-sqlite3';
+import { startTestServer, stopTestServer, client, makeRepo, tempDir, type TestServer } from './helpers';
+import { openDb, SCHEMA_VERSION } from '../src/server/db';
+import { Repo } from '../src/server/repo';
 import {
   AFFECT_OFF,
   affectLine,
@@ -10,6 +14,7 @@ import {
   cueError,
   checkAffect,
   cuesFor,
+  langCues,
   cuesForLabels,
   MAX_CONSULT_OPTIONS,
 } from '../src/server/affect';
@@ -201,6 +206,50 @@ describe('emission points', () => {
   });
 });
 
+describe('lang cues from linked commits', () => {
+  it('derives lang: cues from a task commits, commonest first and capped', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 't' });
+    repo.addArtifact(t.id, 'commit', 'a', 'git:aaa', 'agent', ['ts', 'css']);
+    repo.addArtifact(t.id, 'commit', 'b', 'git:bbb', 'agent', ['ts']);
+    repo.addArtifact(t.id, 'commit', 'c', 'git:ccc', 'agent', ['go']);
+    expect(repo.langUsage(t.id)).toEqual([
+      { lang: 'ts', commits: 2 },
+      { lang: 'css', commits: 1 },
+      { lang: 'go', commits: 1 },
+    ]);
+    expect(langCues(repo.langUsage(t.id), 2)).toEqual(['lang:ts', 'lang:css']);
+  });
+
+  it('a non-commit artifact contributes nothing', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 't' });
+    repo.addArtifact(t.id, 'pr', 'the PR', 'https://example.test/1', 'agent', ['ts']);
+    expect(repo.langUsage(t.id)).toEqual([]);
+  });
+
+  it('re-linking is idempotent but backfills a commit linked before languages existed', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 't' });
+    const first = repo.addArtifact(t.id, 'commit', 'a', 'git:aaa');
+    expect(repo.langUsage(t.id)).toEqual([]);
+    const again = repo.addArtifact(t.id, 'commit', 'a', 'git:aaa', 'agent', ['rust']);
+    expect(again.id).toBe(first.id); // same row, not a duplicate
+    expect(repo.langUsage(t.id)).toEqual([{ lang: 'rust', commits: 1 }]);
+  });
+
+  it('context prints them beside the mapped label cues', () => {
+    const repo = makeRepo();
+    const t = repo.createTask({ title: 't', status: 'In Progress', labels: ['port'] });
+    repo.addArtifact(t.id, 'commit', 'a', 'git:aaa', 'agent', ['ts']);
+    const text = renderContext(repo, t.id, {
+      full: true,
+      affect: { enabled: true, map: { port: 'activity:port' } },
+    });
+    expect(text).toContain('cues: activity:port, lang:ts');
+  });
+});
+
 describe('board affect --check', () => {
   // Commonest first: the count IS the advice, because mapping the label on 13
   // tasks buys 13x the evidence of mapping the one on a single task.
@@ -244,6 +293,12 @@ describe('board affect --check', () => {
     expect(text).toContain('13  docs');
     expect(text).toContain('fix: kanban board affect --map <label>=<cue>');
     expect(text).not.toContain('activity:docs');
+  });
+
+  it('lists derived language cues so they are visible rather than unexplained', () => {
+    const c = checkAffect({ enabled: true, map: {} }, [], [{ lang: 'ts', commits: 9 }]);
+    expect(c.derived).toEqual(['lang:ts']);
+    expect(renderAffectCheck(c)).toContain('derived from linked commits');
   });
 
   it('says so when every label in use is mapped', () => {
@@ -377,6 +432,55 @@ describe.skipIf(!hasEb)('eb accepts the emitted command verbatim', () => {
     const cmd = consultAboutCommand('picking up T-1: port the exporter', ['activity:port', 'collab:human']);
     expect(() => run(cmd)).not.toThrow();
     expect(run(cmd)).not.toMatch(/unknown|rejected/i);
+  });
+});
+
+describe('migration: v13 board gains artifact.langs', () => {
+  it('adds the column without disturbing artifacts already linked', () => {
+    const dir = tempDir();
+    const dbPath = path.join(dir, 'board.db');
+    const raw = new Database(dbPath);
+    raw.exec(`
+      CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE counters (name TEXT PRIMARY KEY, value INTEGER NOT NULL);
+      CREATE TABLE task (
+        id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT, summary TEXT,
+        summary_source TEXT, summary_updated_at TEXT, description_updated_at TEXT,
+        status TEXT NOT NULL DEFAULT 'Backlog', priority TEXT NOT NULL DEFAULT 'P2',
+        position REAL, assignee TEXT, parent_id TEXT REFERENCES task(id),
+        checkpoint TEXT, checkpoint_at TEXT, checkpoint_by TEXT, claim_expires_at TEXT,
+        version INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived_at TEXT
+      );
+      CREATE TABLE artifact (
+        id TEXT PRIMARY KEY, task_id TEXT NOT NULL, kind TEXT NOT NULL,
+        title TEXT NOT NULL, uri TEXT NOT NULL, created_at TEXT NOT NULL
+      );
+    `);
+    raw.prepare('INSERT INTO meta(key,value) VALUES(?,?)').run('schema_version', '13');
+    raw.prepare('INSERT INTO task(id,title,status,version,created_at,updated_at) VALUES(?,?,?,?,?,?)')
+      .run('T-1', 'legacy', 'Backlog', 1, '2020-01-01', '2020-01-01');
+    raw.prepare('INSERT INTO artifact(id,task_id,kind,title,uri,created_at) VALUES(?,?,?,?,?,?)')
+      .run('A-1', 'T-1', 'commit', 'old work', 'git:deadbeef', '2020-01-01');
+    raw.close();
+
+    const db = openDb(dbPath);
+    const cols = (db.prepare('PRAGMA table_info(artifact)').all() as { name: string }[]).map((c) => c.name);
+    expect(cols).toContain('langs');
+    expect(db.prepare('SELECT value FROM meta WHERE key=?').get('schema_version')).toEqual({
+      value: String(SCHEMA_VERSION),
+    });
+
+    const repo = new Repo(db);
+    // The pre-existing artifact survives, with no languages and no guess at any.
+    expect(repo.getArtifacts('T-1')).toHaveLength(1);
+    expect(repo.langUsage('T-1')).toEqual([]);
+    // And a re-link backfills it rather than duplicating the row.
+    repo.addArtifact('T-1', 'commit', 'old work', 'git:deadbeef', 'agent', ['ts']);
+    expect(repo.getArtifacts('T-1')).toHaveLength(1);
+    expect(repo.langUsage('T-1')).toEqual([{ lang: 'ts', commits: 1 }]);
+    db.close();
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 });
 

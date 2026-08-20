@@ -8,6 +8,7 @@ import {
   checkAffect,
   cuesFor,
   cuesForLabels,
+  langCues,
   MAX_CONSULT_OPTIONS,
   type AffectCheck,
   type AffectConfig,
@@ -111,7 +112,15 @@ import {
 //     never counted as a fault: it exits 0, and only a rejected cue exits 1.
 //     Deliberately its own command and never a `doctor` check — affect adjusts
 //     preference, never permission.
-export const FORMAT_VERSION = 26;
+// v27: `lang:` cues derived from a task`s linked commits join the `cues:` line,
+//     and `board affect --check` lists them under `derived from linked commits`.
+//     The board is the only thing that knows what a task actually touched — `eb`
+//     cannot see a repository. Deriving is what T-109 withdrew for labels; it is
+//     allowed here only because the extension -> language table is closed and
+//     canonical, so the board applies a convention rather than inventing a name.
+//     Computed CLI-side at `git link` time and stored (SCHEMA 13 -> 14): the
+//     server still never shells out.
+export const FORMAT_VERSION = 27;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;
@@ -546,6 +555,10 @@ function buildContextSections(repo: Repo, id: string, t: Task, fid: Fidelity): s
   //     `eb` and never reads the brain — ADR 0009.
   if (fid.affect?.enabled) {
     const { cues, unmapped } = cuesFor(repo.getLabels(id), fid.affect.map);
+    // Languages ride alongside the mapped labels: the board is the only thing
+    // that knows what a task`s commits actually touched, and `eb` cannot see a
+    // repository at all.
+    for (const c of langCues(repo.langUsage(id))) if (!cues.includes(c)) cues.push(c);
     // The fix hint deliberately shows `<cue>` rather than a slug of the label:
     // suggesting `activity:docs` would have the board proposing the very
     // near-duplicate its own starter vocabulary flags. The choice is the agent's.
@@ -947,12 +960,20 @@ export function renderAffectCheck(check: AffectCheck): string {
     lines.push('  fix: kanban board affect --map <label>=<cue>');
   }
 
+  if (check.derived.length) {
+    lines.push(
+      '',
+      `derived from linked commits (${check.derived.length}) — not configured, and not guessed:`,
+      '  ' + check.derived.join(', '),
+    );
+  }
+
   if (check.stale.length) {
     lines.push('', `stale (${check.stale.length}) — mapped, but no live task carries the label:`);
     for (const s of check.stale) lines.push(`  ${s.label} -> ${s.cue}`);
   }
 
-  if (!check.unmapped.length && !check.invalid.length && !check.stale.length)
+  if (!check.unmapped.length && !check.invalid.length && !check.stale.length && !check.derived.length)
     lines.push('', 'every label in use is mapped.');
 
   return lines.join("\n");
