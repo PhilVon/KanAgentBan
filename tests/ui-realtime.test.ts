@@ -23,6 +23,7 @@ let h: TestServer;
 let realFetch: typeof globalThis.fetch;
 let realWS: any;
 let sockets: any[];
+let tornDown: { v: boolean };
 
 /** Poll until `fn` returns a truthy value (or time out). 10s for the same reason
  *  as tests/ui.test.ts: windows-latest runners are slow enough to trip a 4s
@@ -64,8 +65,23 @@ beforeEach(async () => {
   localStorage.setItem('kanban_token', h.token);
 
   realFetch = globalThis.fetch;
-  globalThis.fetch = ((input: any, init?: any) =>
-    realFetch(typeof input === 'string' && input.startsWith('/') ? h.url + input : input, init)) as any;
+  // Same teardown guard as tests/ui.test.ts, for the same reason (T-107): every
+  // test calls loadApp() into this one jsdom global and nothing stops the
+  // previous app.js instances, so a request resolving after teardown would let
+  // test N render into test N+1's DOM. Park both outcomes once torn down.
+  const torn = (tornDown = { v: false });
+  globalThis.fetch = (async (input: any, init?: any) => {
+    try {
+      const res = await realFetch(
+        typeof input === 'string' && input.startsWith('/') ? h.url + input : input,
+        init,
+      );
+      return torn.v ? new Promise(() => {}) : res;
+    } catch (e) {
+      if (torn.v) return new Promise(() => {});
+      throw e;
+    }
+  }) as any;
 
   // Capture every socket the app opens so a test can push frames into onmessage.
   sockets = [];
@@ -82,6 +98,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  tornDown.v = true;
   globalThis.fetch = realFetch;
   (globalThis as any).WebSocket = realWS;
   await stopTestServer(h);
