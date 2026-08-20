@@ -186,8 +186,34 @@ surfaces user comments distinctly and protects them from token-budget shedding �
 labelled **"user comments — the human is talking to you"** block (agent notes shed
 first), and `list` marks the task `💬n*`.
 
-### `kanban criterion add <id> "<text>"` / `kanban criterion check <AC-id> [--off]`
+### `kanban criterion add <id> "<text>" [--human]` / `check <AC-id> [--off]` / `retire <AC-id> --because "<why>" [--successor T-n]` / `amend <AC-id> "<text>"`
 Manage acceptance criteria; `check --off` unchecks.
+
+A criterion used to have exactly **two** states, so one that turned out to be wrong
+could only be ticked falsely, left unchecked forever, or escalated as a question the
+agent raised about its own planning error. Two more states close that:
+
+- **`--human`** — only the human can settle it (a playtest, *"does it read right?"*).
+  It stays in the denominator (it is still work), but `doctor` names it apart from
+  work the *agent* is failing to finish, and the UI marks it *for you*. Without it an
+  agent raises one `Q-n` per such criterion — six of one session's ten questions
+  existed only to route criteria the board could not.
+- **`retire`** — the criterion turned out to be **wrong**, not undone. It leaves
+  **both** sides of the count (`criteria 5/6 · 1 retired`), never blocks `done`, and
+  can no longer be ticked. `--because` is **required**: *"the client has no
+  transcripts, so this cannot be built; T-321 carries it"* is a better record than
+  either a false tick or an unchecked box. This is the exit for a **hypothesis**
+  criterion the code disproves (see [06-skill](06-skill.md) §4).
+- **`amend`** — the criterion is merely badly *typed*. The text was write-once, so a
+  criterion carrying its author's own stray numbering read `AC-1111 AC-1031 …`
+  permanently. Use `retire` when it is wrong, `amend` when it is mistyped.
+
+The count line grows its `· N retired` / `· N for the human` tails **only when
+non-zero** — an ordinary task still reads exactly `criteria 5/6`. In `context`, a
+retired criterion renders `[~] AC-n text — retired: <why> (→ T-n)`, and a human one
+carries `[human]`. A retired criterion is also excluded from a `template save`
+blueprint: a blueprint carries the shape of the work, and a retired criterion is a
+planning error already corrected.
 
 ### `kanban label <id> --add L` / `--rm L`
 

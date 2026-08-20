@@ -133,9 +133,18 @@ Lifecycle and state diagram: see [04-human-in-the-loop](04-human-in-the-loop.md)
 | `checked` | INTEGER (bool) | |
 | `checked_at` | TEXT NULL | |
 | `position` | REAL | ordering |
+| `human` | INTEGER (bool) | only the human can settle it (a playtest, "does it read right?"). Stays in the denominator — it is still work — but `doctor` names it apart from work the *agent* is failing to finish |
+| `retired_at` | TEXT NULL | set when the criterion turned out to be **wrong**, not undone. A retired criterion leaves **both** sides of the count, cannot be ticked, and never blocks `done` |
+| `retire_reason` | TEXT NULL | required at retirement — the reason is the point of the state |
+| `successor_task_id` | TEXT NULL | the task that carries the work instead, when there is one |
 
 Rows (not freetext) so progress renders as a cheap `3/5` and the agent can tick
-items individually via the CLI.
+items individually via the CLI. Counting lives in one place (`derive.countCriteria`)
+so every surface agrees: **retired criteria leave both sides**, because a criterion
+that turned out wrong is not outstanding work and never was. With only `checked` a
+mis-specified criterion could be ticked falsely, left unchecked forever, or escalated
+as a question the agent had created for itself — retirement makes a planning error
+self-correcting.
 
 ### artifact
 | Field | Type | Notes |

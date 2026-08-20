@@ -319,8 +319,30 @@ program.command('parent <id>')
 program.command('comment <id> <body>').action(async (id, body) => { const c = await api(await conn(), 'POST', `/api/tasks/${id}/comments`, { body }); out(`${c.id} added`); });
 
 const crit = program.command('criterion');
-crit.command('add <id> <text>').action(async (id, text) => { const r = await api(await conn(), 'POST', `/api/tasks/${id}/criteria`, { text }); out(`${r.id} added`); });
+crit
+  .command('add <id> <text>')
+  .option('--human', 'only the human can settle this one (a playtest, "does it read right?") — stays in the count, but doctor stops reading it as work the agent is failing to finish')
+  .action(async (id, text, o) => {
+    const r = await api(await conn(), 'POST', `/api/tasks/${id}/criteria`, { text, human: !!o.human });
+    out(`${r.id} added${o.human ? ' (for the human)' : ''}`);
+  });
 crit.command('check <acid>').option('--off').action(async (acid, o) => { await api(await conn(), 'PATCH', `/api/criteria/${acid}`, { checked: !o.off }); out(`${acid} ${o.off ? 'unchecked' : 'checked'}`); });
+crit
+  .command('retire <acid>')
+  .description('retire a criterion that turned out to be WRONG (not undone) — leaves both sides of the count and never reads as unfinished work')
+  .requiredOption('--because <why>', 'why it is wrong — required; the reason is the record')
+  .option('--successor <id>', 'the task that carries the work instead')
+  .action(async (acid, o) => {
+    const r = await api(await conn(), 'POST', `/api/criteria/${acid}/retire`, { because: o.because, successor: o.successor });
+    out(`${acid} retired: ${r.retire_reason}${r.successor_task_id ? ` (→ ${r.successor_task_id})` : ''}`);
+  });
+crit
+  .command('amend <acid> <text>')
+  .description('rewrite a badly-typed criterion (use retire when it is wrong, not just mistyped)')
+  .action(async (acid, text) => {
+    await api(await conn(), 'PATCH', `/api/criteria/${acid}`, { text });
+    out(`${acid} amended`);
+  });
 
 program.command('label <id>').description('add/remove a label on a task (or T-1,T-2,… — one transaction)').option('--add <l>').option('--rm <l>').action(async (id, o) => {
   const c = await conn();

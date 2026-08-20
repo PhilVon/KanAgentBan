@@ -106,10 +106,19 @@ When the agent picks up a task, the skill steers it through:
    sign-off `ask`, §5); `kanban done T-12` on acceptance (recomputes dependents'
    readiness). Only these five names are valid `move`/`--status` targets — an
    unknown column (e.g. `"To Do"`) is rejected with exit `1`.
-3. **Make acceptance criteria explicit and tick them.**
+3. **Make acceptance criteria explicit and tick them — and use all four verbs.**
    `kanban criterion add T-12 "token exchange handles errors"`, then
    `kanban criterion check AC-32` as each lands. Criteria are the agent's own
-   definition-of-done contract.
+   definition-of-done contract — but a two-state contract has no exit for a
+   criterion that turns out to be *wrong*, so the skill carries the other two:
+   `kanban criterion retire AC-32 --because "…" [--successor T-n]` when a criterion
+   (typically a **hypothesis** — see *When a criterion is knowable*, below) is disproved — the reason is the record, it
+   leaves both sides of the count, and it stops the agent choosing between a false
+   tick and a box that reads as unfinished work forever; `criterion amend AC-32 "…"`
+   when it is merely badly typed; and `criterion add … --human` for one only the
+   person can settle (a playtest, "does it read right?"), which keeps it in the count
+   but stops `doctor` reading it as work the agent is failing to finish — and stops
+   the agent raising one `Q-n` per criterion to get it looked at.
 4. **Read user comments as directives; comment back meaningfully.** Comments are a
    two-way channel. The human leaves `user` comments to steer the agent — read them
    before starting/resuming and treat them as instructions (`next` flags a waiting

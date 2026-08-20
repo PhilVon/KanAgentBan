@@ -1,5 +1,38 @@
 import type { DB } from './db';
-import type { DerivedState, Task } from '../shared/types';
+import type { AcceptanceCriterion, DerivedState, Task } from '../shared/types';
+
+/** The one place criteria are counted, so every surface agrees. */
+export interface CriteriaCount {
+  /** Checked, excluding retired. */
+  done: number;
+  /** Live criteria — retired ones leave **both** sides of the count, because a
+   *  criterion that turned out wrong is not outstanding work and never was. */
+  total: number;
+  retired: number;
+  /** Live, unchecked, and only the human can settle them — still work, but not
+   *  work the *agent* is failing to finish. */
+  human_open: number;
+}
+
+export function countCriteria(crit: AcceptanceCriterion[]): CriteriaCount {
+  const live = crit.filter((c) => !c.retired_at);
+  return {
+    done: live.filter((c) => c.checked).length,
+    total: live.length,
+    retired: crit.length - live.length,
+    human_open: live.filter((c) => c.human && !c.checked).length,
+  };
+}
+
+/** `5/6`, plus tails only when they are non-zero — an ordinary task reads exactly
+ *  as it did before criterion states existed. */
+export function fmtCriteria(c: CriteriaCount): string {
+  return (
+    `${c.done}/${c.total}` +
+    (c.retired ? `  ·  ${c.retired} retired` : '') +
+    (c.human_open ? `  ·  ${c.human_open} for the human` : '')
+  );
+}
 
 /** A task is blocked by deps if any `blocks` prerequisite is not Done/archived. */
 export function blockedByDeps(db: DB, taskId: string): boolean {

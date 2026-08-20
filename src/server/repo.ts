@@ -187,8 +187,14 @@ export class Repo {
       this.db
         .prepare('SELECT * FROM acceptance_criterion WHERE task_id = ? ORDER BY position ASC')
         .all(taskId) as any[]
-    ).map((r) => ({ ...r, checked: !!r.checked }));
+    ).map(this.mapCriterion);
   }
+
+  private mapCriterion = (r: any): AcceptanceCriterion => ({
+    ...r,
+    checked: !!r.checked,
+    human: !!r.human,
+  });
 
   getArtifacts(taskId: string): Artifact[] {
     return this.db
@@ -968,10 +974,16 @@ export class Repo {
       ...(t.description ? { description: t.description } : {}),
       priority: t.priority,
       labels: this.getLabels(taskId),
-      criteria: this.getCriteria(taskId).map((c) => c.text),
+      // Retired criteria are excluded: a blueprint carries the shape of the
+      // work, and a retired one is a planning error already corrected.
+      criteria: this.getCriteria(taskId)
+        .filter((c) => !c.retired_at)
+        .map((c) => c.text),
       subtasks: this.getChildren(taskId).map((c) => ({
         title: c.title,
-        criteria: this.getCriteria(c.id).map((x) => x.text),
+        criteria: this.getCriteria(c.id)
+          .filter((x) => !x.retired_at)
+          .map((x) => x.text),
       })),
     };
     this.mutate((rec) => {
@@ -1156,7 +1168,13 @@ export class Repo {
     return { id, task_id: taskId, body, author_type, author_name, created_at: ts };
   }
 
-  private addCriterionTx(rec: any, taskId: string, text: string, actor: ActorType): string {
+  private addCriterionTx(
+    rec: any,
+    taskId: string,
+    text: string,
+    actor: ActorType,
+    human = false,
+  ): string {
     const id = nextCriterionId(this.db);
     const pos =
       (
@@ -1165,23 +1183,38 @@ export class Repo {
           .get(taskId) as { p: number }
       ).p + 1;
     this.db
-      .prepare('INSERT INTO acceptance_criterion(id,task_id,text,checked,position) VALUES(?,?,?,0,?)')
-      .run(id, taskId, text, pos);
-    rec({ type: 'criterion.added', task_id: taskId, actor_type: actor, payload: { id } });
+      .prepare(
+        'INSERT INTO acceptance_criterion(id,task_id,text,checked,position,human) VALUES(?,?,?,0,?,?)',
+      )
+      .run(id, taskId, text, pos, human ? 1 : 0);
+    rec({ type: 'criterion.added', task_id: taskId, actor_type: actor, payload: { id, human } });
     return id;
   }
 
-  addCriterion(taskId: string, text: string, actor: ActorType = 'agent'): string {
+  addCriterion(
+    taskId: string,
+    text: string,
+    actor: ActorType = 'agent',
+    opts: { human?: boolean } = {},
+  ): string {
     return this.mutate((rec) => {
       this.requireTask(taskId);
-      return this.addCriterionTx(rec, taskId, text, actor);
+      return this.addCriterionTx(rec, taskId, text, actor, !!opts.human);
     });
+  }
+
+  private requireCriterion(acId: string): any {
+    const c = this.db.prepare('SELECT * FROM acceptance_criterion WHERE id=?').get(acId) as any;
+    if (!c) throw new NotFoundError(`criterion ${acId} not found`);
+    return c;
   }
 
   checkCriterion(acId: string, checked: boolean, actor: ActorType = 'agent'): void {
     this.mutate((rec) => {
-      const c = this.db.prepare('SELECT * FROM acceptance_criterion WHERE id=?').get(acId) as any;
-      if (!c) throw new NotFoundError(`criterion ${acId} not found`);
+      const c = this.requireCriterion(acId);
+      // Ticking a retired criterion is the false tick retirement exists to avoid.
+      if (c.retired_at)
+        throw new ValidationError(`${acId} is retired (${c.retire_reason}) — it is not work to tick`);
       this.db
         .prepare('UPDATE acceptance_criterion SET checked=?, checked_at=? WHERE id=?')
         .run(checked ? 1 : 0, checked ? now() : null, acId);
@@ -1192,6 +1225,72 @@ export class Repo {
         payload: { id: acId },
       });
     });
+  }
+
+  /**
+   * Retire a criterion that turned out to be **wrong** — a hypothesis about
+   * mechanism that the code disproved, work the client made impossible, a promise
+   * the task can no longer keep. It is the third state a two-state criterion
+   * needed: without it the only exits are a false tick, an unchecked box that
+   * reads as unfinished work forever, or a question the agent raises about its
+   * own planning error.
+   *
+   * The reason is **required**, because the reason is the point: *"the client has
+   * no transcripts, so this cannot be built; T-321 carries it"* is a better record
+   * than either of the alternatives.
+   */
+  retireCriterion(
+    acId: string,
+    reason: string,
+    opts: { successor?: string; actor?: ActorType } = {},
+  ): AcceptanceCriterion {
+    const because = (reason ?? '').trim();
+    if (!because)
+      throw new ValidationError('retiring a criterion needs --because "<why>" — the reason is the record');
+    return this.mutate((rec) => {
+      const c = this.requireCriterion(acId);
+      if (c.retired_at) throw new ValidationError(`${acId} is already retired`);
+      if (opts.successor) this.requireTask(opts.successor);
+      this.db
+        .prepare(
+          'UPDATE acceptance_criterion SET retired_at=?, retire_reason=?, successor_task_id=? WHERE id=?',
+        )
+        .run(now(), because, opts.successor ?? null, acId);
+      rec({
+        type: 'criterion.retired',
+        task_id: c.task_id,
+        actor_type: opts.actor ?? 'agent',
+        payload: { id: acId, reason: because, ...(opts.successor ? { successor: opts.successor } : {}) },
+      });
+      return this.getCriterion(acId)!;
+    });
+  }
+
+  /**
+   * Rewrite a criterion's text. The smaller sibling of `retire`: that one is for a
+   * criterion that is *wrong*, this is for one that is merely badly typed — the
+   * text was write-once, so a criterion carrying its author's own stray numbering
+   * read `AC-1111 AC-1031 …` permanently.
+   */
+  amendCriterion(acId: string, text: string, actor: ActorType = 'agent'): AcceptanceCriterion {
+    const next = (text ?? '').trim();
+    if (!next) throw new ValidationError('amending a criterion needs replacement text');
+    return this.mutate((rec) => {
+      const c = this.requireCriterion(acId);
+      this.db.prepare('UPDATE acceptance_criterion SET text=? WHERE id=?').run(next, acId);
+      rec({
+        type: 'criterion.amended',
+        task_id: c.task_id,
+        actor_type: actor,
+        payload: { id: acId, from: c.text, to: next },
+      });
+      return this.getCriterion(acId)!;
+    });
+  }
+
+  getCriterion(acId: string): AcceptanceCriterion | undefined {
+    const c = this.db.prepare('SELECT * FROM acceptance_criterion WHERE id=?').get(acId);
+    return c ? this.mapCriterion(c) : undefined;
   }
 
   /**

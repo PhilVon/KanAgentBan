@@ -1,11 +1,12 @@
 import type { Repo } from './repo';
 import type { DoctorFinding, DoctorReport } from './doctor';
 import type { StandupReport } from './standup';
-import { childProgress, deriveState, remainingBlockerCount } from './derive';
+import { childProgress, countCriteria, deriveState, fmtCriteria, remainingBlockerCount } from './derive';
 import { recommend, type BlockedSummary } from './recommend';
 import { LABEL_TOP_N, type BoardStats, type MetricSummary, type TaskTiming, type VelocityTrend } from './stats';
 import {
   WORKFLOW_STATUSES,
+  type AcceptanceCriterion,
   type BrainstormSession,
   type Comment,
   type Doc,
@@ -72,7 +73,12 @@ import {
 //     tag an open watch `[watch]` and say it is not blocking, `inbox` lists
 //     watches under their own heading, and `standup` counts them in `watching` /
 //     `watch resolutions` rather than as question traffic.
-export const FORMAT_VERSION = 21;
+// v22: criterion states — a criterion can be `retired` (wrong, not undone; leaves
+//     both sides of the count and renders `[~]` with its reason and successor) or
+//     flagged `human` (only the human settles it; renders `[human]`). The count
+//     line grows `· N retired` / `· N for the human` tails ONLY when non-zero, so
+//     an ordinary task still reads `criteria 5/6`.
+export const FORMAT_VERSION = 22;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;
@@ -133,6 +139,20 @@ function rel(iso: string): string {
 
 function fmtComment(c: Comment): string {
   return `  ${c.author_type}/${c.author_name} ${rel(c.created_at)}  "${c.body}"`;
+}
+
+/**
+ * One criterion line. A retired one gets its own box glyph rather than a tick or
+ * a blank — both of which would be lies — and carries the reason, which is the
+ * whole point of the state. A `human` one says whose eyes settle it, so it stops
+ * reading as work the agent is failing to finish.
+ */
+function criterionLine(c: AcceptanceCriterion): string {
+  if (c.retired_at) {
+    const successor = c.successor_task_id ? ` (→ ${c.successor_task_id})` : '';
+    return `  [~] ${c.id} ${c.text}  — retired: ${c.retire_reason}${successor}`;
+  }
+  return `  [${c.checked ? 'x' : ' '}] ${c.id} ${c.text}${c.human ? '  [human]' : ''}`;
 }
 
 /**
@@ -281,7 +301,7 @@ function buildShow(repo: Repo, id: string, t: Task, fid: ShowFidelity): string {
       fid.dropDescription ? `[description trimmed — show ${id} --full]` : `description: ${t.description}`,
     );
   lines.push(
-    `criteria ${done}/${crit.length}  ·  blockers ${remainingBlockerCount(repo.db, id)}` +
+    `criteria ${fmtCriteria(countCriteria(crit))}  ·  blockers ${remainingBlockerCount(repo.db, id)}` +
       (kids.total ? `  ·  subtasks ${kids.done}/${kids.total}` : '') +
       `  ·  comments ${repo.countComments(id)}  ·  open input ${open.length}${t.assignee ? `  ·  assignee ${t.assignee}` : ''}`,
   );
@@ -380,12 +400,11 @@ function buildContextSections(repo: Repo, id: string, t: Task, fid: Fidelity): s
   // 2. acceptance criteria (checklist, or collapsed to a count under budget)
   const crit = repo.getCriteria(id);
   if (crit.length) {
-    const done = crit.filter((c) => c.checked).length;
+    const count = fmtCriteria(countCriteria(crit));
     sections.push(
       fid.collapseCriteria
-        ? `criteria ${done}/${crit.length}\n  [criteria collapsed — context ${id} --full]`
-        : `criteria ${done}/${crit.length}:\n` +
-            crit.map((c) => `  [${c.checked ? 'x' : ' '}] ${c.id} ${c.text}`).join('\n'),
+        ? `criteria ${count}\n  [criteria collapsed — context ${id} --full]`
+        : `criteria ${count}:\n` + crit.map(criterionLine).join('\n'),
     );
   }
 

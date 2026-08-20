@@ -339,21 +339,35 @@ export const TOOLS: ToolDef[] = [
   },
   {
     name: 'criterion',
-    description: 'Manage acceptance criteria: op=add (needs id + text) appends a criterion; op=check (needs acid; checked defaults true) ticks/unticks one.',
+    description:
+      'Manage acceptance criteria. op=add (needs id + text) appends one — pass human=true when only the person can settle it (a playtest, "does it read right?"), which keeps it in the count but stops it reading as work you are failing to finish. op=check (needs acid) ticks/unticks. op=retire (needs acid + because) marks a criterion that turned out to be WRONG rather than undone: it leaves both sides of the count and never reads as unfinished — use it instead of a false tick or an unchecked box you can never clear. op=amend (needs acid + text) rewrites a badly-typed one.',
     inputSchema: {
-      op: z.enum(['add', 'check']),
+      op: z.enum(['add', 'check', 'retire', 'amend']),
       id: z.string().optional().describe('task id (for op=add)'),
-      text: z.string().optional().describe('criterion text (for op=add)'),
-      acid: z.string().optional().describe('criterion id, e.g. AC-3 (for op=check)'),
+      text: z.string().optional().describe('criterion text (op=add, op=amend)'),
+      acid: z.string().optional().describe('criterion id, e.g. AC-3 (op=check/retire/amend)'),
       checked: z.boolean().optional().describe('for op=check; default true'),
+      human: z.boolean().optional().describe('for op=add: only the human can settle this one'),
+      because: z.string().optional().describe('for op=retire: why it is wrong — required, and the reason is the record'),
+      successor: z.string().optional().describe('for op=retire: the task that carries the work instead'),
     },
     run: async (c, a) => {
       if (a.op === 'add') {
         if (!a.id || !a.text) throw new CliError('criterion add needs id and text', 1);
-        const r = await api(c, 'POST', `/api/tasks/${a.id}/criteria`, { text: a.text });
-        return `${r.id} added`;
+        const r = await api(c, 'POST', `/api/tasks/${a.id}/criteria`, { text: a.text, human: !!a.human });
+        return `${r.id} added${a.human ? ' (for the human)' : ''}`;
       }
-      if (!a.acid) throw new CliError('criterion check needs acid', 1);
+      if (!a.acid) throw new CliError(`criterion ${a.op} needs acid`, 1);
+      if (a.op === 'retire') {
+        if (!a.because) throw new CliError('criterion retire needs because — the reason is the record', 1);
+        const r = await api(c, 'POST', `/api/criteria/${a.acid}/retire`, { because: a.because, successor: a.successor });
+        return `${a.acid} retired: ${r.retire_reason}${r.successor_task_id ? ` (→ ${r.successor_task_id})` : ''}`;
+      }
+      if (a.op === 'amend') {
+        if (!a.text) throw new CliError('criterion amend needs text', 1);
+        await api(c, 'PATCH', `/api/criteria/${a.acid}`, { text: a.text });
+        return `${a.acid} amended`;
+      }
       const checked = a.checked ?? true;
       await api(c, 'PATCH', `/api/criteria/${a.acid}`, { checked });
       return `${a.acid} ${checked ? 'checked' : 'unchecked'}`;

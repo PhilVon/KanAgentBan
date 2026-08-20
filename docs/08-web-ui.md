@@ -187,7 +187,15 @@ Opening a card slides in a drawer backed by `GET /api/tasks/:id?view=show`
   summary was last written.
 - **Acceptance criteria** — a checklist with a **`x/y` progress** count. Each
   item toggles via `PATCH /api/criteria/:acid` (`criterion.checked` /
-  `criterion.unchecked`).
+  `criterion.unchecked`). Two states change how a row is drawn:
+  - a **retired** criterion (one that turned out to be *wrong*, not undone) is
+    struck through with its reason and successor beside it, and has **no
+    checkbox** — there is nothing to tick, and offering one invites the false tick
+    retirement exists to prevent. It leaves **both** sides of the count, which
+    grows a `· N retired` tail.
+  - a criterion marked **`human`** carries a *for you* tag: it is the person's to
+    settle, and the count grows a `· N for you` tail. Both tails appear **only
+    when non-zero**, so an ordinary card still reads `Acceptance criteria 5/6`.
 - **Parent** — when the task is a subtask, a `⤷ parent: T-p` link that opens the
   parent's drawer.
 - **Subtasks** — a **`d/t`** count and the list of children (id, title, status);

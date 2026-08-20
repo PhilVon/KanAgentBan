@@ -99,7 +99,7 @@ leased claim the server auto-releases past due), `archive`, `dep`
 (`op: add|remove`), `parent` (`to` / `clear`), `review` (`op: approve|reject`,
 `reason` required on reject — normally the human's gate, used by the agent only
 under delegated sign-off), `comment`, `checkpoint` (set/clear the one-slot
-resume pointer), `criterion` (`op: add|check`), `label` (`op: add|remove`),
+resume pointer), `criterion` (`op: add|check|retire|amend`, plus `human` on add), `label` (`op: add|remove`),
 `artifact` (kinds incl. git `commit`/`branch` references; idempotent on
 task+kind+uri — no dedicated git tool, since repo scanning is inherently
 CLI/local, ADR 0008), `template` (`op: save|apply|list|show|delete` — reusable

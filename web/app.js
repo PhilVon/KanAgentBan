@@ -502,8 +502,29 @@ function renderDrawer(d) {
   }
   if (d.task.description) body.append(el('p', 'desc', d.task.description));
 
-  body.append(el('h4', '', `Acceptance criteria ${d.criteria.filter((c) => c.checked).length}/${d.criteria.length}`));
+  {
+    // Retired criteria leave BOTH sides of the count — one that turned out to be
+    // wrong is not outstanding work — and the tails only appear when non-zero, so
+    // an ordinary task still reads "Acceptance criteria 5/6".
+    const live = d.criteria.filter((c) => !c.retired_at);
+    const retired = d.criteria.length - live.length;
+    const humanOpen = live.filter((c) => c.human && !c.checked).length;
+    const tail =
+      (retired ? ` · ${retired} retired` : '') + (humanOpen ? ` · ${humanOpen} for you` : '');
+    body.append(
+      el('h4', '', `Acceptance criteria ${live.filter((c) => c.checked).length}/${live.length}${tail}`),
+    );
+  }
   for (const c of d.criteria) {
+    if (c.retired_at) {
+      // No checkbox: there is nothing to tick, and offering one invites the false
+      // tick retirement exists to avoid. The reason is the record, so it shows.
+      const row = el('div', 'crit retired');
+      const why = c.retire_reason + (c.successor_task_id ? ` → ${c.successor_task_id}` : '');
+      row.append(el('span', 'crit-text', c.text), el('span', 'crit-why', ` retired: ${why}`));
+      body.append(row);
+      continue;
+    }
     const row = el('label', 'crit');
     const cb = el('input');
     cb.type = 'checkbox';
@@ -518,6 +539,9 @@ function renderDrawer(d) {
         cb.checked = !cb.checked;
       });
     row.append(cb, el('span', '', ` ${c.text}`));
+    // A human criterion is the human's to settle — say so, so it stops reading as
+    // something the agent is failing to finish (and so they know to look).
+    if (c.human) row.append(el('span', 'crit-human', ' for you'));
     body.append(row);
   }
   appendAdder(body, 'crit-input', 'new criterion…', 'Criterion', (text) =>
@@ -1241,6 +1265,8 @@ function fmtEvent(ev) {
     'criterion.added': () => `criterion ${p.id} added`,
     'criterion.checked': () => `criterion ${p.id} checked`,
     'criterion.unchecked': () => `criterion ${p.id} unchecked`,
+    'criterion.retired': () => `criterion ${p.id} retired: ${p.reason}`,
+    'criterion.amended': () => `criterion ${p.id} amended`,
     'label.added': () => `label +${p.name}`,
     'label.removed': () => `label −${p.name}`,
     'artifact.added': () => `artifact ${p.id} (${p.kind}) attached`,

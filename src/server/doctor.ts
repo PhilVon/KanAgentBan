@@ -1,5 +1,5 @@
 import type { Repo } from './repo';
-import { childProgress } from './derive';
+import { childProgress, countCriteria } from './derive';
 import { boardPace } from './stats';
 import { fmtDur } from './render';
 import type { Task } from '../shared/types';
@@ -106,8 +106,10 @@ export function runDoctor(repo: Repo, nowMs: number = Date.now()): DoctorReport 
       }
     }
 
-    // 2. In Progress without acceptance criteria — no definition of done.
-    if (t.status === 'In Progress' && repo.getCriteria(t.id).length === 0) {
+    // 2. In Progress without acceptance criteria — no definition of done. A task
+    //    whose only criteria are retired has none: retirement means they turned
+    //    out to be wrong, not that they were met.
+    if (t.status === 'In Progress' && countCriteria(repo.getCriteria(t.id)).total === 0) {
       findings.push({
         check: 'wip-no-criteria',
         id: t.id,
@@ -151,15 +153,19 @@ export function runDoctor(repo: Repo, nowMs: number = Date.now()): DoctorReport 
     if (t.status !== 'Done') {
       const kids = childProgress(repo.db, t.id);
       if (kids.total > 0 && kids.done === kids.total) {
+        // Retired criteria are excluded from both sides — they are not work.
         const own = repo.getCriteria(t.id);
-        const openOwn = own.filter((c) => !c.checked).length;
-        const conflict = openOwn > 0 ? `, but ${openOwn} of its own ${own.length} criteria unchecked` : '';
+        const n = countCriteria(own);
+        const openOwn = n.total - n.done;
+        const whose = n.human_open ? ` (${n.human_open} of them only the human can settle)` : '';
+        const conflict =
+          openOwn > 0 ? `, but ${openOwn} of its own ${n.total} criteria unchecked${whose}` : '';
         findings.push({
           check: 'done-eligible-parent',
           id: t.id,
           detail: `all ${kids.total} subtask(s) Done${conflict} — close only if those are met or retired: kanban done ${t.id}`,
           blind_spot:
-            'rolls up subtask status only — it cannot judge whether a criterion is met, and an unchecked box never says whether the work is outstanding or the criterion was mis-specified',
+            'rolls up subtask status only — it cannot judge whether a criterion is met, nor whether an unchecked one is outstanding work, wrong (retire it) or waiting on the human',
         });
       }
     }
