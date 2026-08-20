@@ -196,7 +196,7 @@ program
 // ---- write / workflow ----------------------------------------------------
 program
   .command('add <title>')
-  .option('--desc <t>')
+  .option('--desc, --description <t>', 'task description')
   .option('--summary <t>')
   .option('--status <s>')
   .option('--prio <p>')
@@ -207,7 +207,7 @@ program
   .action(async (title, o) => {
     const t = await api(await conn(), 'POST', '/api/tasks', {
       title,
-      description: o.desc,
+      description: o.description,
       summary: o.summary,
       status: o.status,
       priority: o.prio,
@@ -222,13 +222,13 @@ program
 program
   .command('update <id>')
   .option('--title <t>')
-  .option('--desc <t>')
+  .option('--desc, --description <t>', 'task description')
   .option('--summary <t>')
   .option('--prio <p>')
   .option('--expect-version <n>')
   .action(async (id, o) => {
     const headers: Record<string, string> = o.expectVersion ? { 'if-match': String(o.expectVersion) } : {};
-    const t = await api(await conn(), 'PATCH', `/api/tasks/${id}`, clean({ title: o.title, description: o.desc, summary: o.summary, priority: o.prio }), headers);
+    const t = await api(await conn(), 'PATCH', `/api/tasks/${id}`, clean({ title: o.title, description: o.description, summary: o.summary, priority: o.prio }), headers);
     out(`${t.id}  updated (v${t.version})`);
   });
 
@@ -620,6 +620,10 @@ git
       }
     }
     out(`linked ${commitCount} commit(s), ${branchCount} branch(es)${id ? ` for ${id}` : ''} (re-runs are idempotent)`);
+
+    // A commit naming two tasks is a boundary drift nothing else reports. Say so;
+    // never refuse (see straddleNote).
+    for (const line of g.straddleNote(commits)) out(line);
   });
 git
   .command('branch <id>')

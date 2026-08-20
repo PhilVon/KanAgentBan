@@ -27,6 +27,7 @@ import type {
   Idea,
   InputRequest,
   Priority,
+  SearchOutcome,
   SearchResult,
   Task,
   TaskTemplate,
@@ -35,6 +36,27 @@ import type {
 } from '../shared/types';
 
 const now = () => new Date().toISOString();
+
+/**
+ * FTS5 query syntax: a phrase quote, a prefix or initial-token operator, a
+ * column filter, a group, or one of the uppercase boolean keywords. If a query
+ * carries any of it
+ * the caller wrote a query, not a bag of words — leave it exactly as typed.
+ * (`-` is deliberately absent: FTS5 has no negation operator, so `write-through`
+ * is a hyphenated word and safe to treat as one term.)
+ */
+const FTS_SYNTAX = /["*^():]|(?:^|\s)(?:AND|OR|NOT|NEAR)(?:\s|$)/;
+
+/**
+ * The terms of a multi-word bare query, or null if there is nothing to loosen —
+ * a single term (an OR of one is the same query) or a query carrying its own
+ * FTS syntax.
+ */
+export function looseTerms(query: string): string[] | null {
+  if (FTS_SYNTAX.test(query)) return null;
+  const terms = query.split(/\s+/).filter(Boolean);
+  return terms.length > 1 ? terms : null;
+}
 
 /** Ceiling on a doc's markdown body. Docs deliberately store content on the
  *  board (ADR 0007) — the cap keeps a single doc from becoming a token bomb
@@ -1597,19 +1619,48 @@ export class Repo {
    * quoted-phrase retry on user-syntax errors; LIKE fallback when FTS5 is
    * unavailable. Archived content never surfaces: task/doc rows drop out of the
    * index via triggers, and a comment on an archived task is filtered here.
+   *
+   * FTS5 conjoins bare terms, which is the right default for precision but makes
+   * a three-word guess return nothing — and search is the first thing an agent
+   * does on a cold board, so a zero-result first impression is expensive. When an
+   * all-terms query finds nothing, retry OR-ranked and report `loose: true` so
+   * the caller can say the results are approximate rather than pass them off as
+   * matches. A query that carries its own FTS syntax is never rewritten.
    */
-  search(q: string, opts: { type?: string; limit?: number } = {}): SearchResult[] {
+  searchBoard(q: string, opts: { type?: string; limit?: number } = {}): SearchOutcome {
     const query = q.trim();
-    if (!query) return [];
+    if (!query) return { hits: [], loose: false };
     const limit = opts.limit && opts.limit > 0 ? Math.min(opts.limit, 100) : 20;
-    const raw = this.ftsEnabled() ? this.searchFts(query, opts.type, limit) : this.searchLike(query, opts.type, limit);
-    const out: SearchResult[] = [];
-    for (const r of raw) {
-      const hit = this.toSearchResult(r);
-      if (hit) out.push(hit);
-      if (out.length >= limit) break;
-    }
-    return out;
+    const fts = this.ftsEnabled();
+    const collect = (raw: any[]): SearchResult[] => {
+      const out: SearchResult[] = [];
+      for (const r of raw) {
+        const hit = this.toSearchResult(r);
+        if (hit) out.push(hit);
+        if (out.length >= limit) break;
+      }
+      return out;
+    };
+
+    const strict = collect(
+      fts ? this.searchFts(query, opts.type, limit) : this.searchLike(query, opts.type, limit),
+    );
+    if (strict.length) return { hits: strict, loose: false };
+
+    const terms = looseTerms(query);
+    if (!terms) return { hits: strict, loose: false };
+    const loose = collect(
+      fts
+        ? this.searchFts(terms.join(' OR '), opts.type, limit)
+        : this.searchLikeAny(terms, opts.type, limit),
+    );
+    return { hits: loose, loose: loose.length > 0 };
+  }
+
+  /** Hits only — the strict-then-loose retry is transparent to callers that
+   *  don't render the distinction. */
+  search(q: string, opts: { type?: string; limit?: number } = {}): SearchResult[] {
+    return this.searchBoard(q, opts).hits;
   }
 
   private searchFts(query: string, type: string | undefined, limit: number): any[] {
@@ -1633,6 +1684,23 @@ export class Repo {
       // literal quoted phrase rather than erroring the read.
       return run(`"${query.replace(/"/g, '""')}"`);
     }
+  }
+
+  /**
+   * The LIKE-fallback twin of an `a OR b` MATCH: run each term, merge, and rank
+   * by how many terms hit. No FTS5 means no bm25, so term-count is the ranking.
+   */
+  private searchLikeAny(terms: string[], type: string | undefined, limit: number): any[] {
+    const merged = new Map<string, { row: any; matched: number }>();
+    for (const t of terms) {
+      for (const row of this.searchLike(t, type, limit)) {
+        const key = `${row.type}:${row.ref_id}`;
+        const seen = merged.get(key);
+        if (seen) seen.matched++;
+        else merged.set(key, { row, matched: 1 });
+      }
+    }
+    return [...merged.values()].sort((a, b) => b.matched - a.matched).map((e) => e.row);
   }
 
   private searchLike(query: string, type: string | undefined, limit: number): any[] {

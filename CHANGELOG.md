@@ -10,6 +10,22 @@ Unreleased section describing its change.
 ## [Unreleased]
 
 ### Added
+- Three small ones (T-104, 2026-08-20):
+  - **Loose search retry.** Bare terms are AND-ed, so a three-word guess returned
+    nothing — expensive, because search is the first thing an agent runs on a cold
+    board. When an all-terms query finds nothing, `search` retries OR-ranked and the
+    result leads with `[loose: nothing matched every term of "…" — these match at
+    least one, best first]`; `?json` carries `loose`. Never silent, and never
+    applied to a single term or to a query carrying its own FTS syntax (quotes,
+    `AND`/`OR`/`NOT`/`NEAR`, `*`, `^`, `:`, parens) — spelling the conjunction out is
+    how you ask for strict. The LIKE fallback loosens too, ranked by terms matched.
+    FORMAT_VERSION 19→20
+  - `--description` as an alias of `--desc` on `add` and `update`. The description is
+    the field worth rewriting once a symptom's cause is known, and the long spelling
+    used to be `error: unknown option`.
+  - `git link` now **notes** any commit whose subject names more than one task (five,
+    then a count). Task and commit boundaries drift and nothing else reported it; it
+    is a note about shape, never a refusal.
 - `doctor` findings state **what their own check cannot see**: each line now carries
   a trailing `[cannot see: …]` clause (`blind_spot` under `--json`, a required field
   so a new check cannot forget it) and phrases its pre-written command

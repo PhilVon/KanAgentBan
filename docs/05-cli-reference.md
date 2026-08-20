@@ -148,15 +148,18 @@ stays never-silent about the compaction floor. See [13-analytics](13-analytics.m
 
 ## Write & workflow commands
 
-### `kanban add "<title>" [--desc T] [--summary T] [--status S] [--prio P0..P3] [--parent T-1] [--label L,...] [--depends T-3,T-4] [--ac "text" ...]`
+### `kanban add "<title>" [--desc|--description T] [--summary T] [--status S] [--prio P0..P3] [--parent T-1] [--label L,...] [--depends T-3,T-4] [--ac "text" ...]`
 Creates a task; prints the new `T-n`. `--depends` adds `blocks` edges;
 `--ac` adds acceptance criteria. `--parent` nests it as a subtask under an
 existing task (§subtasks). `--label` and `--depends` are repeatable and each
 occurrence may be comma-separated (`--label a,b --label c` -> a, b, c).
+`--description` is an alias of `--desc`.
 
-### `kanban update <id> [--title T] [--desc T] [--summary T] [--prio P] [--expect-version N]`
+### `kanban update <id> [--title T] [--desc|--description T] [--summary T] [--prio P] [--expect-version N]`
 Edits fields. `--expect-version` enables optimistic concurrency; a stale version
-exits `4`.
+exits `4`. `--description` is an alias of `--desc` — the description is the field
+worth rewriting once a symptom's cause is known, and the long spelling is the one
+you reach for, so both work.
 
 ### `kanban move <id> <column>`
 Sets workflow `status`. (Being *blocked* is derived, not a column you move to —
@@ -364,6 +367,26 @@ $ kanban search "token exchange" --type task
 T-12 [task/In Progress] "Wire up OAuth callback" — …the token exchange handles…
 ```
 
+**Loose retry.** Bare terms are AND-ed, which is right for precision but means a
+three-word guess returns nothing — and search is the first thing an agent runs on
+a cold board, so a zero-result first impression is expensive. When an all-terms
+query finds nothing, the search retries OR-ranked and the result **says so**:
+
+```
+$ kanban search "clipping cut polaroid"
+[loose: nothing matched every term of "clipping cut polaroid" — these match at least one, best first]
+T-8  [task/Done] "Clipping the polaroid edge" — …
+```
+
+The header is the first line, so the token budget sheds hits before it, and
+`?json` carries `loose: true`. Two guards: a **single term** is never rewritten
+(an OR of one is the same query), and a query carrying its own FTS syntax —
+quotes, `AND`/`OR`/`NOT`/`NEAR`, `*`, `^`, `:`, `(` `)` — is never rewritten
+either, because that caller wrote a query rather than a bag of words. Spelling
+the conjunction out (`clipping AND cut`) is therefore how you ask for a strict
+result. A hyphenated word (`write-through`) is one term, not an operator. On the
+LIKE fallback the retry ranks by how many terms matched (no bm25 to lean on).
+
 ---
 
 ## Git commands (repo linkage — ADR 0008)
@@ -375,6 +398,19 @@ out. Convention: branches named `T-n-<slug>`, commit subjects mentioning `T-n`.
 Scans recent commits (default 500) and local branches for `T-n` mentions and
 records them as `commit`/`branch` artifacts on those tasks (unknown ids are
 skipped). Idempotent — re-run freely, e.g. from the post-commit hook.
+
+After the summary it **notes any commit whose subject names more than one task**
+(up to five, then a count):
+
+```
+linked 12 commit(s), 1 branch(es) (re-runs are idempotent)
+note: 1 commit(s) name more than one task — a commit per task keeps the trail readable:
+  3fa91c2  T-325, T-326  feat: crop handle + polaroid edge
+```
+
+Task boundaries and commit boundaries drift and nothing else reports it. This is
+a note about shape, not an error: `git link` never refuses, and whether to split
+is the author's call.
 
 ### `kanban git branch <T-n> [--checkout|--create]`
 Prints the conventional branch name `T-n-<slugged-title>`; `--checkout` creates

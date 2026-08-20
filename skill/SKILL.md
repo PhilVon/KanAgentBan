@@ -192,6 +192,9 @@ re-researching something.
 board-wide search over tasks, docs, and comments (one snippet line per hit,
 `--type doc` etc. to narrow). Prior findings, past decisions, and old task
 discussions surface here — a 20-token search beats redoing an hour of research.
+Bare terms are AND-ed; if nothing matches all of them you get an OR-ranked retry
+led by a `[loose: …]` line — read those hits as approximate, and spell `AND` out
+when you want the strict answer.
 
 ## Brainstorming — when the solution space is wide
 

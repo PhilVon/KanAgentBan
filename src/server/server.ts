@@ -374,13 +374,17 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
   app.get('/api/search', (req, res) => {
     const q = str(req.query.q);
     if (!q) return res.status(400).json(errBody('validation', 'search needs ?q='));
-    const results = repo.search(q, { type: str(req.query.type), limit: num(req.query.limit) });
+    const { hits: results, loose } = repo.searchBoard(q, {
+      type: str(req.query.type),
+      limit: num(req.query.limit),
+    });
     const text = renderSearch(results, q, {
       full: req.query.full !== undefined,
       maxTokens: num(req.query.max_tokens),
+      loose,
     });
     if (req.query.json !== undefined)
-      return res.json({ results, fts: repo.ftsEnabled(), text, est_tokens: estimateTokens(text) });
+      return res.json({ results, loose, fts: repo.ftsEnabled(), text, est_tokens: estimateTokens(text) });
     res.json({ text });
   });
 

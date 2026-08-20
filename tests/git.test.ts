@@ -5,6 +5,7 @@ import {
   parseLogMentions,
   postCommitHook,
   prepareCommitMsgHook,
+  straddleNote,
   taskIdsIn,
 } from '../src/cli/git';
 
@@ -77,5 +78,36 @@ describe('repo.addArtifact idempotency (git link re-scans)', () => {
     repo.addArtifact(t.id, 'commit', 'y', 'git:bbb222');
     repo.addArtifact(t.id, 'branch', 'T-1-y', 'branch:T-1-y');
     expect(repo.getArtifacts(t.id)).toHaveLength(3);
+  });
+});
+
+describe('commits that straddle two tasks', () => {
+  // `git link` could already see a commit naming two tasks; it just said nothing,
+  // so a bundled commit had to be spotted by hand and split with `reset --soft`.
+  const mentions = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      sha: String(i).repeat(40),
+      subject: 'feat: two things at once',
+      ids: [`T-${i * 2 + 1}`, `T-${i * 2 + 2}`],
+    }));
+
+  it('says nothing when every commit names one task', () => {
+    expect(straddleNote([{ sha: 'a'.repeat(40), subject: 'feat: x [T-1]', ids: ['T-1'] }])).toEqual([]);
+    expect(straddleNote([])).toEqual([]);
+  });
+
+  it('names each straddling commit, and never refuses', () => {
+    const lines = straddleNote(mentions(2));
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toContain('2 commit(s) name more than one task');
+    expect(lines[1]).toContain('0000000'); // short sha
+    expect(lines[1]).toContain('T-1, T-2');
+    expect(lines.join(' ')).not.toMatch(/error|refus|cannot|must/i);
+  });
+
+  it('caps the listing so a long history cannot bury the link summary', () => {
+    const lines = straddleNote(mentions(9));
+    expect(lines).toHaveLength(1 + 5 + 1);
+    expect(lines[lines.length - 1]).toBe('  …and 4 more');
   });
 });

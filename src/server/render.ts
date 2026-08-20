@@ -65,7 +65,10 @@ import {
 //     pre-written command in the finding is phrased conditionally to match. New
 //     `answered-elsewhere` check (open request on a Done/Review task), so the
 //     healthy line now reads "7 checks clean".
-export const FORMAT_VERSION = 19;
+// v20: loose search — when an all-terms query finds nothing, `search` retries
+//     OR-ranked and the result set leads with a `[loose: …]` header naming what
+//     it did; `--json` carries `loose`.
+export const FORMAT_VERSION = 20;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;
@@ -648,11 +651,17 @@ function budget(sections: string[], maxTokens: number, id: string): string {
   );
 }
 
-/** `kanban search` — one line per hit, budgeted (rank order, sheds the tail). */
+/**
+ * `kanban search` — one line per hit, budgeted (rank order, sheds the tail).
+ * A loose result set leads with a header saying so: these came from an OR retry
+ * after nothing matched every term, and reading them as exact matches is the
+ * mistake the header exists to prevent. The header is the first row, so the
+ * budget sheds hits before it.
+ */
 export function renderSearch(
   results: SearchResult[],
   query: string,
-  opts: { full?: boolean; maxTokens?: number } = {},
+  opts: { full?: boolean; maxTokens?: number; loose?: boolean } = {},
 ): string {
   if (!results.length) return `(no matches for "${query}")`;
   const rows = results.map((r) => {
@@ -667,6 +676,10 @@ export function renderSearch(
     const title = r.title ? ` "${r.title}"` : '';
     return `${r.id} ${badge}${title} — ${r.snippet}`;
   });
+  if (opts.loose)
+    rows.unshift(
+      `[loose: nothing matched every term of "${query}" — these match at least one, best first]`,
+    );
   return budgetBlocks(rows, opts, '\n', (n) => `[+${n} hits hidden for token budget — search --full]`);
 }
 

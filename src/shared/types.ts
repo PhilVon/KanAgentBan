@@ -223,6 +223,17 @@ export interface SearchResult {
   status: string | null;
 }
 
+/** A search result set plus how it was obtained. See docs/07 §Search. */
+export interface SearchOutcome {
+  hits: SearchResult[];
+  /**
+   * True when the all-terms query found nothing and these came from an
+   * OR-ranked retry — approximate matches, and every read that shows them says
+   * so rather than passing them off as hits.
+   */
+  loose: boolean;
+}
+
 /** Canonical event types — see docs/02-data-model.md §3 and 07-api-reference.md. */
 export type EventType =
   | 'task.created'

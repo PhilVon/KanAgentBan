@@ -435,7 +435,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'search',
     description:
-      'Board-wide search over tasks (title/description/summary), docs (title/summary/body), and comments. Ranked matches with a snippet, one line each. Use before re-researching or re-deciding something — prior findings and ADRs surface here.',
+      'Board-wide search over tasks (title/description/summary), docs (title/summary/body), and comments. Ranked matches with a snippet, one line each. Use before re-researching or re-deciding something — prior findings and ADRs surface here. Bare terms are AND-ed; if nothing matches all of them the search retries OR-ranked and the result leads with a [loose: …] header — treat those hits as approximate.',
     inputSchema: {
       query: z.string().describe('search terms (FTS5 syntax allowed; falls back to a literal phrase)'),
       type: z.enum(['task', 'doc', 'comment']).optional().describe('restrict to one entity type'),

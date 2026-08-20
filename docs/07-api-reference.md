@@ -168,7 +168,7 @@ lands on the new task with `{name, task_id, children}`.
 
 | Method | Path | CLI | Notes |
 |--------|------|-----|-------|
-| `GET` | `/api/search?q=&type=&limit=&max_tokens=&json=` | `search` | ranked FTS5 hits (bm25) with snippets; `400` without `q`; `?json` → `{results, fts, text, est_tokens}` (`fts:false` = LIKE fallback) |
+| `GET` | `/api/search?q=&type=&limit=&max_tokens=&json=` | `search` | ranked FTS5 hits (bm25) with snippets; `400` without `q`; `?json` → `{results, loose, fts, text, est_tokens}` (`fts:false` = LIKE fallback; `loose:true` = the all-terms query found nothing and these came from an OR retry, and `text` leads with a `[loose: …]` header) |
 
 ## Docs (board-native knowledge — ADR 0007)
 
