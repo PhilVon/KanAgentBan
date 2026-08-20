@@ -240,6 +240,22 @@ Key points the skill carries:
   `next` surfaces it implicitly; `inbox` is the explicit check.
 - **Multiple open questions** are fine. Wait on one (`await Q-7`), any on a task
   (`await --task T-12`), or anything (`await --any`).
+- **An answer given in chat is not an answer.** The skill is emphatic that a
+  question goes *on* the board and was silent about the answer coming back *off*
+  it — which, in a chat-plus-board setup, is most of the time. So when the human
+  replies in conversation rather than on the card, the agent writes it back with
+  `kanban answer <qid> "…"` **before** acting on it. Otherwise the durable record
+  and the thing acted on are two different objects: the request sits open beside
+  finished, merged work, reading as something the human still owes, and the agent
+  reports a clean board that isn't. `doctor`'s `answered-elsewhere` catches the
+  residue; writing it back is what stops it happening.
+- **Measure the numbers in an `ask`, or mark them as estimates.** A request renders
+  every sentence with the same authority, to a reader who cannot see where any of it
+  came from — so an unmeasured figure reads as a fact. The skill says to state the
+  tradeoff and said nothing about provenance, and measuring costs a turn, so the pull
+  is toward the confident estimate. Unmeasured numbers carry *roughly* or *I estimate*
+  in the sentence itself; the human is spending a decision and is entitled to know
+  which parts are load-bearing.
 - **A watch is not a question.** When the agent needs an *event* rather than a
   decision ("tell me when the files land"), it reaches for `kanban expect <id>
   "<event>"`, not `ask`. A watch does not set `needs_input`, so the task is parked

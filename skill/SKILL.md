@@ -22,6 +22,9 @@ UI and answers your questions. Full design: `docs/`. CLI contract:
 > reply.** A chat-only question isn't durable: it doesn't park the task as
 > `needs_input`, never shows up in `kanban inbox`, and is gone the instant the
 > session ends — the human never even sees it waiting.
+>
+> The **return** trip is the same rule: if they answer you in chat rather than on
+> the card, write it back with `kanban answer <qid> "…"` before acting on it.
 
 ## When to use it
 
@@ -249,6 +252,14 @@ not your chat or your reasoning. So make each `ask` count:
   says the thing you failed to imagine. Options are your imagination imposed on their
   answer, and a set of three you invented is a poor reason for someone to have to reach
   for "Other" to tell you something you needed to hear.
+- **Measure the numbers, or say they are estimates.** A figure in an `ask` reads as a
+  fact: the request renders every sentence with the same authority, to somebody who
+  cannot see where any of it came from. If you haven't measured it, write *roughly* or
+  *I estimate* **in the sentence** — the human is spending a decision on it and is
+  entitled to know which parts are load-bearing. Measuring first costs a turn, so the
+  pull is always toward the confident-sounding estimate; a real question once carried
+  "a view of 810" measured at a camera that no longer existed, and "about 70 per cent
+  visible" that measured 47. Neither changed the answer. Both could have.
 
 ```
 kanban ask T-12 "Token store — Redis (fast, +infra to run) or Postgres (simpler, already deployed)?" --options Redis,Postgres
@@ -259,6 +270,16 @@ kanban ask T-12 "Does the tape read right on the page?" --options looks-right,to
 If the `ask` is a **sign-off gate** (work is finished and you need approval before
 proceeding), move the task to `Review` first so the board shows *why* it's parked,
 then `ask`.
+
+> **An answer given in chat is not an answer.** When the human replies in
+> conversation rather than on the card — which, in a chat-plus-board setup, is most
+> of the time — write it back with `kanban answer <qid> "<their choice>"` **before**
+> you act on it. Otherwise the durable record and the thing you acted on are two
+> different objects: the question sits open beside finished, merged work, reading as
+> something they still owe you, and you will report the board clean while it isn't.
+> Doing exactly what they asked is not the same as the board knowing they asked it.
+> (`doctor`'s `answered-elsewhere` catches the residue, but writing it back is what
+> stops it happening.)
 
 Branch on the exit code:
 
