@@ -243,6 +243,12 @@ cues: activity:port, lang:ts  (use these with eb feel/consult — inherited, not
   from a fixed extension table (so `json`/`md` never appear; docs are an
   `activity:`, not a language). They come from `kanban git link`, so a task with
   no linked commits has none.
+- **A salient `done` may hand you a write hint** — `affect: eb feel <label> "<felt
+  sense>" --about <cues>` — when the task carried a kickback or landed in the slow
+  or fast tail of the board`s own pace. The label and the note are **placeholders**:
+  the board gives you the moment and the vocabulary, never the feeling. If nothing
+  was actually felt, write nothing — silence is a correct record, and a padded brain
+  is worse than an empty one. Needs `board affect --writes`, separately from `--on`.
 - `kanban board affect --check` shows the whole picture: which labels emit a cue,
   which don't (commonest first — that count is which mapping is worth making), and
   any broken or stale entries. Read-only; an unmapped label is never a fault.

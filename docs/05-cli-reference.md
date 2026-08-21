@@ -311,6 +311,7 @@ string.
 | `next` with **2+** ready candidates | `affect: eb consult --options "<t1>,<t2>,…"` (capped at 4) |
 | `claim` | `affect: eb consult "picking up T-n: <title>" --about <cues>` |
 | `context` | `cues: activity:port, lang:ts` |
+| `done`, when the completion was **salient** and `--writes` is on | `affect: eb feel <label> "<felt sense>" --about <cues>` |
 
 `--map port=activity:port` is what makes a label a cue: **an unmapped label emits no
 cue at all**, because a board minting vocabulary out of its own bookkeeping labels is
@@ -318,6 +319,29 @@ cue sprawl at the source, and `eb` cue keys can never be renamed or merged. The 
 validated when you set it, so the board can never print a command `eb` would reject
 (`proj:` is refused outright — `eb` derives it from the cwd). A task with **no** labels
 emits no cues, never a guess from its title.
+
+### Write hints (`--writes`)
+
+`kanban board affect --writes` is a **separate opt-in** on top of `--on`: being
+offered a question is not the same as being asked to put something in a store with
+no delete ([ADR 0010](adr/0010-the-board-may-hint-a-write.md)).
+
+It emits at a **salient** `done` only — a task that carried a kickback, or that
+landed in the slow or clean-fast decile of the board`s own completed cycle times.
+An ordinary `done` emits nothing, and so does every bulk `done`. Both tails fire,
+deliberately: a trigger that only fired on kickbacks and slow work would teach the
+brain that work is mostly frustrating — sampling bias baked into the trigger. Below
+five completions the distribution is not trusted and only the kickback fires.
+
+The command is **placeholders, never values**:
+
+```
+affect: eb feel <label> "<felt sense>" --about activity:port,lang:ts
+```
+
+The board supplies the moment and the vocabulary. Naming the label would supply an
+*expected* feeling, which EmotionalBrain lists among the things never to record and
+calls the one failure mode its server cannot detect.
 
 A task`s linked commits also contribute **`lang:` cues** — the languages its
 commits touched, commonest first, capped at three. This is the one thing the board

@@ -254,6 +254,7 @@ program.command('done <id>').description('move a task (or T-1,T-2,…) to Done')
   }
   const t = await api(await conn(), 'POST', `/api/tasks/${id}/move`, { status: 'Done' });
   out(`${t.id} -> Done`);
+  if (t.affect) out(t.affect);
 });
 program.command('archive <id>').description('archive a task (or T-1,T-2,… — one transaction)').action(async (id) => {
   const ids = splitIds(id);
@@ -785,12 +786,14 @@ board
   .option('--off', 'disable hints')
   .option('--map <label=cue>', 'map a board label to an eb cue — an unmapped label emits no cue')
   .option('--unmap <label>', 'drop a label mapping')
+  .option('--writes', 'also hint eb feel at a salient done (separate opt-in — ADR 0010)')
+  .option('--no-writes', 'stop hinting writes')
   .option('--check', 'report the map against the labels actually in use (read-only)')
   .action(async (o) => {
     if (o.check) {
       // Read-only and exclusive: a flag that both reports and edits would make
       // the report a description of state the same command just changed.
-      if (o.on || o.off || o.map || o.unmap)
+      if (o.on || o.off || o.map || o.unmap || o.writes !== undefined)
         throw new CliError('--check is read-only — run it on its own', 1);
       const r = await api(await conn(), 'GET', '/api/board/affect');
       out(r.text);
@@ -809,6 +812,8 @@ board
     cfg.map ??= {};
     if (o.on) cfg.enabled = true;
     if (o.off) cfg.enabled = false;
+    // commander maps --writes/--no-writes onto one tri-state: undefined = leave it.
+    if (o.writes !== undefined) cfg.writes = !!o.writes;
     if (o.unmap) delete cfg.map[o.unmap];
     if (o.map) {
       const at = String(o.map).indexOf('=');
@@ -821,7 +826,7 @@ board
     }
     writeBoardMeta(paths, meta);
     const pairs = Object.entries(cfg.map);
-    out(`affect hints ${cfg.enabled ? 'on' : 'off'}${pairs.length ? `; map: ${pairs.map(([l, c]) => `${l}=${c}`).join(', ')}` : ' — no label map, so no cues are emitted; map one with --map <label>=<cue>'}`);
+    out(`affect hints ${cfg.enabled ? 'on' : 'off'}${cfg.writes ? ' (+writes)' : ''}${pairs.length ? `; map: ${pairs.map(([l, c]) => `${l}=${c}`).join(', ')}` : ' — no label map, so no cues are emitted; map one with --map <label>=<cue>'}`);
   });
 
 // Auto-archive policy config — local board.json edit; the server reads it at

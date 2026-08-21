@@ -120,7 +120,15 @@ import {
 //     canonical, so the board applies a convention rather than inventing a name.
 //     Computed CLI-side at `git link` time and stored (SCHEMA 13 -> 14): the
 //     server still never shells out.
-export const FORMAT_VERSION = 27;
+// v28: write hints — a **salient** `done` emits `affect: eb feel <label> "<felt
+//     sense>" --about <cues>` (ADR 0010). Placeholders, never a label or a note:
+//     naming one would supply an expected feeling, which EmotionalBrain calls the
+//     one corruption its server cannot detect. Salient = a kickback, or the slow or
+//     clean-fast decile of the board`s own completed cycle times — symmetric, so the
+//     trigger cannot bias the store toward only recording work that went badly. An
+//     ordinary `done` and every bulk `done` emit nothing. Needs its own `--writes`
+//     opt-in on top of `--on`.
+export const FORMAT_VERSION = 28;
 
 /** Newest-N agent self-notes shown by default (shed-first under budget). */
 const DEFAULT_COMMENTS = 4;

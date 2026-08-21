@@ -12,6 +12,7 @@
 // WIP counts stay authoritative.
 
 import type { Repo } from './repo';
+import type { DoneFacts } from './affect';
 import type { BoardEvent, InputRequest, Priority, Task, WorkflowStatus } from '../shared/types';
 import { PRIORITIES, WORKFLOW_STATUSES } from '../shared/types';
 import { bucketRange, bucketLabel, paceThresholds, MIN_SPAN_MS, type PaceThresholds } from './pace';
@@ -724,6 +725,47 @@ export function boardStats(repo: Repo, opts: { windowDays?: number } = {}): Boar
  * the three never drift. Falls back to fixed legacy thresholds below the
  * completion floor (see `paceThresholds`).
  */
+/**
+ * The facts ADR 0010`s salience rule needs about one completion, from a single walk
+ * of the event log. It lives here rather than in affect.ts, which must compute
+ * nothing and read nothing — affect.ts is handed these and only decides.
+ *
+ * The completing task is **excluded** from the distribution it is measured against:
+ * an outlier is an outlier relative to the rest of the board, and letting a task
+ * pull its own comparison point is how a tail stops meaning anything.
+ */
+export function doneFacts(repo: Repo, taskId: string, nowMs: number = Date.now()): DoneFacts {
+  const floor = repo.floor();
+  const byTask = new Map<string, BoardEvent[]>();
+  for (const e of repo.changes(0)) {
+    if (!e.task_id) continue;
+    const list = byTask.get(e.task_id);
+    if (list) list.push(e);
+    else byTask.set(e.task_id, [e]);
+  }
+  const others: number[] = [];
+  let mineCycle: number | null = null;
+  for (const t of repo.allTasks()) {
+    const c = computeTask(t, byTask.get(t.id) ?? [], floor, nowMs);
+    if (t.id === taskId) {
+      mineCycle = c.timing.partial_history ? null : c.timing.cycle_ms;
+      continue;
+    }
+    if (!c.timing.partial_history && c.timing.cycle_ms !== null) others.push(c.timing.cycle_ms);
+  }
+  let kickbacks = 0;
+  for (const e of byTask.get(taskId) ?? [])
+    if (e.type === 'task.moved' && e.payload.from === 'Review' && e.payload.to === 'In Progress') kickbacks++;
+  const sorted = others.sort((a, b) => a - b);
+  return {
+    cycleMs: mineCycle,
+    kickbacks,
+    p10: sorted.length ? Math.round(percentile(sorted, 0.1)) : 0,
+    p90: sorted.length ? Math.round(percentile(sorted, 0.9)) : 0,
+    n: sorted.length,
+  };
+}
+
 export function boardPace(repo: Repo, nowMs: number = Date.now()): PaceThresholds {
   const floor = repo.floor();
   const byTask = new Map<string, BoardEvent[]>();
