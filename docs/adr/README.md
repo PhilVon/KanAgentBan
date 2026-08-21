@@ -21,4 +21,4 @@ docs in [`../`](../) (data model, token efficiency, human-in-the-loop, and more)
 | [0007](0007-docs-store-content.md) | Docs and Ideas Store Content; Artifacts Remain References | Accepted |
 | [0008](0008-git-linkage-is-client-side.md) | Git Linkage Is Client-Side; the Server Never Shells Out | Accepted |
 | [0009](0009-affect-hints-are-text-not-linkage.md) | Affect Hints Are Text, Not Linkage | Accepted (amended 2026-08-21) |
-| [0010](0010-the-board-may-hint-a-write.md) | The Board May Hint a Write, and What Makes It Safe | **Proposed** |
+| [0010](0010-the-board-may-hint-a-write.md) | The Board May Hint a Write, and What Makes It Safe | Accepted |
