@@ -232,7 +232,9 @@ export const TOOLS: ToolDef[] = [
         return `${r.count} task(s) -> ${a.status}`;
       }
       const t = await api(c, 'POST', `/api/tasks/${a.id}/move`, { status: a.status });
-      return `${t.id} -> ${t.status}`;
+      // A salient completion may carry a write hint — its own line, never folded
+      // into the result text (ADR 0009/0010).
+      return `${t.id} -> ${t.status}` + (t.affect ? `\n${t.affect}` : '');
     },
   },
   {

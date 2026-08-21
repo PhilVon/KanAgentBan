@@ -364,5 +364,12 @@ export interface BoardMeta {
    * the map emits **no cue** — the board emits less rather than minting
    * vocabulary out of its own bookkeeping labels.
    */
-  affect?: { enabled?: boolean; map?: Record<string, string> };
+  affect?: {
+    enabled?: boolean;
+    map?: Record<string, string>;
+    /** Write hints (`eb feel` at a salient `done`) — a separate opt-in from
+     *  `enabled`, because being offered a question is not the same as being asked
+     *  to put something in a store with no delete (ADR 0010). */
+    writes?: boolean;
+  };
 }

@@ -41,9 +41,16 @@ export interface AffectConfig {
   enabled: boolean;
   /** label -> cue. A label absent from the map emits **no cue** — see `cuesFor`. */
   map: Record<string, string>;
+  /**
+   * Write hints (`eb feel`) — a **separate** opt-in from `enabled`, per ADR 0010.
+   * A read hint offers a question the agent may ignore; a write hint asks it to put
+   * something in a store that has no delete. Turning on consult hints is not
+   * consent to be prompted to write.
+   */
+  writes?: boolean;
 }
 
-export const AFFECT_OFF: AffectConfig = { enabled: false, map: {} };
+export const AFFECT_OFF: AffectConfig = { enabled: false, map: {}, writes: false };
 
 /**
  * Validate a configured cue. Returns null when fine, else the reason — the
@@ -196,6 +203,66 @@ export const MAX_TASK_LANGS = 3;
  */
 export function langCues(usage: { lang: string; commits: number }[], cap = MAX_TASK_LANGS): string[] {
   return usage.slice(0, cap).map((u) => `lang:${u.lang}`).filter((c) => !cueError(c));
+}
+
+/**
+ * Why a completion was worth a feeling. Each maps to a row in EmotionalBrain`s
+ * recordable-moment table (08 §3) that the board can actually see.
+ */
+export type DoneSalience = 'kickback' | 'slow' | 'clean';
+
+/** The facts a salience judgement needs. Supplied by stats.ts — this module
+ *  computes nothing and reads nothing. */
+export interface DoneFacts {
+  /** First In Progress -> Done, or null when the task never went In Progress. */
+  cycleMs: number | null;
+  /** Review -> In Progress moves. One is a wall hit; two is the archetype. */
+  kickbacks: number;
+  /** The board`s own completed-cycle distribution, and how many it rests on. */
+  p10: number;
+  p90: number;
+  n: number;
+}
+
+/** Completions the distribution must rest on before its tails mean anything.
+ *  Mirrors pace.ts`s MIN_COMPLETIONS: below it, only the kickback trigger fires. */
+export const MIN_SALIENCE_COMPLETIONS = 5;
+
+/**
+ * Was this completion an outlier worth recording? `null` = an ordinary done, which
+ * is most of them and must stay silent (ADR 0010 rule 2: salience, not frequency —
+ * a prompted agent writes *something*, so firing on every done would manufacture
+ * exactly the padding EmotionalBrain says is worse than an empty store).
+ *
+ * **Symmetric on purpose.** A trigger that only fired on kickbacks and slow work
+ * would teach the brain that work is mostly frustrating — a sampling bias baked
+ * into the trigger rather than earned from experience. The clean-fast tail carries
+ * EmotionalBrain`s own "worked first try, or fell out cleanly" row, and it is what
+ * keeps the record honest in both directions.
+ *
+ * Both tails are deciles, so each is rare by construction rather than by a
+ * threshold somebody picked.
+ */
+export function doneSalience(f: DoneFacts): DoneSalience | null {
+  if (f.kickbacks > 0) return 'kickback';
+  // Below the floor the distribution is noise, and a tail of noise is not an
+  // outlier. The kickback trigger above needs no distribution, so it still fires.
+  if (f.cycleMs === null || f.n < MIN_SALIENCE_COMPLETIONS) return null;
+  if (f.p90 > 0 && f.cycleMs >= f.p90) return 'slow';
+  if (f.p10 > 0 && f.cycleMs <= f.p10) return 'clean';
+  return null;
+}
+
+/**
+ * The write hint. Placeholders, never values — ADR 0010 rule 1, which is the rule
+ * the whole feature stands on: EmotionalBrain lists "what you expect to feel" among
+ * the things never to record, and calls it *the one failure mode the server cannot
+ * detect*. A board that named the label would manufacture precisely that, every
+ * time it fired, where the store has no defence of its own.
+ */
+export function feelCommand(cues: string[]): string {
+  const head = `eb feel <label> "<felt sense>"`;
+  return cues.length ? `${head} --about ${cues.join(',')}` : head;
 }
 
 /** Strip what would break the command's own quoting, and keep it short. */

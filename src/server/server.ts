@@ -26,12 +26,14 @@ import {
 import { recommend } from './recommend';
 import { runDoctor } from './doctor';
 import { standup } from './standup';
-import { boardStats, taskTiming } from './stats';
+import { boardStats, doneFacts, taskTiming } from './stats';
 import { childProgress, countCriteria, deriveState } from './derive';
 import {
   affectLine,
   consultAboutCommand,
   checkAffect,
+  doneSalience,
+  feelCommand,
   langCues,
   cuesForLabels,
   AFFECT_OFF,
@@ -122,7 +124,24 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
   // surprising cost for a preference nudge. Off unless explicitly enabled.
   const affect = (): AffectConfig => {
     const m = readBoardMeta(ensureBoard(root)).affect;
-    return m?.enabled ? { enabled: true, map: m.map ?? {} } : AFFECT_OFF;
+    return m?.enabled ? { enabled: true, map: m.map ?? {}, writes: !!m.writes } : AFFECT_OFF;
+  };
+
+  /**
+   * The write hint for a completion, or null (ADR 0010).
+   *
+   * Three gates, and an ordinary done fails the third: hints on, writes
+   * separately on, and the completion actually salient. Silence is the common
+   * case by design — a prompted agent writes *something*, so firing on every done
+   * would manufacture the padding EmotionalBrain calls worse than an empty store.
+   */
+  const doneHint = (taskId: string, status: string): string | null => {
+    const cfg = affect();
+    if (!cfg.enabled || !cfg.writes || status !== 'Done') return null;
+    if (!doneSalience(doneFacts(repo, taskId))) return null;
+    const cues = [...cuesForLabels(repo.getLabels(taskId), cfg.map)];
+    for (const c of langCues(repo.langUsage(taskId))) if (!cues.includes(c)) cues.push(c);
+    return affectLine(feelCommand(cues));
   };
   /** The hint for a prospective action, or null when hints are off. Cues come
    *  from the mapped labels plus the languages of the task`s linked commits. */
@@ -584,7 +603,12 @@ export function buildApp(repo: Repo, token: string, root: string): express.Expre
       );
     }),
   );
-  app.post('/api/tasks/:id/move', wrap((req, res) => res.json(repo.moveTask(req.params.id, req.body.status, actor(req)))));
+  app.post('/api/tasks/:id/move', wrap((req, res) => {
+    const t = repo.moveTask(req.params.id, req.body.status, actor(req));
+    // The hint rides as its own field, never folded into the task — ADR 0009.
+    const affectHint = doneHint(t.id, t.status);
+    return res.json(affectHint ? { ...t, affect: affectHint } : t);
+  }));
   // Review gate: {verdict: approve|reject, reason?} — reject requires a reason.
   app.post('/api/tasks/:id/review', wrap((req, res) =>
     res.json(

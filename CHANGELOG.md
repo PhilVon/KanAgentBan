@@ -10,6 +10,19 @@ Unreleased section describing its change.
 ## [Unreleased]
 
 ### Added
+- **Write hints at a salient `done` (`board affect --writes`).** The board now emits
+  `affect: eb feel <label> "<felt sense>" --about <cues>` when a completion was an
+  outlier — a kickback, or the slow or clean-fast decile of the board`s own completed
+  cycle times. **Placeholders, never a label or a note:** naming one would supply an
+  *expected* feeling, which EmotionalBrain lists among the things never to record and
+  calls the one failure mode its server cannot detect. **Both tails fire on purpose** —
+  a trigger that only fired on kickbacks and slow work would teach the brain that work
+  is mostly frustrating, which is sampling bias baked into the trigger rather than
+  earned. An ordinary `done` and every bulk `done` emit nothing; below five completions
+  the distribution is not trusted and only the kickback fires. Needs its own `--writes`
+  opt-in on top of `--on`, because being offered a question is not the same as being
+  asked to write to a store with no delete. ADR 0010. FORMAT_VERSION 27→28
+  (T-113, 2026-08-21)
 - **`lang:` cues derived from a task`s linked commits.** The languages a task`s
   commits touched join its `cues:` line (commonest first, capped at three), and
   `board affect --check` lists them under `derived from linked commits`. The board is

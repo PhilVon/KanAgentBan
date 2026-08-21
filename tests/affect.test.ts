@@ -14,6 +14,8 @@ import {
   cueError,
   checkAffect,
   cuesFor,
+  doneSalience,
+  feelCommand,
   langCues,
   cuesForLabels,
   MAX_CONSULT_OPTIONS,
@@ -395,6 +397,44 @@ describe('over REST, with the board configured', () => {
     expect(on.text).toContain('1 of 2 labels mapped');
   });
 
+  it('a done hint needs --writes as well as --on, and only on a salient done', async () => {
+    h = await startTestServer();
+    const c = client(h);
+    const mk = async (title: string) =>
+      (await c('POST', '/api/tasks', { title, labels: ['port'] })).body;
+    const move = async (id: string, status: string) => (await c('POST', `/api/tasks/${id}/move`, { status })).body;
+
+    const t = await mk(`kicked back`);
+    await move(t.id, 'In Progress');
+    await move(t.id, 'Review');
+    await move(t.id, 'In Progress'); // the kickback — salient by itself
+
+    // hints on, writes off: nothing, however salient.
+    enable({ port: 'activity:port' });
+    expect((await move(t.id, 'Done')).affect).toBeUndefined();
+
+    // writes on: the hint appears, as placeholders seeded with the task cues.
+    const p = boardPaths(h.root);
+    writeBoardMeta(p, { ...readBoardMeta(p), affect: { enabled: true, map: { port: 'activity:port' }, writes: true } });
+    await move(t.id, 'In Progress');
+    const done = await move(t.id, 'Done');
+    expect(done.affect).toBe('affect: eb feel <label> "<felt sense>" --about activity:port');
+
+    // An ordinary task stays silent. On a board this small that is the completions
+    // floor doing the work rather than the tails — which is the same guarantee from
+    // the other direction, and the tails themselves are unit-tested above.
+    const plain = await mk(`ordinary`);
+    await move(plain.id, 'In Progress');
+    expect((await move(plain.id, 'Done')).affect).toBeUndefined();
+
+    // A bulk done never hints: one prompt per task in a sweep is the padding
+    // rule 2 exists to prevent.
+    const a = await mk(`bulk a`);
+    const b = await mk(`bulk b`);
+    const bulk = (await c('POST', '/api/tasks/bulk', { op: 'move', ids: [a.id, b.id], status: 'Done' })).body;
+    expect(JSON.stringify(bulk)).not.toContain(`affect`);
+  });
+
   it('ask never emits a hint — framing the options WAS the decision', async () => {
     h = await startTestServer();
     const c = client(h);
@@ -432,6 +472,42 @@ describe.skipIf(!hasEb)('eb accepts the emitted command verbatim', () => {
     const cmd = consultAboutCommand('picking up T-1: port the exporter', ['activity:port', 'collab:human']);
     expect(() => run(cmd)).not.toThrow();
     expect(run(cmd)).not.toMatch(/unknown|rejected/i);
+  });
+});
+
+describe('write hints at a salient done (ADR 0010)', () => {
+  const facts = (over = {}) => ({ cycleMs: 1000, kickbacks: 0, p10: 500, p90: 5000, n: 20, ...over });
+
+  it('an ordinary done is not salient — silence is the common case', () => {
+    expect(doneSalience(facts())).toBeNull();
+  });
+
+  it('fires on both tails, so the trigger cannot bias the store negative', () => {
+    // A rule that only fired on kickbacks and slow work would teach the brain that
+    // work is mostly frustrating — sampling bias baked into the trigger.
+    expect(doneSalience(facts({ cycleMs: 9000 }))).toBe('slow');
+    expect(doneSalience(facts({ cycleMs: 400 }))).toBe('clean');
+    expect(doneSalience(facts({ kickbacks: 1 }))).toBe('kickback');
+  });
+
+  it('below the completions floor only the kickback trigger fires', () => {
+    // The tails of a 3-sample distribution are noise, and a tail of noise is not
+    // an outlier. A kickback needs no distribution, so it still counts.
+    expect(doneSalience(facts({ cycleMs: 9000, n: 3 }))).toBeNull();
+    expect(doneSalience(facts({ cycleMs: 9000, n: 3, kickbacks: 2 }))).toBe('kickback');
+  });
+
+  it('a task that never went In Progress has no cycle to be an outlier on', () => {
+    expect(doneSalience(facts({ cycleMs: null }))).toBeNull();
+  });
+
+  it('the command is placeholders, never a label or a note', () => {
+    // ADR 0010 rule 1: naming the label would supply an expected feeling, which is
+    // the one corruption eb's server cannot detect.
+    expect(feelCommand(['activity:port', 'lang:ts'])).toBe(
+      'eb feel <label> "<felt sense>" --about activity:port,lang:ts',
+    );
+    expect(feelCommand([])).toBe('eb feel <label> "<felt sense>"');
   });
 });
 
