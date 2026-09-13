@@ -1963,6 +1963,15 @@ export class Repo {
     // a decision but never blocks. Reject rather than ignore.
     if (kind === 'watch' && (opts.options || opts.freeform))
       throw new ValidationError('a watch has nothing to choose: drop --options/--freeform, or use ask');
+    // One option with whitespace in it is several options passed space-separated,
+    // not a choice: stored as-is it renders as a single button naming all of them,
+    // and without --freeform the only valid answer is that whole string. It has
+    // reached a human three times, once unanswerable. A closed set of one is
+    // otherwise legitimate, so only the whitespace case is refused.
+    if (opts.options?.length === 1 && /\s/.test(opts.options[0]))
+      throw new ValidationError(
+        `--options is one option containing whitespace ("${opts.options[0]}"): separate options with commas, or repeat --options`,
+      );
     // A default only ever applies at expiry — without a deadline it would be
     // unreachable dead state, so require the pairing up front.
     if (opts.defaultAnswer !== undefined && !opts.expiresAt)
