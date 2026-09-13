@@ -305,7 +305,13 @@ not your chat or your reasoning. So make each `ask` count:
   raise separate `Q-n`s so each can be answered independently.
 - **Shape the answer.** `--options a,b,c` for a closed, mutually-exclusive set (keep
   each option short and distinct); `--freeform` for an open answer (a value, a path,
-  prose) when the set isn't enumerable.
+  prose) when the set isn't enumerable. Options are **comma**-separated: `--options
+  "a b c"` is one option, and the board refuses it.
+- **Put a long question in a file.** `kanban ask T-12 --file q.txt` (and `--file` on
+  `comment`, `checkpoint`, `expect`, `criterion add`; `--description-file` on
+  `add`/`update`). From Windows PowerShell 5.1 an embedded double quote ends a native
+  argument early; the CLI now refuses the stray pieces rather than storing the text cut
+  short, but a file never passes through shell quoting at all.
 - **They are companions, not alternatives.** Pass **both** whenever your options are
   your best guesses rather than an exhaustive set: the human picks one of yours, or
   says the thing you failed to imagine. Options are your imagination imposed on their

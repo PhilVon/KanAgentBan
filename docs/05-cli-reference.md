@@ -41,6 +41,16 @@ Related: [03-token-efficiency](03-token-efficiency.md) ·
   `agent`. To run several agents on one board, give each a **distinct**
   `KANBAN_AGENT` — two agents on the default `agent` collide and won't isolate.
   Identity is cooperative, not authenticated ([09 §9](09-concurrency.md)).
+- **Stray positional arguments are an error**, on every command (exit `1`,
+  `too many arguments`). That is what a shell leaves when it splits one argument
+  in two — Windows PowerShell 5.1 does, at an embedded double quote — and the
+  alternative was storing the text cut short and reporting success.
+- **Long free text can come from a file.** `ask`, `expect`, `comment`,
+  `checkpoint` and `criterion add` take `--file <path>` in place of their text
+  argument, and `add`/`update` take `--description-file <path>` (as `doc add`
+  takes `--body-file`). A file never passes through shell quoting. A leading
+  byte-order mark and one trailing newline are dropped; giving both the text and
+  the file is refused.
 
 ### Exit codes (semantic — the skill branches on these)
 
@@ -148,14 +158,14 @@ stays never-silent about the compaction floor. See [13-analytics](13-analytics.m
 
 ## Write & workflow commands
 
-### `kanban add "<title>" [--desc|--description T] [--summary T] [--status S] [--prio P0..P3] [--parent T-1] [--label L,...] [--depends T-3,T-4] [--ac "text" ...]`
+### `kanban add "<title>" [--desc|--description T | --description-file PATH] [--summary T] [--status S] [--prio P0..P3] [--parent T-1] [--label L,...] [--depends T-3,T-4] [--ac "text" ...]`
 Creates a task; prints the new `T-n`. `--depends` adds `blocks` edges;
 `--ac` adds acceptance criteria. `--parent` nests it as a subtask under an
 existing task (§subtasks). `--label` and `--depends` are repeatable and each
 occurrence may be comma-separated (`--label a,b --label c` -> a, b, c).
 `--description` is an alias of `--desc`.
 
-### `kanban update <id> [--title T] [--desc|--description T] [--summary T] [--prio P] [--expect-version N]`
+### `kanban update <id> [--title T] [--desc|--description T | --description-file PATH] [--summary T] [--prio P] [--expect-version N]`
 Edits fields. `--expect-version` enables optimistic concurrency; a stale version
 exits `4`. `--description` is an alias of `--desc` — the description is the field
 worth rewriting once a symptom's cause is known, and the long spelling is the one
@@ -178,7 +188,7 @@ finish; archiving a parent with live children is refused. `show`/`context` and t
 UI surface children with a `subtasks d/t` count, and child cards carry a
 `⤷T-parent` badge ([02-data-model §6](02-data-model.md)).
 
-### `kanban comment <id> "<body>"`
+### `kanban comment <id> "<body>" | --file PATH`
 Adds an `agent` comment — your progress note. **Users comment from the UI**, and
 those `user` comments are an inbound channel: read them as directives. The agent
 surfaces user comments distinctly and protects them from token-budget shedding —
@@ -186,7 +196,7 @@ surfaces user comments distinctly and protects them from token-budget shedding �
 labelled **"user comments — the human is talking to you"** block (agent notes shed
 first), and `list` marks the task `💬n*`.
 
-### `kanban criterion add <id> "<text>" [--human]` / `check <AC-id> [--off]` / `retire <AC-id> --because "<why>" [--successor T-n]` / `amend <AC-id> "<text>"`
+### `kanban criterion add <id> "<text>" | --file PATH [--human]` / `check <AC-id> [--off]` / `retire <AC-id> --because "<why>" [--successor T-n]` / `amend <AC-id> "<text>"`
 Manage acceptance criteria; `check --off` unchecks.
 
 A criterion used to have exactly **two** states, so one that turned out to be wrong
@@ -282,7 +292,7 @@ Thresholds are deliberately not flags: the claim/question ones are fixed (they
 measure human latency), and the aging one derives from the board's own completion
 pace.
 
-### `kanban checkpoint <id> ["did X, next Y, watch Z"] [--clear]`
+### `kanban checkpoint <id> ["did X, next Y, watch Z" | --file PATH] [--clear]`
 The **one-slot resume pointer** for cross-session continuity: set it whenever you
 pause or yield a task; the next session (any agent) reads it *first* — it renders
 directly under the task head in `show`/`context`, is flagged on `next`'s
@@ -614,10 +624,14 @@ $ kanban brainstorm close B-2
 
 ## Human-in-the-loop commands
 
-### `kanban ask <id> "<question>" [--options a,b,c] [--freeform] [--expires-at ISO] [--default X]`
+### `kanban ask <id> "<question>" | --file PATH [--options a,b,c] [--freeform] [--expires-at ISO] [--default X]`
 Creates a durable input request, moves the task to needs-input, broadcasts to the
 UI, and **returns `Q-n` immediately (non-blocking)**. `--options` is repeatable
-and each occurrence may be comma-separated.
+and each occurrence may be comma-separated. An options list that is **one option
+containing whitespace** is refused (exit `1`): it is what `--options "a b c"`
+produces, and stored it would render as a single button naming all three, with the
+whole string the only valid answer. A long question belongs in `--file`, which never
+passes through shell quoting.
 
 `--default X` (requires `--expires-at`; must be one of `--options` for closed
 sets) auto-answers the request with `X` at expiry instead of dead-ending it as
@@ -631,7 +645,7 @@ $ kanban ask T-12 "Which auth provider?" --options Auth0,Cognito
 Q-7  created on T-12 (task now needs input)
 ```
 
-### `kanban expect <id> "<event>" [--expires-at ISO]`
+### `kanban expect <id> "<event>" | --file PATH [--expires-at ISO]`
 Raises a **watch** — an event to wait for, not a decision to make. Same
 `input_request` row as an `ask`, with `kind = 'watch'`, and the difference is the
 whole point: **it does not set `needs_input`**, so the task is *parked* rather

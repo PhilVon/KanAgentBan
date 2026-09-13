@@ -2,7 +2,7 @@
 import * as fs from 'node:fs';
 import { Command } from 'commander';
 import { api, CliError, connect, initBoard } from './board';
-import { collectList } from './args';
+import { collectList, optionalText, textArg } from './args';
 import { normalizeShell, renderCompletion, specFromCommand } from './completion';
 import { followChanges, followTask, type FollowHandle } from './follow';
 import { renderInbox } from './format';
@@ -11,6 +11,12 @@ import { cueError } from '../server/affect';
 import type { NudgeConfig } from '../shared/types';
 
 const program = new Command();
+// Before any subcommand is defined: commander copies this setting into each one
+// as it is created. A stray positional argument is what a shell leaves behind when
+// it splits one argument in two - Windows PowerShell 5.1 does, at an embedded
+// double quote - and commander 12 silently dropped it, so the command stored the
+// text cut short and reported success. Now it is an error.
+program.allowExcessArguments(false);
 program
   .name('kanban')
   .description('Agent-first kanban board CLI (see docs/05-cli-reference.md)')
@@ -198,6 +204,7 @@ program
 program
   .command('add <title>')
   .option('--desc, --description <t>', 'task description')
+  .option('--description-file <path>', 'read the description from a file (no shell quoting)')
   .option('--summary <t>')
   .option('--status <s>')
   .option('--prio <p>')
@@ -208,7 +215,7 @@ program
   .action(async (title, o) => {
     const t = await api(await conn(), 'POST', '/api/tasks', {
       title,
-      description: o.description,
+      description: optionalText(o.description, o.descriptionFile, 'description'),
       summary: o.summary,
       status: o.status,
       priority: o.prio,
@@ -224,12 +231,14 @@ program
   .command('update <id>')
   .option('--title <t>')
   .option('--desc, --description <t>', 'task description')
+  .option('--description-file <path>', 'read the description from a file (no shell quoting)')
   .option('--summary <t>')
   .option('--prio <p>')
   .option('--expect-version <n>')
   .action(async (id, o) => {
     const headers: Record<string, string> = o.expectVersion ? { 'if-match': String(o.expectVersion) } : {};
-    const t = await api(await conn(), 'PATCH', `/api/tasks/${id}`, clean({ title: o.title, description: o.description, summary: o.summary, priority: o.prio }), headers);
+    const description = optionalText(o.description, o.descriptionFile, 'description');
+    const t = await api(await conn(), 'PATCH', `/api/tasks/${id}`, clean({ title: o.title, description, summary: o.summary, priority: o.prio }), headers);
     out(`${t.id}  updated (v${t.version})`);
   });
 
@@ -320,14 +329,21 @@ program.command('parent <id>')
     }
   });
 
-program.command('comment <id> <body>').action(async (id, body) => { const c = await api(await conn(), 'POST', `/api/tasks/${id}/comments`, { body }); out(`${c.id} added`); });
+program
+  .command('comment <id> [body]')
+  .option('--file <path>', 'read the body from a file (no shell quoting)')
+  .action(async (id, body, o) => {
+    const c = await api(await conn(), 'POST', `/api/tasks/${id}/comments`, { body: textArg(body, o.file, 'body') });
+    out(`${c.id} added`);
+  });
 
 const crit = program.command('criterion');
 crit
-  .command('add <id> <text>')
+  .command('add <id> [text]')
   .option('--human', 'only the human can settle this one (a playtest, "does it read right?") — stays in the count, but doctor stops reading it as work the agent is failing to finish')
+  .option('--file <path>', 'read the criterion text from a file (no shell quoting)')
   .action(async (id, text, o) => {
-    const r = await api(await conn(), 'POST', `/api/tasks/${id}/criteria`, { text, human: !!o.human });
+    const r = await api(await conn(), 'POST', `/api/tasks/${id}/criteria`, { text: textArg(text, o.file, 'text'), human: !!o.human });
     out(`${r.id} added${o.human ? ' (for the human)' : ''}`);
   });
 crit.command('check <acid>').option('--off').action(async (acid, o) => { await api(await conn(), 'PATCH', `/api/criteria/${acid}`, { checked: !o.off }); out(`${acid} ${o.off ? 'unchecked' : 'checked'}`); });
@@ -369,7 +385,9 @@ program
   .command('checkpoint <id> [text]')
   .description('set the one-slot resume pointer ("did X, next Y, watch Z") — latest wins')
   .option('--clear', 'remove the checkpoint')
+  .option('--file <path>', 'read the checkpoint text from a file (no shell quoting)')
   .action(async (id, text, o) => {
+    if (o.file !== undefined) text = textArg(text, o.file, 'text');
     const c = await conn();
     if (o.clear) {
       await api(c, 'POST', `/api/tasks/${id}/checkpoint`, { clear: true });
@@ -716,10 +734,11 @@ git
   });
 
 // ---- human-in-the-loop ---------------------------------------------------
-program.command('ask <id> <question>').option('--options <o>', 'answer option (repeatable or comma-separated)', collectList).option('--freeform').option('--expires-at <iso>')
+program.command('ask <id> [question]').option('--options <o>', 'answer option (repeatable or comma-separated)', collectList).option('--freeform').option('--expires-at <iso>')
   .option('--default <answer>', 'auto-answer applied at expiry (requires --expires-at; flagged "defaulted")')
+  .option('--file <path>', 'read the question from a file (no shell quoting)')
   .action(async (id, question, o) => {
-    const r = await api(await conn(), 'POST', `/api/tasks/${id}/input-requests`, { question, options: o.options, freeform: !!o.freeform, expires_at: o.expiresAt, default: o.default });
+    const r = await api(await conn(), 'POST', `/api/tasks/${id}/input-requests`, { question: textArg(question, o.file, 'question'), options: o.options, freeform: !!o.freeform, expires_at: o.expiresAt, default: o.default });
     out(`${r.id}  created on ${id} (task now needs input)${r.default_answer ? `  [defaults to "${r.default_answer}" at expiry]` : ''}`);
   });
 
@@ -727,12 +746,13 @@ program.command('ask <id> <question>').option('--options <o>', 'answer option (r
 // is the one for an event to wait for. Named `expect` because `watch` is taken by
 // the event-delta read.
 program
-  .command('expect <id> <event>')
+  .command('expect <id> [event]')
   .description('watch for an event on a task ("tell me when X happens") — does NOT block the task')
   .option('--expires-at <iso>', 'drop the watch automatically at this time')
+  .option('--file <path>', 'read the event from a file (no shell quoting)')
   .action(async (id, event, o) => {
     const r = await api(await conn(), 'POST', `/api/tasks/${id}/input-requests`, {
-      question: event,
+      question: textArg(event, o.file, 'event'),
       kind: 'watch',
       expires_at: o.expiresAt,
     });

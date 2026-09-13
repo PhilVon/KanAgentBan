@@ -326,6 +326,22 @@ Unreleased section describing its change.
   it — the finding prints the (pace-based) threshold it used (T-87, 2026-07-10)
 
 ### Fixed
+- **Long free text no longer arrives cut short and reported as success.** From Windows
+  PowerShell 5.1 an embedded double quote ends a native argument early: node receives
+  the text up to the quote plus the rest as stray positionals, and commander 12
+  silently dropped the strays. Measured on a board that hit it five times in two days —
+  a question stored at 763 characters (a double quote at exactly that offset) and a
+  task description at 179 of 1754. Three fixes: **stray positional arguments are now
+  an error on every command** (`too many arguments`, exit 1), reproduced live from
+  PowerShell 5.1 against the built CLI; **`--file <path>`** on `ask`, `expect`,
+  `comment`, `checkpoint` and `criterion add`, and **`--description-file`** on
+  `add`/`update`, so long text never passes through shell quoting (a leading BOM and
+  one trailing newline are dropped, since `Out-File` writes both); and **`ask`
+  refuses an options list that is one option containing whitespace**, which is what
+  `--options "a b c"` produces — stored, it rendered one button naming all three and,
+  without `--freeform`, left that whole string the only valid answer. Behaviour
+  change: `kanban search foo bar` with unquoted terms is now refused rather than
+  searching for `foo` alone (T-114, 2026-09-13)
 - **The windows-latest `ui.test.ts` drawer-edit flake, actually fixed.** Root cause,
   reproduced rather than assumed: every test in that file calls `loadApp()`, which
   starts a *new* `app.js` instance in the one shared jsdom global, and nothing stops
